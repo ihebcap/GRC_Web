@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.9.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GRC.Infrastructure\GRC.Infrastructure.csproj" />
+    <ProjectReference Include="..\GRC.Application\GRC.Application.csproj" />
+    <ProjectReference Include="..\GRC.Domain\GRC.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Tresorerie.Core">
+      <HintPath>..\libs\Tresorerie\Tresorerie.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Tresorerie.ApplicationServices">
+      <HintPath>..\libs\Tresorerie\Tresorerie.ApplicationServices.dll</HintPath>
+    </Reference>
+    <Reference Include="Tresorerie.Dapper">
+      <HintPath>..\libs\Tresorerie\Tresorerie.Dapper.dll</HintPath>
+    </Reference>
+    <Reference Include="Tresorerie.Infrastructure">
+      <HintPath>..\libs\Tresorerie\Tresorerie.Infrastructure.dll</HintPath>
+    </Reference>
+    <Reference Include="Ninject">
+      <HintPath>..\libs\Ninject.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

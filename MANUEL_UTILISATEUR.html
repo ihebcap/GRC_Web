@@ -1,0 +1,554 @@
+<title>Manuel utilisateur — GRC</title>
+<style>
+  :root {
+    --paper: #f6f8f9;
+    --surface: #ffffff;
+    --surface-2: #eef2f4;
+    --ink: #1b2733;
+    --ink-soft: #3c4a55;
+    --muted: #5b6b74;
+    --line: #d9e0e4;
+    --accent: #0f766e;
+    --accent-soft: #d6ebe7;
+    --good: #15803d;
+    --good-soft: #dcefe1;
+    --warn: #b45309;
+    --warn-soft: #f6e7d2;
+    --crit: #b91c1c;
+    --crit-soft: #f6dcda;
+    --shadow: 0 1px 2px rgba(27,39,51,.05), 0 8px 24px -12px rgba(27,39,51,.18);
+    --maxw: 46rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0e1519;
+      --surface: #141d23;
+      --surface-2: #1b262d;
+      --ink: #e6edf1;
+      --ink-soft: #c3cfd6;
+      --muted: #8d9ca5;
+      --line: #26343d;
+      --accent: #5ed0c2;
+      --accent-soft: #123c39;
+      --good: #6ee7a0;
+      --good-soft: #0f2f1e;
+      --warn: #f0b46b;
+      --warn-soft: #33230f;
+      --crit: #f19b95;
+      --crit-soft: #331715;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f8f9; --surface: #ffffff; --surface-2: #eef2f4;
+    --ink: #1b2733; --ink-soft: #3c4a55; --muted: #5b6b74; --line: #d9e0e4;
+    --accent: #0f766e; --accent-soft: #d6ebe7;
+    --good: #15803d; --good-soft: #dcefe1; --warn: #b45309; --warn-soft: #f6e7d2;
+    --crit: #b91c1c; --crit-soft: #f6dcda;
+    --shadow: 0 1px 2px rgba(27,39,51,.05), 0 8px 24px -12px rgba(27,39,51,.18);
+  }
+  :root[data-theme="dark"] {
+    --paper: #0e1519; --surface: #141d23; --surface-2: #1b262d;
+    --ink: #e6edf1; --ink-soft: #c3cfd6; --muted: #8d9ca5; --line: #26343d;
+    --accent: #5ed0c2; --accent-soft: #123c39;
+    --good: #6ee7a0; --good-soft: #0f2f1e; --warn: #f0b46b; --warn-soft: #33230f;
+    --crit: #f19b95; --crit-soft: #331715;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 1.4rem; }
+
+  /* ---- Masthead ---- */
+  .masthead {
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(120% 140% at 100% 0%, var(--accent-soft) 0%, transparent 55%),
+      var(--surface);
+  }
+  .masthead .wrap { padding-top: 3.4rem; padding-bottom: 2.6rem; }
+  .eyebrow {
+    font-size: .74rem; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 .9rem;
+  }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 600; font-size: clamp(2.1rem, 6vw, 3.1rem);
+    line-height: 1.08; letter-spacing: -.01em; text-wrap: balance;
+    margin: 0 0 .8rem;
+  }
+  .lede { font-size: 1.12rem; color: var(--ink-soft); max-width: 34rem; margin: 0; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; margin-top: 1.8rem;
+    font-size: .82rem; color: var(--muted);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---- Table of contents ---- */
+  nav.toc {
+    margin: 2.4rem 0 0; padding: 1.3rem 1.4rem;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    font-family: system-ui, sans-serif; font-size: .72rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 .8rem; font-weight: 700;
+  }
+  nav.toc ol { margin: 0; padding: 0; list-style: none; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; border-top: 1px solid var(--line); }
+  nav.toc li:first-child { border-top: 0; }
+  nav.toc a {
+    display: flex; align-items: baseline; gap: .8rem; padding: .55rem 0;
+    text-decoration: none; color: var(--ink); font-size: .98rem;
+  }
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: .78rem; color: var(--accent); font-weight: 600; min-width: 1.6rem;
+  }
+  nav.toc a:hover { color: var(--accent); }
+
+  /* ---- Sections ---- */
+  main { padding: 1rem 0 4rem; }
+  section { padding-top: 3.2rem; scroll-margin-top: 1.5rem; }
+  .sec-head { display: flex; align-items: baseline; gap: .9rem; margin-bottom: .3rem; }
+  .sec-num {
+    font-family: ui-monospace, Menlo, monospace; font-size: .8rem; font-weight: 600;
+    color: var(--accent); padding-top: .35rem;
+  }
+  h2.sec-title {
+    font-family: Georgia, serif; font-weight: 600; font-size: 1.62rem;
+    letter-spacing: -.01em; margin: 0; text-wrap: balance;
+  }
+  h3 {
+    font-family: system-ui, sans-serif; font-size: 1.06rem; font-weight: 700;
+    margin: 2rem 0 .4rem; color: var(--ink);
+  }
+  p { margin: .7rem 0; }
+  .sec-body { margin-left: calc(.8rem + 1.6rem); }
+  @media (max-width: 560px) { .sec-body { margin-left: 0; } }
+
+  ul.clean { margin: .6rem 0; padding-left: 1.15rem; }
+  ul.clean li { margin: .35rem 0; }
+  ul.clean li::marker { color: var(--accent); }
+
+  ol.steps { margin: 1rem 0; padding: 0; list-style: none; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step; position: relative; padding: .1rem 0 1rem 2.6rem; margin: 0;
+  }
+  ol.steps li::before {
+    content: counter(step); position: absolute; left: 0; top: -.05rem;
+    width: 1.7rem; height: 1.7rem; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: .85rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps li::after {
+    content: ""; position: absolute; left: .82rem; top: 1.75rem; bottom: 0; width: 1px;
+    background: var(--line);
+  }
+  ol.steps li:last-child::after { display: none; }
+  ol.steps li b { color: var(--ink); }
+
+  kbd, .path {
+    font-family: ui-monospace, Menlo, monospace; font-size: .84em;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 5px; padding: .08em .42em; color: var(--ink-soft);
+    white-space: nowrap;
+  }
+
+  /* ---- Benefit callout ---- */
+  .benefit {
+    margin: 1.3rem 0; padding: 1rem 1.15rem 1rem 1.3rem;
+    background: var(--good-soft); border-left: 3px solid var(--good);
+    border-radius: 0 10px 10px 0;
+  }
+  .benefit .tag {
+    font-size: .68rem; letter-spacing: .14em; text-transform: uppercase;
+    font-weight: 700; color: var(--good); display: block; margin-bottom: .25rem;
+  }
+  .benefit p { margin: 0; font-size: .95rem; color: var(--ink-soft); }
+
+  /* ---- Before / After ---- */
+  .ba {
+    display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; margin: 1.4rem 0;
+  }
+  @media (max-width: 560px) { .ba { grid-template-columns: 1fr; } }
+  .ba-col {
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    background: var(--surface); box-shadow: var(--shadow);
+  }
+  .ba-col header {
+    padding: .7rem 1rem; font-weight: 700; font-size: .9rem;
+    display: flex; align-items: center; gap: .5rem; border-bottom: 1px solid var(--line);
+  }
+  .ba-col.before header { background: var(--crit-soft); color: var(--crit); }
+  .ba-col.after  header { background: var(--good-soft); color: var(--good); }
+  .ba-col ul { list-style: none; margin: 0; padding: .6rem .95rem 1rem; }
+  .ba-col li {
+    position: relative; padding: .4rem 0 .4rem 1.5rem; font-size: .9rem;
+    color: var(--ink-soft); border-top: 1px solid var(--line); line-height: 1.45;
+  }
+  .ba-col li:first-child { border-top: 0; }
+  .ba-col li::before {
+    position: absolute; left: 0; top: .4rem; font-weight: 700; font-size: .9rem;
+  }
+  .ba-col.before li::before { content: "\2717"; color: var(--crit); }
+  .ba-col.after  li::before { content: "\2713"; color: var(--good); }
+
+  .note {
+    margin: 1.2rem 0; padding: .85rem 1.1rem; font-size: .93rem;
+    background: var(--warn-soft); border-left: 3px solid var(--warn);
+    border-radius: 0 10px 10px 0; color: var(--ink-soft);
+  }
+  .note b { color: var(--warn); }
+
+  /* ---- Pills for statuses ---- */
+  .pill {
+    display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem;
+    font-weight: 600; padding: .12em .6em; border-radius: 999px; white-space: nowrap;
+  }
+  .pill.good { background: var(--good-soft); color: var(--good); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill .dot { width: .5em; height: .5em; border-radius: 50%; background: currentColor; }
+
+  /* ---- Feature cards grid (positive points) ---- */
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: .9rem; margin: 1.4rem 0;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.1rem 1.15rem; box-shadow: var(--shadow);
+  }
+  .card h4 {
+    margin: 0 0 .35rem; font-size: 1rem; font-weight: 700;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .card h4 .ic {
+    width: 1.6rem; height: 1.6rem; flex: none; border-radius: 7px;
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-size: .9rem;
+  }
+  .card p { margin: 0; font-size: .9rem; color: var(--muted); line-height: 1.55; }
+
+  /* ---- Interface map table ---- */
+  .table-scroll { overflow-x: auto; margin: 1.1rem 0; border-radius: 10px; border: 1px solid var(--line); }
+  table.map { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 30rem; }
+  table.map th, table.map td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.map thead th {
+    background: var(--surface-2); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+  }
+  table.map tbody tr:last-child td { border-bottom: 0; }
+  table.map td:first-child { font-weight: 600; white-space: nowrap; }
+  table.map tbody { background: var(--surface); }
+  table.map tbody { background: var(--surface); }
+
+  /* ---- Flow diagram ---- */
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: 1.4rem 0;
+  }
+  .flow .step {
+    flex: 1 1 8rem; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: .8rem .9rem; box-shadow: var(--shadow); position: relative;
+  }
+  .flow .step .n {
+    font-family: ui-monospace, Menlo, monospace; font-size: .72rem; color: var(--accent); font-weight: 700;
+  }
+  .flow .step .t { font-weight: 700; font-size: .92rem; margin: .15rem 0 .2rem; }
+  .flow .step .d { font-size: .8rem; color: var(--muted); line-height: 1.4; }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 2rem 0 3rem; color: var(--muted); font-size: .85rem;
+  }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+
+  a { color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    nav.toc a, .card { transition: color .15s ease, transform .15s ease; }
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">Manuel utilisateur</p>
+    <h1>GRC — Rapprochement bancaire des encaissements clients</h1>
+    <p class="lede">Une application unique pour rapprocher les encaissements clients avec les relevés bancaires,
+      supprimer le pointage manuel ligne à ligne et permettre à plusieurs opérateurs de travailler ensemble sans se marcher dessus.</p>
+    <div class="meta">
+      <span><b>Public</b> — gestionnaires trésorerie &amp; comptabilité client</span>
+      <span><b>Périmètre</b> — Règlements · Relevés · Rapprochement</span>
+      <span><b>Accès</b> — application web, session par société</span>
+    </div>
+
+    <nav class="toc" aria-label="Sommaire">
+      <h2>Sommaire</h2>
+      <ol>
+        <li><a href="#objectif">Objectif &amp; principe de l'application</a></li>
+        <li><a href="#connexion">Connexion &amp; espace de travail</a></li>
+        <li><a href="#reglements">Consulter les règlements clients</a></li>
+        <li><a href="#releves">Importer un relevé bancaire</a></li>
+        <li><a href="#rapprochement">Rapprocher (auto &amp; manuel)</a></li>
+        <li><a href="#collaboration">Travail à plusieurs sans conflit</a></li>
+        <li><a href="#benefices">Ce que l'application vous fait gagner</a></li>
+      </ol>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 1 -->
+  <section id="objectif">
+    <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Objectif &amp; principe de l'application</h2></div>
+    <div class="sec-body">
+      <p>Le rapprochement bancaire consiste à confirmer que chaque encaissement enregistré en gestion (virement,
+        chèque, traite) correspond bien à une ligne réelle du relevé de la banque. Fait à la main — dans un tableur,
+        en cochant ligne à ligne — c'est long, répétitif, source d'erreurs, et impossible à partager proprement
+        entre plusieurs personnes.</p>
+      <p><b>GRC automatise ce travail.</b> L'application place côte à côte vos règlements en gestion et les lignes
+        du relevé importé, propose automatiquement les correspondances évidentes, et ne touche la base de gestion
+        qu'au moment où vous validez. Le pointage manuel disparaît ; il ne reste que le contrôle et la décision.</p>
+
+      <div class="flow" aria-hidden="false">
+        <div class="step"><div class="n">FLUX</div><div class="t">Importer</div><div class="d">Le relevé Excel de la banque est chargé dans l'application.</div></div>
+        <div class="step"><div class="n">↓</div><div class="t">Apparier</div><div class="d">Auto (1=1 sur le montant) puis complément manuel si besoin.</div></div>
+        <div class="step"><div class="n">↓</div><div class="t">Réserver</div><div class="d">Chaque paire est verrouillée pour vous, en temps réel.</div></div>
+        <div class="step"><div class="n">↓</div><div class="t">Approuver</div><div class="d">La gestion est mise à jour : les règlements passent « pointés ».</div></div>
+      </div>
+
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Un seul écran remplace le va-et-vient entre l'extrait bancaire et la gestion. Le rapprochement devient
+          une relecture assistée plutôt qu'une ressaisie.</p>
+      </div>
+
+      <h3>Avant / Après</h3>
+      <div class="ba">
+        <div class="ba-col before">
+          <header>Avant — sans l'application</header>
+          <ul>
+            <li>Pointage ligne à ligne dans un tableur, manuel et répétitif.</li>
+            <li>Chacun sa copie du relevé : des versions qui divergent.</li>
+            <li>Deux personnes rapprochent parfois la même opération.</li>
+            <li>Travail perdu si le fichier se ferme ou plante.</li>
+            <li>Va-et-vient constant entre l'extrait bancaire et la gestion.</li>
+            <li>Qui a fait quoi, quand ? Peu ou pas de traçabilité.</li>
+          </ul>
+        </div>
+        <div class="ba-col after">
+          <header>Après — avec GRC</header>
+          <ul>
+            <li>Auto-rapprochement 1=1 instantané ; vous ne traitez que l'exception.</li>
+            <li>Un relevé unique importé une seule fois, partagé par tous.</li>
+            <li>Réservation en temps réel : zéro doublon entre collègues.</li>
+            <li>Rapprochements persistés : la session reste intacte.</li>
+            <li>Relevé et règlements côte à côte sur un même écran.</li>
+            <li>Import, réservation et validation horodatés et attribués.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section id="connexion">
+    <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">Connexion &amp; espace de travail</h2></div>
+    <div class="sec-body">
+      <ol class="steps">
+        <li><b>Saisissez vos identifiants.</b> Nom d'utilisateur et mot de passe fournis par votre administrateur.</li>
+        <li><b>Choisissez la société.</b> La liste des sociétés disponibles se charge automatiquement ; sélectionnez celle sur laquelle vous travaillez.</li>
+        <li><b>Se connecter.</b> Vous accédez à votre tableau de bord ; seules vos caisses autorisées sont visibles.</li>
+      </ol>
+      <p>Une fois connecté, le menu de gauche donne accès aux trois espaces de travail. Le pied du menu rappelle
+        votre nom et le nombre de caisses qui vous sont ouvertes ; le bouton <b>Déconnexion</b> ferme la session.</p>
+
+      <div class="table-scroll">
+        <table class="map">
+          <thead><tr><th>Entrée de menu</th><th>À quoi ça sert</th></tr></thead>
+          <tbody>
+            <tr><td>Règlements</td><td>Consulter, filtrer et exporter les règlements clients ; lancer un rapprochement rapide.</td></tr>
+            <tr><td>Relevés Bancaires</td><td>Importer les fichiers Excel des relevés et voir l'historique des imports.</td></tr>
+            <tr><td>Rapprochement</td><td>Apparier les règlements avec les lignes du relevé, automatiquement ou à la main.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Chaque opérateur ne voit que le périmètre (société, caisses) qui le concerne : moins de bruit, pas de risque
+          de toucher aux données d'un collègue.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section id="reglements">
+    <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Consulter les règlements clients</h2></div>
+    <div class="sec-body">
+      <p>L'écran <b>Règlements Clients</b> est votre vue de référence sur les encaissements. Le nombre total
+        d'enregistrements est affiché en titre, et le tableau se manipule comme une feuille de calcul.</p>
+
+      <h3>Adapter l'affichage</h3>
+      <ul class="clean">
+        <li><b>Colonnes</b> — le bouton <kbd>Colonnes</kbd> permet d'afficher ou masquer chaque colonne. Faites-les
+          glisser dans l'en-tête pour les réordonner ; votre disposition est mémorisée.</li>
+        <li><b>Tri</b> — cliquez sur un en-tête pour trier (▲/▼).</li>
+        <li><b>Filtres façon Excel</b> — chaque colonne offre un filtre adapté : liste à cocher, plage de montants
+          (min~max), ou période de dates (du/au). Le bouton <kbd>Effacer filtres</kbd> réinitialise l'ensemble.</li>
+        <li><b>Pagination</b> — 10, 25, 50 lignes ou « Tout », avec navigation Précédent / Suivant.</li>
+      </ul>
+
+      <h3>Exporter</h3>
+      <p>Le bouton <kbd>Exporter</kbd> génère un fichier <span class="path">Export_Reglements.xlsx</span> reprenant
+        exactement les colonnes affichées et les filtres appliqués — pratique pour un contrôle ou une transmission.</p>
+
+      <h3>Rapprochement rapide depuis cette vue</h3>
+      <p>Le bouton <kbd>Rapprocher</kbd> bascule le tableau en mode sélection. Pour éviter toute erreur, le filtre
+        pertinent est alors <b>verrouillé</b> (🔒) : seuls les règlements non pointés sont proposés.</p>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Colonnes, tris et filtres personnalisables + export : chacun retrouve l'information qu'il cherche en
+          quelques secondes, sans ouvrir un autre outil.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section id="releves">
+    <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Importer un relevé bancaire</h2></div>
+    <div class="sec-body">
+      <p>Avant de rapprocher, il faut charger le relevé fourni par la banque. C'est le rôle de l'écran
+        <b>Gestion des Relevés Bancaires</b>.</p>
+      <ol class="steps">
+        <li><b>Choisissez la banque / RIB</b> concernée. Un titre par défaut (code banque + date du jour) est proposé.</li>
+        <li><b>Ajustez le titre</b> si besoin, pour retrouver facilement l'import (ex. <span class="path">CIH Janvier</span>).</li>
+        <li><b>Sélectionnez le fichier Excel</b> (<span class="path">.xls</span> ou <span class="path">.xlsx</span>) exporté depuis la banque.</li>
+        <li><b>Importer.</b> Les lignes sont enregistrées et l'import apparaît dans l'historique en dessous.</li>
+      </ol>
+      <p>L'historique liste chaque relevé importé pour la banque : numéro, titre, <b>date d'import</b> et
+        <b>« Importé par »</b> (votre nom). Un même relevé reste disponible pour toutes les sessions de rapprochement suivantes.</p>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>L'extrait bancaire n'est saisi qu'une seule fois, par une seule personne. Tout le monde travaille ensuite
+          sur la même source, horodatée et attribuée — fini les copies de tableurs qui divergent.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section id="rapprochement">
+    <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Rapprocher : automatique &amp; manuel</h2></div>
+    <div class="sec-body">
+      <p>L'écran <b>Rapprochement bancaire</b> affiche deux grilles : en haut le <b>Relevé bancaire</b>
+        (uniquement les encaissements — lignes en crédit), en bas les <b>Règlements GRC</b> (virements, chèques, traites).</p>
+
+      <h3>Préparer la session</h3>
+      <ol class="steps">
+        <li><b>Sélectionnez la banque</b>, puis le <b>relevé associé</b> à traiter.</li>
+        <li><b>Bornez la période</b> des règlements (Du / Au) puis cliquez <kbd>Actualiser</kbd> — vous pouvez régler les deux dates avant de recharger.</li>
+        <li><b>Filtre d'affichage</b> : « Non rapprochés » (défaut), « Rapprochés (en cours) » ou « Tous ».</li>
+      </ol>
+
+      <h3>Rapprochement automatique</h3>
+      <p>Le bouton <kbd>Auto</kbd> recherche les correspondances parfaites (montant identique, 1 pour 1) sur la
+        période et les apparie instantanément. Chaque paire reçoit un <b>Repère</b> (une lettre : A, B, C…) qui
+        matérialise le lien entre la ligne du relevé et le règlement.</p>
+
+      <h3>Rapprochement manuel</h3>
+      <p>Pour les cas que l'automatique ne couvre pas : cliquez une ligne dans une grille, puis sa contrepartie dans
+        l'autre. La paire est créée et reçoit à son tour un repère.</p>
+      <div class="note">
+        <b>Montants différents.</b> Si les deux montants ne coïncident pas, l'application demande confirmation avant
+        de forcer le rapprochement — un garde-fou contre les appariements hasardeux.</div>
+
+      <h3>Défaire &amp; valider</h3>
+      <ul class="clean">
+        <li>Cliquer une ligne déjà repérée <b>défait</b> la paire (des deux côtés).</li>
+        <li><kbd>Dérapprocher</kbd> retire d'un coup tous les rapprochements en cours non encore approuvés.</li>
+        <li><kbd>Approuver</kbd> valide définitivement : la gestion est mise à jour et les règlements deviennent
+          <span class="pill good"><span class="dot"></span>Pointé</span>.</li>
+      </ul>
+
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Rien n'est écrit en base tant que vous n'avez pas approuvé. Vous appariez, vérifiez, corrigez librement —
+          puis validez en un clic. La correspondance évidente est trouvée pour vous ; vous ne traitez à la main que l'exception.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section id="collaboration">
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Travailler à plusieurs sans conflit</h2></div>
+    <div class="sec-body">
+      <p>C'est le cœur de l'application : plusieurs opérateurs peuvent rapprocher <b>en même temps</b> sur les mêmes
+        banques, sans se gêner ni se doublonner.</p>
+      <p>Dès que vous appariez une paire (auto ou manuel), les deux lignes sont <b>réservées à votre nom</b>. Pour vos
+        collègues, ces lignes apparaissent <b>verrouillées</b> :</p>
+      <p><span class="pill warn"><span class="dot"></span>🔒 Réservé par un autre utilisateur</span> — la ligne reste
+        visible mais grisée et non sélectionnable.</p>
+      <ul class="clean">
+        <li>Seule la personne qui a réservé peut libérer la ligne (la dérapprocher).</li>
+        <li>La réservation est <b>persistée</b> : si vous rafraîchissez ou revenez plus tard, votre travail en cours est toujours là.</li>
+        <li>Deux personnes ne peuvent jamais réserver la même ligne — la première prend la main, la seconde reçoit un message clair.</li>
+      </ul>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Le traitement redondant entre utilisateurs disparaît : impossible de rapprocher deux fois la même
+          opération, aucun écrasement du travail d'un collègue, aucune perte au rafraîchissement. La charge se
+          répartit naturellement sur l'équipe.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section id="benefices">
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">Ce que l'application vous fait gagner</h2></div>
+    <div class="sec-body">
+      <p>En résumé, l'application a un but simple : <b>faire le rapprochement à votre place partout où c'est évident,
+        et fiabiliser le reste.</b></p>
+      <div class="grid">
+        <div class="card"><h4><span class="ic">⚡</span>Fini le pointage manuel</h4>
+          <p>L'auto-rapprochement 1=1 traite les correspondances évidentes instantanément. Vous ne touchez que l'exception.</p></div>
+        <div class="card"><h4><span class="ic">👥</span>Zéro doublon entre collègues</h4>
+          <p>La réservation en temps réel verrouille chaque ligne. Deux personnes ne peuvent jamais traiter la même opération.</p></div>
+        <div class="card"><h4><span class="ic">💾</span>Aucun travail perdu</h4>
+          <p>Les rapprochements en cours sont persistés. Rafraîchir, fermer, revenir : votre session est intacte.</p></div>
+        <div class="card"><h4><span class="ic">🔎</span>Une source unique</h4>
+          <p>Le relevé est importé une fois, horodaté et attribué. Fini les tableurs personnels qui divergent.</p></div>
+        <div class="card"><h4><span class="ic">🛡️</span>Validé, jamais improvisé</h4>
+          <p>Rien n'est écrit en base avant approbation ; un écart de montant est signalé et demande confirmation.</p></div>
+        <div class="card"><h4><span class="ic">📑</span>Traçabilité intégrée</h4>
+          <p>Qui a importé, qui a réservé, quand : l'historique répond aux questions de contrôle sans effort.</p></div>
+        <div class="card"><h4><span class="ic">🎛️</span>Vue sur mesure</h4>
+          <p>Colonnes, tris, filtres façon Excel et export : chacun compose l'affichage dont il a besoin.</p></div>
+        <div class="card"><h4><span class="ic">🤝</span>Charge partagée</h4>
+          <p>Plusieurs opérateurs avancent en parallèle sur les mêmes banques — le travail se répartit tout seul.</p></div>
+      </div>
+      <div class="benefit">
+        <span class="tag">L'essentiel</span>
+        <p>Moins de manipulations, moins d'erreurs, moins de redondance entre utilisateurs — et un rapprochement
+          bancaire qui passe d'une corvée de ressaisie à une relecture rapide et sûre.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>GRC — Manuel utilisateur</span>
+    <span>Rapprochement bancaire des encaissements clients</span>
+  </div>
+</footer>

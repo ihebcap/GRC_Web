@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="GRC.API/GRC.API.csproj" />
+  <Project Path="GRC.Application/GRC.Application.csproj" />
+  <Project Path="GRC.Domain/GRC.Domain.csproj" />
+  <Project Path="GRC.Infrastructure/GRC.Infrastructure.csproj" />
+</Solution>

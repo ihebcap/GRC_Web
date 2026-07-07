@@ -1,0 +1,18 @@
+using System;
+using System.Reflection;
+using System.Linq;
+
+class Program {
+    static void Main() {
+        var asm = Assembly.LoadFrom(@"D:\_vibe\GRC_WEB\GRC.API\bin\Debug\net10.0-windows\GRC.Infrastructure.dll");
+        var type = asm.GetTypes().FirstOrDefault(t => t.Name == "ITresorerieRepository");
+        if (type == null) {
+            Console.WriteLine("ITresorerieRepository not found in GRC.Infrastructure.dll");
+            return;
+        }
+        foreach (var m in type.GetMethods()) {
+            var p = string.Join(", ", m.GetParameters().Select(x => x.ParameterType.Name + " " + x.Name));
+            Console.WriteLine($"{m.ReturnType.Name} {m.Name}({p})");
+        }
+    }
+}
