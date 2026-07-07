@@ -19,8 +19,14 @@ namespace GRC.Infrastructure.Services
             _kernel = kernel;
         }
 
-        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null)
+        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false)
         {
+            if (isAdmin)
+            {
+                using var sqlConn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+                caissesList = Dapper.SqlMapper.Query<int>(sqlConn, "SELECT CA_Id FROM RT_CAISSE WHERE SO_Id = @SocieteId", new { SocieteId = societeId }).ToArray();
+            }
+
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
 
@@ -224,8 +230,14 @@ namespace GRC.Infrastructure.Services
             }).ToList();
         }
 
-        public object GetDistinctReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin)
+        public object GetDistinctReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, bool isAdmin = false)
         {
+            if (isAdmin)
+            {
+                using var sqlConn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+                caissesList = Dapper.SqlMapper.Query<int>(sqlConn, "SELECT CA_Id FROM RT_CAISSE WHERE SO_Id = @SocieteId", new { SocieteId = societeId }).ToArray();
+            }
+
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
 

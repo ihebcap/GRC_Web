@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { API_BASE } from './api';
-import { Upload, CheckCircle, Clock, ArrowLeft } from 'lucide-react';
+import { Upload, CheckCircle, Clock, ArrowLeft, Trash2 } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
 
@@ -326,6 +326,25 @@ export const RelevesBancaires: React.FC = () => {
         }
     };
 
+    const handleDeleteReleve = async (id: number) => {
+        if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce relevé ? Cette action supprimera également toutes ses lignes associées.")) {
+            return;
+        }
+
+        try {
+            await axios.delete(`${API_BASE}/ReleveBancaire/${id}`);
+            alert("Relevé supprimé avec succès.");
+            fetchReleves();
+        } catch (error: any) {
+            console.error("Erreur lors de la suppression", error);
+            if (error.response?.status === 409) {
+                alert(error.response.data.message || "Suppression impossible : lignes actionnées.");
+            } else {
+                alert("Erreur lors de la suppression du relevé.");
+            }
+        }
+    };
+
     if (selectedReleve) {
         return <ReleveInterrogation releve={selectedReleve} caissesMap={caissesMap} onBack={() => setSelectedReleve(null)} />;
     }
@@ -394,6 +413,7 @@ export const RelevesBancaires: React.FC = () => {
                             <th style={{ textAlign: 'center' }}>Réservées</th>
                             <th style={{ textAlign: 'center' }}>Rapprochées</th>
                             <th style={{ textAlign: 'center' }}>Restantes</th>
+                            <th style={{ width: '50px' }}></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -412,11 +432,23 @@ export const RelevesBancaires: React.FC = () => {
                                 <td style={{ textAlign: 'center', color: '#e67e22', fontWeight: 500 }}>{r.nbReserve > 0 ? r.nbReserve : '-'}</td>
                                 <td style={{ textAlign: 'center', color: 'var(--success-color)', fontWeight: 500 }}>{r.nbRapproche > 0 ? r.nbRapproche : '-'}</td>
                                 <td style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{r.nbSansAction > 0 ? r.nbSansAction : '-'}</td>
+                                <td style={{ textAlign: 'center' }}>
+                                    {(r.nbReserve + r.nbRapproche === 0) && (
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteReleve(r.id); }}
+                                            className="btn btn-ghost-danger" 
+                                            style={{ padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            title="Supprimer le relevé"
+                                        >
+                                            <Trash2 size={16} color="#dc3545" />
+                                        </button>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                         {releves.length === 0 && (
                             <tr>
-                                <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                                <td colSpan={9} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                                     {selectedBanqueId ? "Aucun relevé importé pour cette banque." : "Veuillez sélectionner une banque."}
                                 </td>
                             </tr>

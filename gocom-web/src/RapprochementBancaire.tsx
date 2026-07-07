@@ -61,12 +61,20 @@ interface GrcTableBodyProps {
     currentUserId: number;
 }
 
+const getLettrageColor = (lettrage: string | null) => {
+    if (!lettrage) return undefined;
+    const colors = ['#fca5a5', '#fdba74', '#fcd34d', '#fef08a', '#d9f99d', '#bbf7d0', '#86efac', '#6ee7b7', '#5eead4', '#7dd3fc', '#93c5fd', '#c4b5fd', '#d8b4fe', '#f9a8d4', '#fda4af'];
+    let hash = 0;
+    for (let i = 0; i < lettrage.length; i++) hash = lettrage.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length] + '40';
+};
+
 const GrcTableRow = ({ row, isSelected, onSelect, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: any) => {
     // grcRowRenderCount++;
     // console.log(`[RENDER] GrcTableRow: ${row.mv_Id}`);
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
     return (
-    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : {}}>
+    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(row.lettrage) } : {}}>
         <td>
             {isLockedByOther ? (
                 <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={`Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}`}>
@@ -136,7 +144,7 @@ const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId }:
     // releveRowRenderCount++;
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
     return (
-    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : {}}>
+    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(row.lettrage) } : {}}>
         <td>
             {isLockedByOther ? (
                 <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={`Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}`}>
@@ -176,7 +184,16 @@ const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, cur
     </tbody>
 ));
 
-export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, availableColumns: any[], user: any}> = ({caissesMap, modesMap, availableColumns, user}) => {
+interface Props {
+    caissesMap: Record<number, any>;
+    modesMap: Record<number, any>;
+    availableColumns: any[];
+    user: any;
+    showToast: (msg: string, type?: 'success'|'error'|'warning') => void;
+    onNavigateToImport?: () => void;
+}
+
+export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, availableColumns, user, showToast, onNavigateToImport }) => {
     // rbRenderCount++;
     // console.log(`[RENDER] RapprochementBancaire (Total: ${rbRenderCount})`);
     const [releves, setReleves] = useState<any[]>([]);
@@ -189,6 +206,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
     // Pour le lettrage manuel
     const [selectedGrcId, setSelectedGrcId] = useState<number | null>(null);
     const [selectedReleveLigneId, setSelectedReleveLigneId] = useState<number | null>(null);
+    const [pendingReservation, setPendingReservation] = useState<{ grcId: number; ligneId: number } | null>(null);
 
     // Banques
     const [banques, setBanques] = useState<Banque[]>([]);
@@ -415,7 +433,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
 
     const handleAutoReconcile = async () => {
         if (!selectedReleveId) {
-            alert("Veuillez sélectionner un relevé bancaire.");
+            showToast("Veuillez sélectionner un relevé bancaire.", "warning");
             return;
         }
         try {
@@ -434,7 +452,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             const propositions: Array<{ ligneReleveId: number; reglementGrcId: number; montant: number; lettragePropose: string }> = response.data;
 
             if (propositions.length === 0) {
-                alert("Aucune correspondance parfaite trouvée (1=1 sur le montant).");
+                showToast("Aucune correspondance parfaite trouvée (1=1 sur le montant).", "warning");
                 return;
             }
 
@@ -475,13 +493,13 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             setCurrentLettrageIndex(localIndex);
 
             if (conflits > 0) {
-                alert(`💡 ${validProps.length} correspondances trouvées et réservées. ${conflits} conflits ignorés.`);
+                showToast(`💡 ${validProps.length} correspondances trouvées et réservées. ${conflits} conflits ignorés.`, "success");
             } else {
-                alert(`💡 L'algorithme a trouvé ${validProps.length} correspondance(s) parfaite(s). Vérifiez les paires rapprochées puis cliquez sur « Approuver ».`);
+                showToast(`💡 L'algorithme a trouvé ${validProps.length} correspondance(s) parfaite(s). Vérifiez les paires rapprochées puis cliquez sur « Approuver ».`, "success");
             }
         } catch (error) {
             console.error("Erreur auto-reconcile", error);
-            alert("Erreur lors de l'auto-rapprochement.");
+            showToast("Erreur lors de l'auto-rapprochement.", "error");
         }
     };
 
@@ -502,27 +520,14 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             setLignesReleve(prev => prev.map(l => l.lettrage === lettre ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
         } catch (e) {
             console.error(e);
-            alert("Erreur lors de la dissociation.");
+            showToast("Erreur lors de la dissociation.", "error");
         }
     }, []);
 
     // Lettrage manuel — lit les refs (valeurs fraîches) pour éviter les stale closures
     // tout en gardant une référence stable (n'invalidera pas React.memo des grilles).
-    const applyManualLettrage = React.useCallback(async (grcId: number, ligneId: number) => {
-        const grc = reglementsGrcRef.current.find(r => r.mv_Id === grcId);
-        const releve = lignesReleveRef.current.find(r => r.id === ligneId);
-
-        if (grc?.montant !== releve?.credit) {
-            const confirmer = window.confirm("Les montants sont différents. Voulez-vous vraiment forcer le rapprochement ?");
-            if (!confirmer) {
-                setSelectedGrcId(null);
-                setSelectedReleveLigneId(null);
-                return;
-            }
-        }
-
+    const executeManualLettrage = React.useCallback(async (grcId: number, ligneId: number) => {
         const nextLetter = getLettrageFromIndex(currentLettrageIndexRef.current);
-        
         try {
             const userStr = sessionStorage.getItem('gocom_user');
             const token = userStr ? JSON.parse(userStr).token : '';
@@ -537,18 +542,31 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, lettrage: nextLetter, reservePar_UserId: currentUserId } : r));
             setLignesReleve(prev => prev.map(l => l.id === ligneId ? { ...l, lettrage: nextLetter, reservePar_UserId: currentUserId } : l));
             setCurrentLettrageIndex(c => c + 1);
+            setPendingReservation(null);
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
         } catch (error: any) {
             if (error.response?.status === 409) {
-                alert(error.response.data.message || "Déjà réservé par un autre utilisateur.");
+                showToast(error.response.data.message || "Déjà réservé par un autre utilisateur.", "error");
             } else {
-                alert("Erreur lors de la réservation.");
+                showToast("Erreur lors de la réservation.", "error");
             }
+            setPendingReservation(null);
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
         }
     }, [getLettrageFromIndex]);
+
+    const applyManualLettrage = React.useCallback((grcId: number, ligneId: number) => {
+        const grc = reglementsGrcRef.current.find(r => r.mv_Id === grcId);
+        const releve = lignesReleveRef.current.find(r => r.id === ligneId);
+
+        if (grc?.montant !== releve?.credit) {
+            setPendingReservation({ grcId, ligneId });
+            return;
+        }
+        executeManualLettrage(grcId, ligneId);
+    }, [executeManualLettrage]);
 
     // handleSelectGrc — ref pour selectedReleveLigneId : la référence du callback
     // reste stable même quand la sélection du relevé change => GrcTableBody ne re-rend pas.
@@ -616,7 +634,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             setSelectedReleveLigneId(null);
         } catch (e) {
             console.error(e);
-            alert("Erreur lors de la dissociation globale.");
+            showToast("Erreur lors de la dissociation globale.", "error");
         }
     };
 
@@ -638,7 +656,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
         }
 
         if (pairs.length === 0) {
-            alert("Aucun rapprochement en cours à approuver.");
+            showToast("Aucun rapprochement en cours à approuver.", "warning");
             return;
         }
 
@@ -647,11 +665,11 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
             const data = response.data;
             
             if (data.success) {
-                alert("Rapprochement validé avec succès !");
+                showToast("Rapprochement validé avec succès !", "success");
                 setReglementsGrc(prev => prev.filter(r => !r.lettrage));
                 setLignesReleve(prev => prev.filter(l => !l.lettrage));
             } else {
-                alert(`Validation terminée avec des erreurs.\nSuccès: ${data.successCount}, Échecs: ${data.errorCount}.\n\nErreurs:\n${data.errors.join('\n')}`);
+                showToast(`Validation terminée avec des erreurs.\nSuccès: ${data.successCount}, Échecs: ${data.errorCount}.\n\nErreurs:\n${data.errors.join('\n')}`, "warning");
                 
                 const failedLigneIds = data.failedLigneIds || [];
 
@@ -677,7 +695,7 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
                 else if (errorData.message) message = errorData.message + (errorData.errors ? '\n' + errorData.errors.join('\n') : '');
                 else message = JSON.stringify(errorData);
             }
-            alert(message);
+            showToast(message, "error");
         }
     };
 
@@ -920,6 +938,16 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
                         <span className="badge">Filtre: Encaissements (Crédit)</span>
                     </div>
                     <div className="table-container">
+                        {selectedBanqueId && releves.length === 0 ? (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                                <p style={{ fontSize: '1.125rem', marginBottom: '8px' }}>Aucun relevé importé pour cette banque.</p>
+                                {onNavigateToImport && (
+                                    <button className="btn btn-primary" onClick={onNavigateToImport} style={{ marginTop: '16px' }}>
+                                        Aller à l'import de relevé
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
                         <table>
                             <thead>
                                 <tr>
@@ -956,11 +984,24 @@ export const RapprochementBancaire: React.FC<{caissesMap: any, modesMap: any, av
                             </thead>
                             <ReleveTableBody rows={sortedLignes} selectedReleveLigneId={selectedReleveLigneId} onSelect={handleSelectReleve} currentUserId={Number(user?.no) || 0} />
                         </table>
+                        )}
                     </div>
                     <div style={{padding: '0.25rem 1rem', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)'}}>
                         {sortedLignes.length} élément(s) affiché(s)
                     </div>
                 </div>
+
+                {pendingReservation && (
+                    <div style={{ padding: '12px 16px', background: '#fff3cd', border: '1px solid #ffe69c', borderRadius: '8px', color: '#664d03', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0' }}>
+                        <div>
+                            <strong>Attention :</strong> Les montants sélectionnés sont différents. Voulez-vous vraiment forcer le rapprochement ?
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn-success" onClick={() => executeManualLettrage(pendingReservation.grcId, pendingReservation.ligneId)}>Forcer</button>
+                            <button className="btn btn-ghost-danger" onClick={() => { setPendingReservation(null); setSelectedGrcId(null); setSelectedReleveLigneId(null); }}>Annuler</button>
+                        </div>
+                    </div>
+                )}
 
                 {/* GRILLE GAUCHE : GRC (Maintenant en bas) */}
                 <div className="grid-panel">

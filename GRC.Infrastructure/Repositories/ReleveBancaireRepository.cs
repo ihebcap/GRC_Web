@@ -314,14 +314,18 @@ namespace GRC.Infrastructure.Repositories
                     reg.ExtraitNum = pair.CodeExcel;
                     reg.Info1 = pair.CodeExcel;
                     
-                    if ((int)reg.Type == 3) // Ordre Extrait
-                    {
-                        reg.PieceNumero = pair.CodeExcel;
-                    }
+                    // On affecte le n° pièce pour tout règlement (plus de garde type 3)
+                    reg.PieceNumero = pair.CodeExcel;
 
                     if (pair.DateValeur.HasValue)
                     {
                         reg.DatePointage = pair.DateValeur.Value;
+                        
+                        // Alignement de la date règlement sur la date valeur si non comptabilisé
+                        if (reg.IsComptabilise == global::Tresorerie.Core.Enum.EtatComptabilite.NonComptabilise)
+                        {
+                            reg.ChangeDate(pair.DateValeur.Value);
+                        }
                     }
 
                     repo.Update(reg);
@@ -351,6 +355,50 @@ namespace GRC.Infrastructure.Repositories
 
             result.Success = result.ErrorCount == 0;
             return result;
+        }
+        public async Task<int> SupprimerReleveAsync(int enteteId)
+        {
+            using (var connection = new System.Data.SqlClient.SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                
+                var exists = await connection.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM dbo.RAPP_ReleveBancaire_Entete WHERE Id = @Id", new { Id = enteteId });
+                if (exists == 0) return -1;
+
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        var sqlDeleteLignes = @"
+                            DELETE FROM dbo.RAPP_ReleveBancaire_Ligne
+                            WHERE ReleveBancaireEnteteId = @Id
+                              AND NOT EXISTS (
+                                SELECT 1 FROM dbo.RAPP_ReleveBancaire_Ligne x
+                                WHERE x.ReleveBancaireEnteteId = @Id
+                                  AND (x.Lettrage IS NOT NULL OR x.MV_ID IS NOT NULL OR x.DateValidation IS NOT NULL)
+                              );";
+                              
+                        await connection.ExecuteAsync(sqlDeleteLignes, new { Id = enteteId }, transaction);
+                        
+                        int remainingLines = await connection.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM dbo.RAPP_ReleveBancaire_Ligne WHERE ReleveBancaireEnteteId = @Id", new { Id = enteteId }, transaction);
+                        
+                        if (remainingLines > 0)
+                        {
+                            transaction.Rollback();
+                            return 0; // Refused (lines actioned)
+                        }
+                        
+                        await connection.ExecuteAsync("DELETE FROM dbo.RAPP_ReleveBancaire_Entete WHERE Id = @Id", new { Id = enteteId }, transaction);
+                        transaction.Commit();
+                        return 1; // Deleted
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
         }
     }
 

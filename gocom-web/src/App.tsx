@@ -17,6 +17,7 @@ interface User {
   info2Label?: string;
   info3Label?: string;
   info4Label?: string;
+  isAdmin?: boolean;
   token: string;
 }
 
@@ -123,9 +124,9 @@ function App() {
 
 // --- LOGIN COMPONENT ---
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
-  const [username, setUsername] = useState('PAYX');
-  const [password, setPassword] = useState('0000');
-  const [societeId, setSocieteId] = useState('1');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [societeId, setSocieteId] = useState('');
   const [societes, setSocietes] = useState<{id: number, raisonSociale: string}[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -159,7 +160,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1 className="auth-title">GRC Web</h1>
+        <h1 className="auth-title">GRC</h1>
         <p className="auth-subtitle">Accès sécurisé à l'espace de gestion</p>
         
         {error && (
@@ -648,26 +649,25 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
     <div className="app-container animate-fade-in">
       {/* Sidebar */}
       <aside className={`app-sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
-        <div className="sidebar-header" style={{cursor: 'pointer'}} onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+        <div className="sidebar-header" style={isSidebarOpen ? {cursor: 'pointer', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start'} : {cursor: 'pointer'}} onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
           {isSidebarOpen ? (
             <>
-              <div className="flex items-center gap-2">
-                <LayoutDashboard size={24} style={{color: 'var(--accent-primary)'}} />
-                <span>GRC Web</span>
+              <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                <div className="flex items-center gap-2">
+                  <LayoutDashboard size={24} style={{color: 'var(--accent-primary)'}} />
+                  <span>GRC</span>
+                </div>
+                <ChevronRight size={18} style={{color: 'var(--text-tertiary)', transform: 'rotate(180deg)'}} />
               </div>
-              <ChevronRight size={18} style={{color: 'var(--text-tertiary)', transform: 'rotate(180deg)'}} />
+              <div style={{fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', paddingLeft: 'calc(24px + 0.5rem)', marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                {user.societeName}
+              </div>
             </>
           ) : (
             <LayoutDashboard size={24} style={{color: 'var(--accent-primary)'}} />
           )}
         </div>
-        
-        {isSidebarOpen && (
-          <div style={{fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', padding: '0 1.5rem', marginTop: '-0.5rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-            {user.societeName}
-          </div>
-        )}
-        
+
         <div className="sidebar-menu">
           <div className={`sidebar-item ${currentView === 'reglements' ? 'active' : ''}`} title="Règlements" onClick={() => setCurrentView('reglements')}>
             <FileText size={18} />
@@ -686,9 +686,12 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
         <div className="sidebar-footer">
           {isSidebarOpen ? (
             <>
-              <div style={{fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)'}}>{user.nom} {user.prenom}</div>
+              <div style={{fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)'}}>
+                {user.nom} {user.prenom}
+                {user.isAdmin && <span style={{backgroundColor: 'var(--accent-primary)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', marginLeft: '6px', verticalAlign: 'middle'}}>ADMIN</span>}
+              </div>
               <div style={{fontSize: '0.75rem', marginBottom: '1rem', color: 'var(--text-secondary)'}}>
-                {user.caisses.length > 3 ? `${user.caisses.length} caisses` : user.caisses.join(', ')}
+                {user.isAdmin ? 'Toutes caisses' : (user.caisses.length > 3 ? `${user.caisses.length} caisses` : user.caisses.join(', '))}
               </div>
               <button onClick={onLogout} className="btn" style={{backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}>
                 <LogOut size={16} />
@@ -708,7 +711,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
         {currentView === 'releves' ? (
           <RelevesBancaires />
         ) : currentView === 'rapprochement' ? (
-          <RapprochementBancaire caissesMap={caissesMap} modesMap={modesMap} availableColumns={availableColumns} user={user} />
+          <RapprochementBancaire caissesMap={caissesMap} modesMap={modesMap} availableColumns={availableColumns} user={user} showToast={showToast} onNavigateToImport={() => setCurrentView('releves')} />
         ) : currentView === 'comptabilisation' ? (
           <ApercuComptabilisation user={user} showToast={showToast} caissesMap={caissesMap} modesMap={modesMap} />
         ) : (
@@ -729,8 +732,8 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                 </button>
               )}
               
-              <button 
-                className="btn" 
+              <button
+                className="btn"
                 style={{
                   width: 'auto',
                   backgroundColor: isComptabilisationMode ? 'var(--accent-primary)' : 'white',
@@ -739,7 +742,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                   borderRadius: '8px',
                   fontWeight: 600,
                   fontSize: '0.8125rem',
-                  display: 'flex',
+                  display: 'none',
                   alignItems: 'center',
                   gap: '0.5rem',
                   boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
@@ -1013,9 +1016,9 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                         if (isBoolean) {
                           options = [{value: 'oui', label: 'Oui'}, {value: 'non', label: 'Non'}];
                         } else if (col.key === 'caisseCode') {
-                          options = Object.values(caissesMap).filter((c: any) => user.caisses.includes(c.id) || user.caisses.length === 0).map((c: any) => ({ value: c.id.toString(), label: c.code }));
+                          options = Object.values(caissesMap).filter((c: any) => user.isAdmin || user.caisses.includes(c.id) || user.caisses.length === 0).map((c: any) => ({ value: c.id.toString(), label: c.code }));
                         } else if (col.key === 'caisseIntitule') {
-                          options = Object.values(caissesMap).filter((c: any) => user.caisses.includes(c.id) || user.caisses.length === 0).map((c: any) => ({ value: c.id.toString(), label: c.intitule }));
+                          options = Object.values(caissesMap).filter((c: any) => user.isAdmin || user.caisses.includes(c.id) || user.caisses.length === 0).map((c: any) => ({ value: c.id.toString(), label: c.intitule }));
                         } else if (col.key === 'banque') {
                           options = Object.values(banquesMap).map((b: any) => ({ value: b.id.toString(), label: b.code || b.intitule || b.id.toString() }));
                         } else if (col.key === 'mode') {

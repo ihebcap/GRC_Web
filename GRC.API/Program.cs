@@ -14,6 +14,10 @@ using GRC.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Hébergement en tant que service Windows (sans effet en console/dev).
+// Le port d'écoute est paramétrable via la clé "Urls" d'appsettings.json (lue nativement).
+builder.Host.UseWindowsService();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddControllers();
 
@@ -66,6 +70,10 @@ builder.Services.AddScoped<GRC.Infrastructure.Services.ReglementService>();
 
 var app = builder.Build();
 
+// Sert le front (SPA) depuis wwwroot : index.html, assets, config.js.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseCors("RestrictedCors");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -106,6 +114,9 @@ app.MapPost("/api/auth/login", (
     using var sqlConn = new System.Data.SqlClient.SqlConnection(connString);
     var caisses = sqlConn.Query<int>("SELECT CA_Id FROM P_UTILISATEURCAISSE WHERE UT_Id = @UserId", new { UserId = user.No }).ToArray();
     
+    var isAdminInt = sqlConn.QueryFirstOrDefault<int?>("SELECT UT_Admin FROM P_UTILISATEUR WHERE UT_Id = @UserId", new { UserId = user.No });
+    bool isAdmin = (isAdminInt == 1);
+    
     var societeInfo = sqlConn.QueryFirstOrDefault("SELECT SO_RaisonSocial as RaisonSociale, SO_IntituleInfoLibre1 as Info1, SO_IntituleInfoLibre2 as Info2, SO_IntituleInfoLibre3 as Info3, SO_IntituleInfoLibre4 as Info4 FROM P_SOCIETE WHERE SO_Id = @SocieteId", new { SocieteId = req.SocieteId });
 
         // Generate JWT
@@ -115,7 +126,8 @@ app.MapPost("/api/auth/login", (
     {
         new Claim("UserId", user.No.ToString()),
         new Claim("SocieteId", req.SocieteId.ToString()),
-        new Claim("Caisses", string.Join(",", caisses))
+        new Claim("Caisses", string.Join(",", caisses)),
+        new Claim("IsAdmin", isAdmin ? "1" : "0")
     };
     var tokenDescriptor = new SecurityTokenDescriptor
     {
@@ -132,6 +144,7 @@ app.MapPost("/api/auth/login", (
         user.Login, 
         user.Nom, 
         user.Prenom, 
+        IsAdmin = isAdmin,
         SocieteId = req.SocieteId,
         SocieteName = societeInfo?.RaisonSociale ?? "Inconnue",
         Info1Label = societeInfo?.Info1,
@@ -154,10 +167,11 @@ app.MapGet("/api/reference/caisses", (IDbConnectionFactory dbFactory) =>
 app.MapGet("/api/reference/modes", (IDbConnectionFactory dbFactory, ClaimsPrincipal user) => 
 {
     var caisses = user.FindFirst("Caisses")?.Value;
+    bool isAdmin = user.FindFirst("IsAdmin")?.Value == "1";
     var connString = dbFactory.GetConnectionString();
     using var sqlConn = new System.Data.SqlClient.SqlConnection(connString);
     
-    if (!string.IsNullOrEmpty(caisses)) 
+    if (!isAdmin && !string.IsNullOrEmpty(caisses)) 
     {
         var ids = caisses.Split(',').Select(int.Parse).ToArray();
         var sql = $@"
@@ -193,6 +207,9 @@ app.MapGet("/api/reference/banques", (IDbConnectionFactory dbFactory, ClaimsPrin
 }).RequireAuthorization();
 
 
+
+// Fallback SPA : toute route non-API renvoie index.html (routage côté client).
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
 

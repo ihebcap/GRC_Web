@@ -55,12 +55,14 @@ namespace GRC.API.Controllers
             var caisses = User.FindFirst("Caisses")?.Value;
             var caissesList = string.IsNullOrEmpty(caisses) ? System.Array.Empty<int>() : caisses.Split(',').Select(int.Parse).ToArray();
 
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             var allReglements = _reglementService.GetReglements(
                 societeId, caissesList, dateDebut, dateFin,
                 client, numero, piece, reference, libelle, montant, extrait,
                 pointe, comptabilise, remis, impaye, annule, caisseNos,
                 banqueNos, modeNos, banqueClient, solde, info1, info2, info3, info4,
-                montantMin, montantMax, soldeMin, soldeMax
+                montantMin, montantMax, soldeMin, soldeMax, isAdmin
             );
 
             int totalItems = allReglements.Count();
@@ -78,7 +80,9 @@ namespace GRC.API.Controllers
             var caisses = User.FindFirst("Caisses")?.Value;
             var caissesList = string.IsNullOrEmpty(caisses) ? System.Array.Empty<int>() : caisses.Split(',').Select(int.Parse).ToArray();
 
-            var result = _reglementService.GetDistinctReglements(societeId, caissesList, dateDebut, dateFin);
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
+            var result = _reglementService.GetDistinctReglements(societeId, caissesList, dateDebut, dateFin, isAdmin);
             return Ok(result);
         }
 

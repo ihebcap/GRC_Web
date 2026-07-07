@@ -33,9 +33,9 @@ Flux de rapprochement fluide, cohérent visuellement, sans boîtes de dialogue n
 - Aucune régression du lettrage/validation existant.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Plus aucun `alert`/`confirm` natif dans le flux
-- [ ] Paires lettrées repérables visuellement
-- [ ] Empty-state présent
-- [ ] Montants formatés uniformément
-- [ ] Login sans identifiants pré-remplis
+- [x] Build OK
+- [x] Plus aucun `alert`/`confirm` natif dans le flux
+- [x] Paires lettrées repérables visuellement
+- [x] Empty-state présent
+- [x] Montants formatés uniformément
+- [x] Login sans identifiants pré-remplis

@@ -226,10 +226,10 @@ tr:hover {
 
 /* Ligne appariée (lettrée, en attente d'approbation) */
 .lettered-row {
-    background-color: #ecfdf5 !important;
+    background-color: #ecfdf5;
 }
 .lettered-row:hover {
-    background-color: #d1fae5 !important;
+    background-color: #d1fae5;
 }
 
 .amount {

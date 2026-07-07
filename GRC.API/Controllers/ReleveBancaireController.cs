@@ -204,6 +204,17 @@ namespace GRC.API.Controllers
             else
                 return StatusCode(403, new { message = "Impossible de libérer la ligne (pas le réservataire ou déjà libre)." });
         }
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> SupprimerReleve(int id)
+        {
+            var result = await _releveRepository.SupprimerReleveAsync(id);
+            if (result == -1)
+                return NotFound(new { message = "Relevé introuvable." });
+            else if (result == 0)
+                return StatusCode(409, new { message = "Suppression impossible : ce relevé contient au moins une ligne en cours de rapprochement ou déjà validée." });
+            
+            return NoContent();
+        }
     }
 
     public class AutoReconcileRequest

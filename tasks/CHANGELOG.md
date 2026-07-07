@@ -1,5 +1,21 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-07-07 — Compte administrateur : accès à tous les règlements (TASK-032)
+
+### Droits / périmètre de données
+- Un compte **administrateur** (`P_UTILISATEUR.UT_Admin = 1`) voit désormais **tous les règlements**, sans restriction de caisse — au lieu des seules caisses qui lui sont affectées (`P_UTILISATEURCAISSE`).
+- Le login remonte le statut : `SELECT UT_Admin` → claim JWT **`IsAdmin`** + champ `isAdmin` dans la réponse. Front : badge **ADMIN** et label « Toutes caisses », sélecteurs de caisses proposant l'intégralité des caisses.
+
+### Architecture / sûreté
+- **Bypass décidé côté serveur uniquement** : le claim `IsAdmin` (issu de la base au login) pilote le périmètre ; le front n'a qu'un affichage cosmétique, aucun flag admin n'est accepté depuis le client.
+- Résolution en Infrastructure (`ReglementService`) : si admin, `caissesList` est réécrit par `SELECT CA_Id FROM RT_CAISSE WHERE SO_Id = @SocieteId` (scope société). Appliqué à `GetReglements`, `GetDistinctReglements`, et `/api/reference/modes` (cohérence des filtres). **Lecture seule stricte** (que des `SELECT`), aucune écriture, DLL métier non contournée.
+- Le **chunking >20 caisses** existant absorbe les 213 caisses (pas d'erreur SQL 8003). Non-admins : chemin strictement inchangé.
+- **Périmètre « toutes sociétés » différé** : base mono-société (GOCOM) ; l'admin voit déjà tout via toutes les caisses de la société. Agrégation multi-société à ouvrir si une 2ᵉ société est créée.
+- Note déploiement : `PAYX` (login pré-rempli) a `UT_Admin=0` → non-admin. Le comportement admin se teste avec le compte `Admin` ; rendre `PAYX` admin serait un changement de **donnée** (`UPDATE`), hors code.
+
+### Revue
+- VERIFY conforme fourni. Validation prononcée sur **vérification directe du code** + **builds ré-exécutés** : API `dotnet build` = 0 erreur, front `tsc --noEmit` = 0 erreur.
+
 ## 2026-07-07 — Écran d'interrogation d'un relevé + affichage Débit/Crédit (TASK-027, TASK-028)
 
 ### UX / consultation de l'état d'un relevé
