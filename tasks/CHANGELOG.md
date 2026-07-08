@@ -1,5 +1,22 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-07-08 — Validation rapprochement : dates du règlement sur la date opération du relevé (TASK-034)
+
+### Métier / justesse comptable
+- À la validation d'une paire, les dates du règlement client sont désormais calées sur la **date opération** de la ligne relevé (`RAPP_ReleveBancaire_Ligne.DateOperation`) **au lieu de la date valeur** :
+  - **date rapprochement** (`DatePointage`) : toujours posée (marqueur, non comptable) ;
+  - **date règlement** (`MV_Date`, via `ChangeDate`) : **uniquement si `MV_Compta = 0`** ;
+  - **date échéance** (`MV_DateEcheance`) : **nouveau**, **uniquement si `MV_Compta = 0`**.
+- Un règlement **comptabilisé** conserve `MV_Date` **et** `MV_DateEcheance` d'origine ; seule `MV_DatePointage` est mise à jour. La garde comptable est étendue à l'échéance.
+
+### Architecture / sûreté
+- **Source lue côté serveur** : `DateOperation` récupérée dans `RAPP_ReleveBancaire_Ligne` par `ReleveLigneId`, en réutilisant la requête de re-check de réservation ([ReleveBancaireRepository.cs:274](../GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs#L274)) — plus aucune date de rapprochement issue du payload client. Champ `DateOperation` ajouté à `ValidationPairDto` (rempli serveur) ; le front n'a pas changé.
+- Ordre `reg.ChangeDate(...)` **avant** `reg.IsPointe = true` conservé (invariant TASK-031). Écriture via DLL `repo.Update` uniquement ; le seul SQL est un `SELECT` sur la table applicative `RAPP_ReleveBancaire_Ligne`.
+- **Hors périmètre** (inchangé) : flux `POST /api/rapprochement` (`RapprocherManuel`), rapprochement manuel sans relevé.
+
+### Revue
+- Validé après **test réel du PO** (« testé et ça marche »). Point de vigilance persistance `MV_DateEcheance` levé au cadrage : le comportement observé confirme l'écriture attendue via `repo.Update`.
+
 ## 2026-07-08 — Validation rapprochement : n° pièce + date règlement alignés (TASK-031)
 
 ### Métier / justesse comptable
