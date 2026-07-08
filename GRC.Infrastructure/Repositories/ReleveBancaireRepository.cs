@@ -272,11 +272,11 @@ namespace GRC.Infrastructure.Repositories
                 foreach (var pair in paires)
                 {
                     string sqlCheck = @"
-                        SELECT ReservePar_UserId FROM [dbo].[RAPP_ReleveBancaire_Ligne]
+                        SELECT ReservePar_UserId, DateOperation FROM [dbo].[RAPP_ReleveBancaire_Ligne]
                         WHERE Id = @ReleveLigneId AND MV_ID = @GrcReglementId";
                     
-                    var reserverId = await connection.QueryFirstOrDefaultAsync<int?>(sqlCheck, pair);
-                    if (reserverId == null || reserverId != userId)
+                    var row = await connection.QueryFirstOrDefaultAsync<ReleveBancaireLigne>(sqlCheck, pair);
+                    if (row == null || row.ReservePar_UserId != userId)
                     {
                         result.ErrorCount++;
                         result.FailedLigneIds.Add(pair.ReleveLigneId);
@@ -284,6 +284,7 @@ namespace GRC.Infrastructure.Repositories
                     }
                     else
                     {
+                        pair.DateOperation = row.DateOperation;
                         pairesValides.Add(pair);
                     }
                 }
@@ -310,23 +311,28 @@ namespace GRC.Infrastructure.Repositories
                         throw new InvalidOperationException($"Le règlement {reg.No} est déjà pointé et ne peut pas être rapproché à nouveau.");
                     }
 
+                    if (pair.DateOperation.HasValue)
+                    {
+                        var dateOp = pair.DateOperation.Value;
+
+                        // Date rapprochement : toujours (marqueur, non comptable)
+                        reg.DatePointage = dateOp;
+
+                        // Date règlement + date échéance : uniquement si NON comptabilisé (sécurité comptable)
+                        // ChangeDate AVANT IsPointe (setter Date privé + garde règlement pointé) — invariant TASK-031
+                        if (reg.IsComptabilise == global::Tresorerie.Core.Enum.EtatComptabilite.NonComptabilise)
+                        {
+                            reg.ChangeDate(dateOp);      // MV_Date
+                            reg.DateEcheance = dateOp;   // MV_DateEcheance (setter public)
+                        }
+                    }
+
                     reg.IsPointe = true;
                     reg.ExtraitNum = pair.CodeExcel;
                     reg.Info1 = pair.CodeExcel;
                     
                     // On affecte le n° pièce pour tout règlement (plus de garde type 3)
                     reg.PieceNumero = pair.CodeExcel;
-
-                    if (pair.DateValeur.HasValue)
-                    {
-                        reg.DatePointage = pair.DateValeur.Value;
-                        
-                        // Alignement de la date règlement sur la date valeur si non comptabilisé
-                        if (reg.IsComptabilise == global::Tresorerie.Core.Enum.EtatComptabilite.NonComptabilise)
-                        {
-                            reg.ChangeDate(pair.DateValeur.Value);
-                        }
-                    }
 
                     repo.Update(reg);
                     result.SuccessCount++;
@@ -409,6 +415,7 @@ namespace GRC.Infrastructure.Repositories
         public string? Lettrage { get; set; }
         public string? CodeExcel { get; set; }
         public DateTime? DateValeur { get; set; }
+        public DateTime? DateOperation { get; set; }
     }
 
     public class ValidationResultDto

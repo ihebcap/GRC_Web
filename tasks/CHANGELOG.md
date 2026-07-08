@@ -1,5 +1,19 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-07-08 — Validation rapprochement : n° pièce + date règlement alignés (TASK-031)
+
+### Métier / justesse comptable
+- À la validation d'une paire, le règlement client reçoit désormais aussi **`MV_Piece = MV_ExtraitNum`** (= `CodeExcel`) **sans garde de type** (retrait du `if reg.Type == 3`) et **`MV_Date = DateValeur`** — cette dernière **uniquement si le règlement n'est pas comptabilisé** (`MV_Compta = 0`). Un règlement comptabilisé conserve sa `MV_Date` d'origine (cœur de la sécurité comptable).
+- Remplace le **job SQL WinForm de rattrapage** (`UPDATE m SET MV_Piece = MV_ExtraitNum … WHERE mv_type=3 …`) : plus aucun rattrapage manuel après validation web.
+- Écriture exclusivement via la DLL `Tresorerie` (`repo.Update`), aucun `UPDATE` SQL brut sur `rt_mouvement`.
+
+### Correction (1er passage REJETÉ)
+- **Bug bloquant corrigé** : `reg.ChangeDate(...)` était appelé **après** `reg.IsPointe = true`. Or `ChangeDate` lève `InvalidOperationException` (« Le règlement a subi un rapprochement bancaire ! ») dès que le règlement est pointé → **toutes** les paires non comptabilisées partaient en échec (Succès: 0). Ordre corrigé : `ChangeDate` appelé **avant** `IsPointe = true` (setter `reg.Date` privé → méthode métier `ChangeDate`).
+- `ChangeDate` peut légitimement lever pour un règlement annulé/remis/affecté/remplacé : ces paires partent en échec propre via le `try/catch` existant — comportement métier attendu.
+
+### Revue
+- Validé après test réel d'une paire non comptabilisée qui passe (SuccessCount++) : `MV_Piece`/`MV_Date` alignés, `ChangeDate` appelé avec `IsPointe` encore `false`. Bloc `UPDATE RAPP_ReleveBancaire_Ligne SET DateValidation` (TASK-022) inchangé.
+
 ## 2026-07-07 — Compte administrateur : accès à tous les règlements (TASK-032)
 
 ### Droits / périmètre de données
