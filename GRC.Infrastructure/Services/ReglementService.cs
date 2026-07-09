@@ -382,12 +382,29 @@ namespace GRC.Infrastructure.Services
                     try
                     {
                         var ecritures = generator.Generate(reg, null, null);
-                        apercus.Add(new { 
-                            ReglementId = id, 
-                            ReglementNumero = reg.Numero, 
+                        // Mapping vers un DTO lisible : les objets EcritureComptable bruts
+                        // ne sont pas exploitables tels quels côté front (noms de champs, enum Sens).
+                        var ecrituresDto = ecritures.Select(e => new EcritureApercuDto
+                        {
+                            CompteGeneral = e.CompteGeneral,
+                            ContrePartieCompteG = e.ContrePartieCompteG,
+                            TiersNumero = e.TiersNumero,
+                            CodeJournal = e.CodeJournal,
+                            Libelle = e.Libelle,
+                            Sens = (int)e.Sens,               // 0 = Débit, 1 = Crédit
+                            MontantDebit = e.MontantDebit,
+                            MontantCredit = e.MontantCredit,
+                            Date = e.Date,
+                            Echeance = e.Echeance,
+                            NumeroPiece = e.NumeroPiece
+                        }).ToList();
+
+                        apercus.Add(new {
+                            ReglementId = id,
+                            ReglementNumero = reg.Numero,
                             Client = reg.ClientIntitule,
                             Montant = reg.MontantDeviseSociete,
-                            Ecritures = ecritures 
+                            Ecritures = ecrituresDto
                         });
                     }
                     catch (Exception ex)
@@ -403,6 +420,22 @@ namespace GRC.Infrastructure.Services
             }
             return apercus;
         }
+    }
+
+    // Aperçu de comptabilisation : projection lisible d'une écriture comptable (partie double)
+    public class EcritureApercuDto
+    {
+        public string? CompteGeneral { get; set; }
+        public string? ContrePartieCompteG { get; set; }
+        public string? TiersNumero { get; set; }
+        public string? CodeJournal { get; set; }
+        public string? Libelle { get; set; }
+        public int Sens { get; set; }               // 0 = Débit, 1 = Crédit
+        public decimal MontantDebit { get; set; }
+        public decimal MontantCredit { get; set; }
+        public DateTime Date { get; set; }          // date comptable = date opération
+        public DateTime Echeance { get; set; }
+        public string? NumeroPiece { get; set; }    // indicatif tant que TASK-036 non faite (écrasé à la compta réelle)
     }
 
     // Rapprochement manuel : payload envoyé par le front (/api/rapprochement)

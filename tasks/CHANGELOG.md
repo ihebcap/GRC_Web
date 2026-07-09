@@ -1,5 +1,23 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-07-10 — Écran de comptabilisation des règlements clients (TASK-035)
+
+### Fonctionnel
+- Nouvel accès **« Comptabilisation »** dans la sidebar (sous « Rapprochement ») : le composant `ApercuComptabilisation` existait et la route (`currentView === 'comptabilisation'`) était déjà câblée, mais **aucun item de menu** ne permettait de l'atteindre. Écran désormais opérationnel : filtres (intervalle de dates, mode(s), caisse(s), **Rapproché : Tous/Oui/Non**) → aperçu des écritures → bouton Comptabiliser.
+- **Aperçu corrigé** : il renvoyait les objets `EcritureComptable` bruts (noms de champs / enum `Sens` non exploitables côté front) → il s'affichait **vide**. Nouveau DTO lisible `EcritureApercuDto` (mapping explicite vers camelCase, `Sens` projeté en `int` 0=Débit/1=Crédit).
+- Tableau d'aperçu enrichi : Journal, Compte, **Contrepartie**, Tiers, Libellé, **Sens (D/C)**, Débit, Crédit, **Échéance**, **Pièce** (marquée indicative).
+
+### Architecture / sûreté
+- **Aucun changement de contrat d'endpoint** : le filtre `Rapproché` mappe le paramètre `pointe` **existant** de `/reglements` ([ReglementController.cs:35](../GRC.API/Controllers/ReglementController.cs#L35) → `ReglementService` l.93-95). La résolution périmètre → IDs reste côté front (appel `/reglements` puis `POST /reglements/apercu-comptabilisation`), pattern conservé.
+- **Chaîne métier inchangée** : la comptabilisation passe toujours par `generator.Generate` + `comptabilizer.Comptabiliser`. Aucun `UPDATE` SQL brut, aucun bypass DLL, aucun secret ajouté. `EcritureApercuDto` placé côté Infrastructure avec les autres DTO du service — Clean Architecture respectée.
+
+### Point ouvert (acté)
+- **N° de pièce indicatif** : `ComptabilizerReglement` écrase `NumeroPiece` avec le compteur Sage à la comptabilisation réelle → le n° de l'aperçu peut différer du n° final. L'aperçu le signale (`Pièce*` + libellé grisé). Résolution → **TASK-036** (dépend de celle-ci).
+
+### Revue
+- **APPROVE** sur **vérification directe du code** + **builds ré-exécutés en revue** : `GRC.Infrastructure` et `GRC.API` `dotnet build` = 0 erreur / 0 avertissement, front `tsc --noEmit` = exit 0. Câblage menu→route confirmé ([App.tsx:684](../gocom-web/src/App.tsx#L684) + [App.tsx:719](../gocom-web/src/App.tsx#L719)), correspondance DTO↔interface front vérifiée (11 champs), colonnes tableau alignées (10/10).
+- **Test end-to-end** (filtre → aperçu → comptabilisation réelle) **non exécutable dans l'environnement de revue** (nécessite SQL Server GRC + licence Sage live) : à confirmer par le PO sur jeu de test, comme TASK-034.
+
 ## 2026-07-08 — Validation rapprochement : dates du règlement sur la date opération du relevé (TASK-034)
 
 ### Métier / justesse comptable

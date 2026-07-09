@@ -15,12 +15,17 @@ interface User {
 }
 
 interface Ecriture {
-  compte: string;
-  tiers: string | null;
-  journal: string;
-  debit: number;
-  credit: number;
+  compteGeneral: string;
+  contrePartieCompteG: string | null;
+  tiersNumero: string | null;
+  codeJournal: string;
   libelle: string;
+  sens: number;              // 0 = Débit, 1 = Crédit
+  montantDebit: number;
+  montantCredit: number;
+  date: string;
+  echeance: string;
+  numeroPiece: string | null;
 }
 
 interface Apercu {
@@ -131,7 +136,8 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
     return d.toISOString().split('T')[0];
   });
   const [dateFin, setDateFin] = useState(() => new Date().toISOString().split('T')[0]);
-  
+  const [rapproche, setRapproche] = useState<'all' | 'oui' | 'non'>('all');
+
   const [loading, setLoading] = useState(false);
   const [apercus, setApercus] = useState<Apercu[]>([]);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
@@ -171,6 +177,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
           caisses: user.caisses.join(','),
           caisseNos: caisses.length ? caisses.join(',') : undefined,
           modeNos: modes.length ? modes.join(',') : undefined,
+          pointe: rapproche === 'all' ? undefined : (rapproche === 'oui'),
           dateDebut,
           dateFin,
           page: 1,
@@ -216,10 +223,10 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const totalDebit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.debit, 0), 0);
-  const totalCredit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.credit, 0), 0);
+  const totalDebit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantDebit, 0), 0);
+  const totalCredit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantCredit, 0), 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
-  const hasErrors = apercus.some(a => a.ecritures.some(e => !e.compte));
+  const hasErrors = apercus.some(a => a.ecritures.some(e => !e.compteGeneral));
 
   const handleValider = async () => {
     if (apercus.length === 0) return;
@@ -274,6 +281,15 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
         <span style={{color: 'var(--text-tertiary)', fontSize: '0.8125rem'}}>à</span>
         <input type="date" className="form-input" value={dateFin} onChange={e => setDateFin(e.target.value)} style={{width: '120px'}} />
 
+        <div style={{display: 'flex', alignItems: 'center', gap: '0.375rem'}}>
+          <span style={{fontSize: '0.8125rem', color: 'var(--text-secondary)'}}>Rapproché :</span>
+          <select className="form-input" value={rapproche} onChange={e => setRapproche(e.target.value as 'all' | 'oui' | 'non')} style={{width: '90px', fontSize: '0.8125rem'}}>
+            <option value="all">Tous</option>
+            <option value="oui">Oui</option>
+            <option value="non">Non</option>
+          </select>
+        </div>
+
         <div style={{display: 'flex', gap: '0.5rem', marginLeft: 'auto'}}>
           <button onClick={handleSimuler} className="btn btn-primary" disabled={loading} style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
             {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
@@ -297,10 +313,10 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
           </thead>
           <tbody>
             {apercus.map(ap => {
-              const rowDebit = ap.ecritures.reduce((s, e) => s + e.debit, 0);
-              const rowCredit = ap.ecritures.reduce((s, e) => s + e.credit, 0);
+              const rowDebit = ap.ecritures.reduce((s, e) => s + e.montantDebit, 0);
+              const rowCredit = ap.ecritures.reduce((s, e) => s + e.montantCredit, 0);
               const isRowBalanced = Math.abs(rowDebit - rowCredit) < 0.01;
-              const hasRowError = ap.ecritures.some(e => !e.compte);
+              const hasRowError = ap.ecritures.some(e => !e.compteGeneral);
 
               return (
                 <React.Fragment key={ap.id}>
@@ -332,21 +348,29 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
                             <tr style={{borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)'}}>
                               <th style={{padding: '0.5rem', textAlign: 'left'}}>Journal</th>
                               <th style={{padding: '0.5rem', textAlign: 'left'}}>Compte</th>
+                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Contrepartie</th>
                               <th style={{padding: '0.5rem', textAlign: 'left'}}>Tiers</th>
                               <th style={{padding: '0.5rem', textAlign: 'left'}}>Libellé</th>
+                              <th style={{padding: '0.5rem', textAlign: 'center'}}>Sens</th>
                               <th style={{padding: '0.5rem', textAlign: 'right'}}>Débit</th>
                               <th style={{padding: '0.5rem', textAlign: 'right'}}>Crédit</th>
+                              <th style={{padding: '0.5rem', textAlign: 'center'}}>Échéance</th>
+                              <th style={{padding: '0.5rem', textAlign: 'left'}} title="Indicatif — recalculé à la comptabilisation réelle">Pièce*</th>
                             </tr>
                           </thead>
                           <tbody>
                             {ap.ecritures.map((e, idx) => (
                               <tr key={idx} style={{borderBottom: '1px solid rgba(0,0,0,0.05)'}}>
-                                <td style={{padding: '0.5rem'}}>{e.journal}</td>
-                                <td style={{padding: '0.5rem', fontWeight: 600, color: !e.compte ? '#dc2626' : 'inherit'}}>{e.compte || 'MANQUANT'}</td>
-                                <td style={{padding: '0.5rem'}}>{e.tiers}</td>
+                                <td style={{padding: '0.5rem'}}>{e.codeJournal}</td>
+                                <td style={{padding: '0.5rem', fontWeight: 600, color: !e.compteGeneral ? '#dc2626' : 'inherit'}}>{e.compteGeneral || 'MANQUANT'}</td>
+                                <td style={{padding: '0.5rem'}}>{e.contrePartieCompteG}</td>
+                                <td style={{padding: '0.5rem'}}>{e.tiersNumero}</td>
                                 <td style={{padding: '0.5rem'}}>{e.libelle}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{formatMoney(e.debit)}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{formatMoney(e.credit)}</td>
+                                <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.sens === 1 ? 'C' : 'D'}</td>
+                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantDebit ? formatMoney(e.montantDebit) : ''}</td>
+                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantCredit ? formatMoney(e.montantCredit) : ''}</td>
+                                <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.echeance ? new Date(e.echeance).toLocaleDateString('fr-FR') : ''}</td>
+                                <td style={{padding: '0.5rem', color: 'var(--text-tertiary)'}}>{e.numeroPiece}</td>
                               </tr>
                             ))}
                           </tbody>

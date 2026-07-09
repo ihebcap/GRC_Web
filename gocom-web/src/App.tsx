@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight } from 'lucide-react';
+import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import './index.css';
 
@@ -680,6 +680,10 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
           <div className={`sidebar-item ${currentView === 'rapprochement' ? 'active' : ''}`} title="Rapprochement Bancaire" onClick={() => setCurrentView('rapprochement')}>
             <DollarSign size={18} />
             <span className="sidebar-text">Rapprochement</span>
+          </div>
+          <div className={`sidebar-item ${currentView === 'comptabilisation' ? 'active' : ''}`} title="Comptabilisation des règlements" onClick={() => setCurrentView('comptabilisation')}>
+            <Calculator size={18} />
+            <span className="sidebar-text">Comptabilisation</span>
           </div>
         </div>
         
