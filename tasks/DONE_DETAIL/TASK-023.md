@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur (UX)
 - **Domaine** : UX / Correction
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : TASK-016 (réservation `ReservePar_UserId`)
 
 ## Contexte

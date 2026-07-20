@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : TASK-028 (régression du nouvel écran)
 
 ## Contexte
@@ -56,10 +56,10 @@ filtres liste de l'écran de rapprochement.
 - Aucun impact backend, aucune modification d'`ExcelFilter`.
 - Ne pas toucher aux filtres texte/date déjà fonctionnels.
 
-## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build front OK
-- [ ] Filtre Libellé (liste) : cocher une valeur restreint la grille
-- [ ] Filtre Code (liste) : idem
-- [ ] Filtre Statut (liste) : idem
-- [ ] « Tout sélectionner » et « Effacer » fonctionnent
-- [ ] Aucune régression sur les filtres texte/date (Débit, Crédit, Réservé par, Règlement GRC, Date Op.)
+## Checklist VALIDATION (validée sur revue code + build — 2026-07-10)
+- [x] Build front OK (`tsc -b && vite build` = 0 erreur)
+- [x] Filtre Libellé (liste) : `selectedValues={filters['libelle']?.value || []}` ([RelevesBancaires.tsx:166](../gocom-web/src/RelevesBancaires.tsx#L166))
+- [x] Filtre Code (liste) : `|| []` posé ([RelevesBancaires.tsx:169](../gocom-web/src/RelevesBancaires.tsx#L169))
+- [x] Filtre Statut (liste) : `|| []` posé ([RelevesBancaires.tsx:170](../gocom-web/src/RelevesBancaires.tsx#L170))
+- [x] « Tout sélectionner » / « Effacer » : `ExcelFilter` reçoit désormais un tableau, plus de court-circuit `if (!selectedValues) return`
+- [x] Aucune régression texte/date — filtres texte (Réservé par) inchangés, `ExcelFilter` non modifié

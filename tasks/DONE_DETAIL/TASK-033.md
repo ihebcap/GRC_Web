@@ -3,7 +3,7 @@
 - **Priorité** : 🟠 Normal
 - **Domaine** : Back+Front
 - **Dépend de** : TASK-016/017 (modèle réservation 2 phases), TASK-030 (compteurs de liste réutilisés côté UX)
-- **Statut** : TODO
+- **Statut** : DONE
 
 ## Contexte
 Écran « Gestion des Relevés Bancaires » ([RelevesBancaires.tsx:400](../gocom-web/src/RelevesBancaires.tsx#L400)).

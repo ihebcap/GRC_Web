@@ -255,7 +255,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
   }, [caissesMap]);
 
   return (
-    <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%'}}>
+    <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', position: 'relative'}}>
       {/* Top bar Filters */}
       <div className="card animate-fade-in" style={{padding: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', position: 'relative', zIndex: 50}}>
         <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>

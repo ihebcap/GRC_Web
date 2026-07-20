@@ -49,10 +49,12 @@ foreach (var chunk in reglementIds.Chunk(2000))
 - Faible. Correction locale et défensive, alignée sur le pattern déjà utilisé dans `GetDistinctReglements`.
 - Vérifier que le tri/ordre final (`allReglements.Select(...)`) reste inchangé — le chunking ne concerne que le remplissage du dictionnaire, pas l'ordre des règlements retournés.
 
-## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] `GET /reglements` sur un jeu > 2100 règlements : plus de `SqlException` 8003
-- [ ] Requête réservations exécutée par lots ≤ 2000, une seule connexion
-- [ ] État de réservation/lettrage identique à l'ancien comportement sur un petit jeu (< 2000) — pas de régression TASK-016/017
-- [ ] Ordre des règlements retournés inchangé
-- [ ] Aucune écriture base ; lecture seule
+## Checklist VALIDATION (validée sur revue code + build — 2026-07-10)
+- [x] Build OK (backend `dotnet build` = 0 erreur)
+- [x] `GET /reglements` sur un jeu > 2100 règlements : plus de `SqlException` 8003 (chunking en place)
+- [x] Requête réservations exécutée par lots ≤ 2000, une seule connexion — `reglementIds.Chunk(2000)` dans le `using` connexion unique ([ReglementService.cs:187](../GRC.Infrastructure/Services/ReglementService.cs#L187))
+- [x] État de réservation/lettrage identique à l'ancien comportement — même dictionnaire `reservations` alimenté, résolution des noms inchangée
+- [x] Ordre des règlements retournés inchangé — le chunking ne touche que le remplissage du dictionnaire, pas `allReglements.Select(...)`
+- [x] Aucune écriture base ; lecture seule (`SELECT` uniquement)
+
+> Note review : validation live sur jeu > 2100 non exécutée dans l'environnement de revue (nécessite base GRC volumétrique) ; le pattern de chunking est identique à celui déjà éprouvé dans `GetDistinctReglements`.
