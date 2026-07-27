@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using System.Linq;
 using GRC.Application.Interfaces;
 using GRC.Infrastructure.Tresorerie;
+using GRC.Infrastructure.Services;
 using System.Security.Claims;
 
 namespace GRC.API.Controllers
@@ -23,19 +24,25 @@ namespace GRC.API.Controllers
         private readonly ReleveBancaireRepository _releveRepository;
         private readonly IDbConnectionFactory _dbFactory;
         private readonly TresorerieNinjectKernel _kernel;
+        private readonly ReglementGenerationService _generationService;
+        private readonly ILogger<ReleveBancaireController> _logger;
 
         public ReleveBancaireController(
             ReleveBancaireImportService importService,
             AutoReconciliationEngine reconciliationEngine,
             ReleveBancaireRepository releveRepository,
             IDbConnectionFactory dbFactory,
-            TresorerieNinjectKernel kernel)
+            TresorerieNinjectKernel kernel,
+            ReglementGenerationService generationService,
+            ILogger<ReleveBancaireController> logger)
         {
             _importService = importService;
             _reconciliationEngine = reconciliationEngine;
             _releveRepository = releveRepository;
             _dbFactory = dbFactory;
             _kernel = kernel;
+            _generationService = generationService;
+            _logger = logger;
         }
 
         [HttpGet]
@@ -146,16 +153,31 @@ namespace GRC.API.Controllers
             if (!int.TryParse(userIdStr, out int userId))
                 return Unauthorized();
 
-            try
+            // Corrélation : regroupe toutes les lignes de cette approbation dans le fichier de log.
+            using (_logger.BeginScope("Approbation userId={UserId} paires={NbPaires}", userId, pairesLettrage.Count))
             {
-                // Appelle la méthode Dapper du Repository
-                var validationResult = await _releveRepository.SauvegarderValidationAsync(pairesLettrage, userId);
-                
-                return Ok(validationResult);
-            }
-            catch (System.Exception ex)
-            {
-                return StatusCode(500, new { message = "Une erreur inattendue est survenue lors de la sauvegarde.", errors = new List<string> { ex.Message } });
+                _logger.LogInformation(
+                    "APPROBATION entrée : userId={UserId}, {NbPaires} paire(s) : {Paires}",
+                    userId, pairesLettrage.Count,
+                    string.Join(", ", pairesLettrage.Select(p => $"[ligne={p.ReleveLigneId},mv={p.GrcReglementId},lettre={p.Lettrage}]")));
+
+                try
+                {
+                    // Appelle la méthode Dapper du Repository
+                    var validationResult = await _releveRepository.SauvegarderValidationAsync(pairesLettrage, userId);
+
+                    _logger.LogInformation(
+                        "APPROBATION sortie : Success={Success}, SuccessCount={SuccessCount}, ErrorCount={ErrorCount}, FailedLigneIds={FailedLigneIds}",
+                        validationResult.Success, validationResult.SuccessCount, validationResult.ErrorCount,
+                        string.Join(",", validationResult.FailedLigneIds));
+
+                    return Ok(validationResult);
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "APPROBATION échec inattendu : userId={UserId}", userId);
+                    return StatusCode(500, new { message = "Une erreur inattendue est survenue lors de la sauvegarde.", errors = new List<string> { ex.Message } });
+                }
             }
         }
 
@@ -163,7 +185,8 @@ namespace GRC.API.Controllers
         {
             public int LigneReleveId { get; set; }
             public int MvId { get; set; }
-            public string Lettrage { get; set; }
+            // TASK-037 : conserve pour compat client mais IGNORE cote serveur (lettre calculee serveur).
+            public string? Lettrage { get; set; }
         }
 
         [HttpPost("reserve")]
@@ -173,16 +196,71 @@ namespace GRC.API.Controllers
             if (!int.TryParse(userIdStr, out int userId))
                 return Unauthorized();
 
-            var result = await _releveRepository.ReserverLigneAsync(request.LigneReleveId, request.MvId, request.Lettrage, userId);
-            
-            if (result != null)
+            // Corrélation : regroupe les lignes de cette réservation dans le fichier de log.
+            using (_logger.BeginScope("Réservation userId={UserId} ligne={LigneReleveId} mv={MvId}", userId, request.LigneReleveId, request.MvId))
             {
-                return Ok(result);
+                _logger.LogInformation(
+                    "RÉSERVATION entrée : userId={UserId}, ligneReleveId={LigneReleveId}, mvId={MvId}",
+                    userId, request.LigneReleveId, request.MvId);
+
+                try
+                {
+                    // La lettre proposee par le client (request.Lettrage) est volontairement ignoree :
+                    // le repository calcule et renvoie la lettre attribuee (result.Lettrage).
+                    var result = await _releveRepository.ReserverLigneAsync(request.LigneReleveId, request.MvId, userId);
+
+                    if (result != null)
+                    {
+                        _logger.LogInformation(
+                            "RÉSERVATION 200 : ligneReleveId={LigneReleveId}, mvId={MvId}, lettre attribuée={Lettrage}",
+                            request.LigneReleveId, request.MvId, result.Lettrage);
+                        return Ok(result);
+                    }
+                    else
+                    {
+                        var conflitInfo = await _releveRepository.GetLigneConflitAsync(request.LigneReleveId, request.MvId);
+                        _logger.LogInformation(
+                            "RÉSERVATION 409 (conflit) : ligneReleveId={LigneReleveId}, mvId={MvId}, détail={Conflit}",
+                            request.LigneReleveId, request.MvId, conflitInfo);
+                        return StatusCode(409, new { message = "Ligne ou règlement déjà réservé.", detail = conflitInfo });
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "RÉSERVATION échec : userId={UserId}, ligneReleveId={LigneReleveId}, mvId={MvId}", userId, request.LigneReleveId, request.MvId);
+                    throw;
+                }
             }
-            else
+        }
+
+        // TASK-066 : réservation en lot — un seul aller-retour HTTP pour N paires (au lieu d'un POST /reserve par paire).
+        // Verrouillage applock par enteteId toujours respecté côté repository (une seule prise par enteteId distinct,
+        // tenue pour toute la transaction du lot).
+        [HttpPost("reserve-batch")]
+        public async Task<IActionResult> ReserveLignesBatch([FromBody] List<ReserveRequest> requests)
+        {
+            var userIdStr = User.FindFirst("UserId")?.Value;
+            if (!int.TryParse(userIdStr, out int userId))
+                return Unauthorized();
+
+            if (requests == null || requests.Count == 0)
+                return BadRequest("Aucune paire à réserver.");
+
+            using (_logger.BeginScope("Réservation lot userId={UserId} nbPaires={NbPaires}", userId, requests.Count))
             {
-                var conflitInfo = await _releveRepository.GetLigneConflitAsync(request.LigneReleveId, request.MvId);
-                return StatusCode(409, new { message = "Ligne ou règlement déjà réservé.", detail = conflitInfo });
+                _logger.LogInformation(
+                    "RÉSERVATION LOT entrée : userId={UserId}, {NbPaires} paire(s) : {Paires}",
+                    userId, requests.Count,
+                    string.Join(", ", requests.Select(r => $"[ligne={r.LigneReleveId},mv={r.MvId}]")));
+
+                var items = requests.Select(r => new ReserveBatchItemDto { LigneReleveId = r.LigneReleveId, MvId = r.MvId }).ToList();
+                var resultats = await _releveRepository.ReserverLignesBatchAsync(items, userId);
+
+                _logger.LogInformation(
+                    "RÉSERVATION LOT sortie : {Success}/{Total} succès",
+                    resultats.Count(r => r.Success), requests.Count);
+
+                return Ok(resultats);
             }
         }
 
@@ -215,6 +293,52 @@ namespace GRC.API.Controllers
             
             return NoContent();
         }
+
+        // TASK-060 — Endpoint de génération d'un règlement versement (ModeNo = 12) depuis une ligne de relevé bancaire.
+        [HttpPost("generer-reglement")]
+        public async Task<IActionResult> GenererReglementVersement([FromBody] GenererReglementVersementRequest request)
+        {
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId))
+                return Unauthorized();
+
+            if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId))
+                return Unauthorized();
+
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
+            if (request == null || request.LigneReleveId <= 0 || string.IsNullOrWhiteSpace(request.ClientCode) || string.IsNullOrWhiteSpace(request.CaisseCode))
+                return BadRequest(new { success = false, erreur = "La ligne de relevé, le client et la caisse sont obligatoires." });
+
+            using (_logger.BeginScope("Génération versement userId={UserId} ligneReleveId={LigneReleveId} caisse={CaisseCode} client={ClientCode}",
+                userId, request.LigneReleveId, request.CaisseCode, request.ClientCode))
+            {
+                _logger.LogInformation(
+                    "GÉNÉRATION VERSEMENT entrée : userId={UserId}, ligneReleveId={LigneReleveId}, client={ClientCode}, caisse={CaisseCode}",
+                    userId, request.LigneReleveId, request.ClientCode, request.CaisseCode);
+                try
+                {
+                    var result = await _generationService.GenererVersementDepuisReleveAsync(
+                        userId, societeId, request.LigneReleveId, request.ClientCode, request.CaisseCode, request.MvReference, isAdmin);
+
+                    if (!result.Success)
+                    {
+                        return BadRequest(result);
+                    }
+
+                    return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "GÉNÉRATION VERSEMENT refusée (autorisation) : userId={UserId}", userId);
+                    return Forbid();
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "GÉNÉRATION VERSEMENT échec : userId={UserId}", userId);
+                    return BadRequest(new GRC.Infrastructure.Services.ReglementVersementResultDto { Success = false, Erreur = ex.Message });
+                }
+            }
+        }
     }
 
     public class AutoReconcileRequest
@@ -223,5 +347,13 @@ namespace GRC.API.Controllers
         public int? BanqueId { get; set; }
         public System.DateTime? DateDebut { get; set; }
         public System.DateTime? DateFin { get; set; }
+    }
+
+    public class GenererReglementVersementRequest
+    {
+        public long LigneReleveId { get; set; }
+        public string ClientCode { get; set; } = string.Empty;
+        public string CaisseCode { get; set; } = string.Empty;
+        public string MvReference { get; set; } = string.Empty;
     }
 }

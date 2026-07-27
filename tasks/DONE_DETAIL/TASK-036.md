@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Architecture
-- **Statut** : TODO
+- **Statut** : APPROVE (2026-07-14, après 1 REJECT — voir CHANGELOG)
 - **Dépend de** : TASK-035
 
 ## Contexte
@@ -148,8 +148,8 @@ post-comptabilisation**, keyé sur l'`EcNo`/id de l'écriture générée.
 - ✅ **`Reference`** = 1er n° de document de `MV_Reference` ; **`Libelle`** = mode + intitulé client.
 - ✅ **`DocNumero1`/`DocNumero2`** = `MV_Reference` découpé au `#` (les 2 colonnes nommées).
 - ✅ **Date = `MV_Date` pour tous les types**.
-- 🟡 **Journal caisse garde le compteur Sage** : si oui, aiguillage décorateur (forcer
-  `MV_Piece` sauf caisse) ; si non, `MV_Piece` partout.
+- ✅ **Journal caisse garde le compteur Sage** : **non** — TASK-038 (2026-07-10) a retiré l'exception
+  espèce ; `MV_Piece` forcé partout pour tout règlement présent dans la vue, repli Sage seulement si absent.
 - ✅ **Réfs BL** : 2 colonnes nouvelles de 69 car., découpage au `#` (jamais couper un BL),
   alimentées par **UPDATE post-comptabilisation** (colonnes non mappées par la DLL).
 - ✅ **Intitulé client** : résolu via cascade `FG_DOCENTETE_SAUV → F_DOCENTETE → F_DOCLIGNE`
@@ -167,13 +167,17 @@ post-comptabilisation**, keyé sur l'`EcNo`/id de l'écriture générée.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Date effective de l'écriture = MV_Date (tous types) — validé sur aperçu réel
-- [ ] Rapproché : pièce = MV_Piece ; caisse : compteur Sage (selon décision)
-- [ ] Reference = 1er doc de MV_Reference ; Libelle = mode + intitulé client
-- [ ] DocNumero1/DocNumero2 = MV_Reference découpé au # (jamais couper un BL), via UPDATE post-compta
-- [ ] Champs non réécrits par le comptabilizer (vérifié) ; pièce forcée effective
-- [ ] Pas de collision de pièce ; cohérence partie double (même pièce toutes lignes)
-- [ ] Décomptabilisation testée
-- [ ] Aucun bypass DLL ; UPDATE brut absent (ou justifié/documenté)
-- [ ] Cohérent avec l'architecture
+- [x] Build OK
+- [x] Date effective de l'écriture = MV_Date (tous types) — validé sur aperçu réel ET sur compta réelle
+- [x] Rapproché : pièce = MV_Piece pour tous les types/modes présents dans la vue, y compris caisse/espèce
+      (exception espèce initiale retirée par TASK-038, 2026-07-10) ; repli compteur Sage seulement si absent de la vue
+- [x] Reference = 1er doc de MV_Reference ; Libelle = mode + intitulé client
+- [x] DocNumero1/DocNumero2 = MV_Reference découpé au # (jamais couper un BL), via UPDATE post-compta — rejoué en
+      run live avec succès le 2026-07-14 (règlement 48053)
+- [x] Champs non réécrits par le comptabilizer (vérifié) ; pièce forcée effective
+- [x] Pas de collision de pièce ; cohérence partie double (même pièce toutes lignes)
+- [~] Décomptabilisation testée — **différé par décision PO (2026-07-14), non bloquant** ; opération native
+      Sage/Trésorerie non exposée par GRC_WEB, non testable depuis ce code
+- [x] Aucun bypass DLL ; UPDATE brut absent (ou justifié/documenté) — UPDATE limité à DocNumero1/2 (colonnes
+      custom non gérées par la DLL), demandé par le PO
+- [x] Cohérent avec l'architecture

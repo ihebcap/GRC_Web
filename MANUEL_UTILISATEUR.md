@@ -19,8 +19,11 @@ ensemble sans se marcher dessus.
 3. [Consulter les règlements clients](#3-consulter-les-règlements-clients)
 4. [Importer un relevé bancaire](#4-importer-un-relevé-bancaire)
 5. [Rapprocher : automatique & manuel](#5-rapprocher--automatique--manuel)
-6. [Travailler à plusieurs sans conflit](#6-travailler-à-plusieurs-sans-conflit)
-7. [Ce que l'application vous fait gagner](#7-ce-que-lapplication-vous-fait-gagner)
+6. [Générer un règlement espèce depuis les factures ouvertes](#6-générer-un-règlement-espèce-depuis-les-factures-ouvertes)
+7. [Générer un règlement versement depuis le relevé bancaire](#7-générer-un-règlement-versement-depuis-le-relevé-bancaire)
+8. [Travailler à plusieurs sans conflit](#8-travailler-à-plusieurs-sans-conflit)
+9. [Suivi du recouvrement par BL (Metabase)](#9-suivi-du-recouvrement-par-bl-metabase)
+10. [Ce que l'application vous fait gagner](#10-ce-que-lapplication-vous-fait-gagner)
 
 ---
 
@@ -107,6 +110,10 @@ affichées et les filtres appliqués — pratique pour un contrôle ou une trans
 Le bouton `Rapprocher` bascule le tableau en mode sélection. Pour éviter toute erreur, le filtre
 pertinent est alors **verrouillé** (🔒) : seuls les règlements non pointés sont proposés.
 
+> **À savoir** — Le champ Référence saisi sur chaque règlement doit toujours contenir le(s) numéro(s)
+> de BL/facture concerné(s) (voir la règle de saisie détaillée en section 7, indispensable au calcul
+> du recouvrement).
+
 > **Bénéfice** — Colonnes, tris et filtres personnalisables + export : chacun retrouve
 > l'information qu'il cherche en quelques secondes, sans ouvrir un autre outil.
 
@@ -171,7 +178,48 @@ contrepartie dans l'autre. La paire est créée et reçoit à son tour un repèr
 
 ---
 
-## 6. Travailler à plusieurs sans conflit
+## 6. Générer un règlement espèce depuis les factures ouvertes
+
+Cet écran permet de créer directement des **règlements client en espèce**, sans passer par un
+relevé bancaire — pour les encaissements en caisse.
+
+1. L'écran affiche la liste complète des **factures ouvertes** (solde > 0) de la société, tous
+   clients confondus. Filtrez par colonne (client, n° facture, dates, solde…) comme sur un tableau
+   Excel, et choisissez les colonnes affichées via `Colonnes` (ce choix est mémorisé).
+2. **Cochez** une ou plusieurs factures à régler — le total sélectionné s'affiche en continu.
+3. **Choisissez la caisse** (limitée à celles affectées à votre profil).
+4. Cliquez `Générer` : un **règlement espèce est créé par facture cochée**, affecté intégralement
+   sur l'échéance correspondante.
+5. Le résultat détaille, facture par facture, les règlements créés avec succès et ceux en échec
+   (avec le motif) — un échec sur une facture ne bloque pas les autres.
+
+> **Bénéfice** — Plus besoin de ressaisir un règlement facture par facture dans un autre outil : la
+> génération et l'affectation se font en un clic, avec un compte-rendu clair en cas d'échec partiel.
+
+---
+
+## 7. Générer un règlement versement depuis le relevé bancaire
+
+Pour une ligne de relevé bancaire qui n'a pas de contrepartie existante côté GRC (encaissement
+jamais saisi), il n'est plus nécessaire de créer le règlement ailleurs puis de revenir rapprocher :
+il se génère directement depuis la ligne.
+
+1. Sur une ligne du relevé **non lettrée**, cliquez `Générer règlement`.
+2. Dans la fenêtre qui s'ouvre, le mode de règlement est fixé à **Versement**. Renseignez :
+   - **Client** — recherche par code ou intitulé (suggestions).
+   - **Caisse** — parmi celles affectées à votre profil.
+   - **Référence** — pré-remplie avec la référence du relevé, modifiable (voir la
+     [règle de saisie de la référence](#règle-de-saisie-de-la-référence) pour le lien BL/facture).
+3. `Générer le règlement` crée le règlement pour le montant de la ligne de relevé.
+4. Le règlement créé n'est **pas encore rapproché** : relancez l'auto-rapprochement (ou faites-le
+   manuellement) pour lettrer la ligne avec ce nouveau règlement.
+
+> **Bénéfice** — Les encaissements « surprise » du relevé (jamais saisis côté GRC) se traitent sans
+> sortir de l'écran de rapprochement.
+
+---
+
+## 8. Travailler à plusieurs sans conflit
 
 C'est le cœur de l'application : plusieurs opérateurs peuvent rapprocher **en même temps** sur les
 mêmes banques, sans se gêner ni se doublonner.
@@ -193,7 +241,64 @@ Pour vos collègues, ces lignes apparaissent **verrouillées** :
 
 ---
 
-## 7. Ce que l'application vous fait gagner
+## 9. Suivi du recouvrement par BL (Metabase)
+
+Le suivi du recouvrement — savoir combien reste dû sur chaque BL et chaque facture — **n'est pas un
+écran de GRC**. Il est disponible dans un tableau de bord **Metabase** dédié, alimenté directement
+depuis la gestion commerciale pour les BL/factures, et **obligatoirement depuis GRC** pour les
+règlements — **aucune autre source de règlement** n'est prise en compte dans ce calcul.
+
+### Ce que montre le tableau de bord
+
+Chaque ligne représente un BL ou une facture, avec :
+- Le dépôt d'origine et le client concerné.
+- Le montant total du document.
+- Le montant déjà réglé et le solde restant.
+- Un signal si un client a réglé plus que le montant dû (anomalie à vérifier).
+
+### Règle de saisie de la référence
+
+**Le champ Référence du règlement (saisi dans GRC) doit toujours contenir le(s) numéro(s) de BL ou
+de facture concerné(s).** Si un règlement couvre plusieurs BL/factures en une seule fois, séparez
+chaque numéro par le caractère **`#`** (ex. `BLG2601262#BLG2601263`). Cette règle n'est pas
+optionnelle : c'est ce champ qui permet au calcul ci-dessous de rattacher automatiquement le
+règlement au(x) bon(s) document(s). Un numéro absent ou mal saisi rend le document introuvable dans
+le calcul du solde — il apparaîtra comme non réglé même si le règlement existe.
+
+### Comment le solde est calculé
+
+**Cas général — BL et factures à montant positif.** Le solde de chaque document dépend
+uniquement des règlements qui le référencent :
+
+1. On identifie tous les règlements dont la référence saisie mentionne ce document. Un règlement
+   peut mentionner **plusieurs BL en une seule fois** (un client paie plusieurs livraisons d'un
+   coup avec un seul virement/chèque).
+2. Quand un règlement couvre plusieurs BL, son montant est **réparti automatiquement** entre eux :
+   le BL **le plus ancien est soldé en premier**, puis le règlement passe au suivant avec ce qui
+   reste, et ainsi de suite jusqu'à épuisement du montant — comme on éponge une dette en commençant
+   par la plus vieille facture impayée.
+3. **Solde = montant total du document − part des règlements qui lui a été affectée** à l'étape
+   précédente.
+4. **Un même document n'est jamais compté deux fois**, même s'il existe sous plusieurs formes dans
+   les systèmes de gestion — y compris quand une facture provient de l'éclatement d'un BL déjà
+   archivé : dans ce cas, seul le BL d'origine est affiché, pas les factures qui en découlent.
+
+**Cas particulier — avoirs (montants négatifs).** Le solde affiché vient directement de
+l'échéancier comptable, **pas** du calcul de répartition des règlements ci-dessus : un avoir ne se
+règle pas comme une vente.
+
+### Filtrage par dépôt
+
+Le tableau de bord affiche tous les dépôts ; c'est **Metabase** qui applique le filtre par dépôt
+selon l'utilisateur connecté, pas GRC.
+
+> **Bénéfice** — Une seule source pour savoir ce qui reste dû, avec des règles de calcul cohérentes
+> même sur les cas particuliers (versement groupé, BL multi-client, facture éclatée) — sans
+> ressaisie ni tableur parallèle.
+
+---
+
+## 10. Ce que l'application vous fait gagner
 
 En résumé, l'application a un but simple : **faire le rapprochement à votre place partout où c'est
 évident, et fiabiliser le reste.**

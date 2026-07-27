@@ -289,7 +289,7 @@
       supprimer le pointage manuel ligne à ligne et permettre à plusieurs opérateurs de travailler ensemble sans se marcher dessus.</p>
     <div class="meta">
       <span><b>Public</b> — gestionnaires trésorerie &amp; comptabilité client</span>
-      <span><b>Périmètre</b> — Règlements · Relevés · Rapprochement</span>
+      <span><b>Périmètre</b> — Règlements · Relevés · Rapprochement · Comptabilisation · Lettrage · Recouvrement BL (Metabase)</span>
       <span><b>Accès</b> — application web, session par société</span>
     </div>
 
@@ -301,7 +301,12 @@
         <li><a href="#reglements">Consulter les règlements clients</a></li>
         <li><a href="#releves">Importer un relevé bancaire</a></li>
         <li><a href="#rapprochement">Rapprocher (auto &amp; manuel)</a></li>
+        <li><a href="#reglement-espece">Générer un règlement espèce</a></li>
+        <li><a href="#reglement-versement">Générer un règlement versement depuis le relevé</a></li>
         <li><a href="#collaboration">Travail à plusieurs sans conflit</a></li>
+        <li><a href="#comptabilisation">Comptabiliser les règlements</a></li>
+        <li><a href="#lettrage">Le lettrage</a></li>
+        <li><a href="#recouvrement">Suivi du recouvrement par BL (Metabase)</a></li>
         <li><a href="#benefices">Ce que l'application vous fait gagner</a></li>
       </ol>
     </nav>
@@ -417,6 +422,12 @@
       <h3>Rapprochement rapide depuis cette vue</h3>
       <p>Le bouton <kbd>Rapprocher</kbd> bascule le tableau en mode sélection. Pour éviter toute erreur, le filtre
         pertinent est alors <b>verrouillé</b> (🔒) : seuls les règlements non pointés sont proposés.</p>
+
+      <div class="note">
+        <b>À savoir.</b> Le champ Référence saisi sur chaque règlement doit toujours contenir le(s)
+        numéro(s) de BL/facture concerné(s) (règle de saisie détaillée en section 09, indispensable
+        au calcul du recouvrement).</div>
+
       <div class="benefit">
         <span class="tag">Bénéfice</span>
         <p>Colonnes, tris et filtres personnalisables + export : chacun retrouve l'information qu'il cherche en
@@ -490,8 +501,57 @@
   </section>
 
   <!-- 6 -->
+  <section id="reglement-espece">
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Générer un règlement espèce depuis les factures ouvertes</h2></div>
+    <div class="sec-body">
+      <p>Cet écran permet de créer directement des <b>règlements client en espèce</b>, sans passer par un relevé
+        bancaire — pour les encaissements en caisse.</p>
+      <ol class="steps">
+        <li>L'écran affiche la liste complète des <b>factures ouvertes</b> (solde &gt; 0) de la société, tous clients
+          confondus. Filtrez par colonne (client, n° facture, dates, solde…) comme sur un tableau Excel, et choisissez
+          les colonnes affichées via <kbd>Colonnes</kbd> (ce choix est mémorisé).</li>
+        <li><b>Cochez</b> une ou plusieurs factures à régler — le total sélectionné s'affiche en continu.</li>
+        <li><b>Choisissez la caisse</b> (limitée à celles affectées à votre profil).</li>
+        <li>Cliquez <kbd>Générer</kbd> : un <b>règlement espèce est créé par facture cochée</b>, affecté intégralement
+          sur l'échéance correspondante.</li>
+        <li>Le résultat détaille, facture par facture, les règlements créés avec succès et ceux en échec (avec le
+          motif) — un échec sur une facture ne bloque pas les autres.</li>
+      </ol>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Plus besoin de ressaisir un règlement facture par facture dans un autre outil : la génération et
+          l'affectation se font en un clic, avec un compte-rendu clair en cas d'échec partiel.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section id="reglement-versement">
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">Générer un règlement versement depuis le relevé bancaire</h2></div>
+    <div class="sec-body">
+      <p>Pour une ligne de relevé bancaire qui n'a pas de contrepartie existante côté GRC (encaissement jamais saisi),
+        il n'est plus nécessaire de créer le règlement ailleurs puis de revenir rapprocher : il se génère directement
+        depuis la ligne.</p>
+      <ol class="steps">
+        <li>Sur une ligne du relevé <b>non lettrée</b>, cliquez <kbd>Générer règlement</kbd>.</li>
+        <li>Dans la fenêtre qui s'ouvre, le mode de règlement est fixé à <b>Versement</b>. Renseignez le
+          <b>Client</b> (recherche par code ou intitulé), la <b>Caisse</b> (parmi celles affectées à votre profil) et
+          la <b>Référence</b> (pré-remplie avec la référence du relevé, modifiable).</li>
+        <li><kbd>Générer le règlement</kbd> crée le règlement pour le montant de la ligne de relevé.</li>
+        <li>Le règlement créé n'est <b>pas encore rapproché</b> : relancez l'auto-rapprochement (ou faites-le
+          manuellement) pour lettrer la ligne avec ce nouveau règlement.</li>
+      </ol>
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Les encaissements « surprise » du relevé (jamais saisis côté GRC) se traitent sans sortir de l'écran de
+          rapprochement.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 -->
   <section id="collaboration">
-    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Travailler à plusieurs sans conflit</h2></div>
+    <div class="sec-head"><span class="sec-num">08</span><h2 class="sec-title">Travailler à plusieurs sans conflit</h2></div>
     <div class="sec-body">
       <p>C'est le cœur de l'application : plusieurs opérateurs peuvent rapprocher <b>en même temps</b> sur les mêmes
         banques, sans se gêner ni se doublonner.</p>
@@ -513,9 +573,206 @@
     </div>
   </section>
 
-  <!-- 7 -->
+  <!-- 9 -->
+  <section id="comptabilisation">
+    <div class="sec-head"><span class="sec-num">09</span><h2 class="sec-title">Comptabiliser les règlements</h2></div>
+    <div class="sec-body">
+      <p>Comptabiliser, c'est transformer un encaissement enregistré en gestion en <b>écritures comptables</b> dans
+        Sage — sans aucune ressaisie. L'application génère les écritures, les soumet à votre contrôle, puis les écrit
+        seulement quand vous validez.</p>
+
+      <h3>Le déroulé</h3>
+      <ol class="steps">
+        <li><b>Ouvrez le mode Comptabilisation.</b> Dans <b>Règlements Clients</b>, cliquez <kbd>Comptabiliser</kbd>.
+          Le filtre de la colonne <b>Comptabilisé</b> se verrouille (🔒) sur <b>Non</b> : seuls les règlements pas
+          encore comptabilisés vous sont proposés.</li>
+        <li><b>Sélectionnez les règlements</b> — un seul ou plusieurs. Le bouton indique le nombre retenu :
+          <kbd>Comptabiliser (n)</kbd>.</li>
+        <li><b>Contrôlez l'aperçu.</b> Un écran présente, règlement par règlement, les écritures qui <i>seraient</i>
+          générées : Journal, Compte, Contrepartie, Tiers, Libellé, Sens, Débit, Crédit, Échéance et Pièce. La colonne
+          <b>Statut Balance</b> vous dit si le groupe d'écritures est équilibré.</li>
+        <li><b>Validez.</b> Le bouton <kbd>Comptabiliser</kbd> de l'aperçu écrit réellement les écritures, puis tente
+          le lettrage automatiquement (voir section suivante).</li>
+      </ol>
+
+      <div class="note">
+        <b>L'aperçu n'écrit rien.</b> Il est en lecture seule : vous pouvez l'ouvrir, le relire, le fermer sans aucune
+        conséquence. Seul le bouton <b>Comptabiliser</b> de l'aperçu engage l'écriture. À noter : le n° de pièce affiché
+        dans l'aperçu est <b>indicatif</b> (marqué <kbd>Pièce*</kbd>) — il est attribué définitivement au moment de la
+        comptabilisation réelle.</div>
+
+      <h3>Ce que contient chaque champ de l'écriture</h3>
+      <p>Les quatre champs ne se remplissent pas de la même façon selon le mode de règlement. La colonne
+        « Espèce » s'applique au seul mode <b>Espèce</b> ; <b>tous les autres modes</b> (versement, virement, chèque,
+        traite…) suivent la colonne « Hors espèce ».</p>
+      <div class="table-scroll">
+        <table class="map">
+          <thead><tr><th>Champ</th><th>Mode Espèce</th><th>Hors espèce</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Libellé</td>
+              <td><kbd>ESP</kbd> suivi du n° de facture — ex. <span class="path">ESP FAG2637621</span>.
+                Si aucune facture n'a pu être identifiée : <kbd>ESP</kbd> seul.</td>
+              <td>Le libellé <b>saisi par le magasin</b>. S'il est vide, le mot <kbd>Versement</kbd>.</td>
+            </tr>
+            <tr>
+              <td>Référence</td>
+              <td>Le n° de <b>BL</b> — ex. <span class="path">BLG2602515</span>.</td>
+              <td>Le n° de <b>BL d'origine</b> (la référence portée par le règlement).</td>
+            </tr>
+            <tr>
+              <td>N° Pièce</td>
+              <td>Le n° de règlement <b>sans le préfixe RC</b> — <span class="path">RC26051139</span> devient
+                <span class="path">26051139</span>.</td>
+              <td>Le <b>code banque</b>.</td>
+            </tr>
+            <tr>
+              <td>N° Facture</td>
+              <td>Le n° de facture. La référence bancaire du règlement est conservée dans la seconde zone : rien n'est perdu.</td>
+              <td>Les documents d'origine, répartis sur les deux zones quand le règlement en porte plusieurs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Les règles de gestion</h3>
+      <ul class="clean">
+        <li><b>D'où vient le n° de facture</b> — de l'<b>affectation</b> du règlement, pas d'une lecture du libellé.
+          Si le règlement est affecté à plusieurs factures, c'est la <b>première affectation</b> qui est retenue ;
+          s'il n'est affecté à aucune, le libellé se limite à <kbd>ESP</kbd>.</li>
+        <li><b>Un libellé n'est jamais vide, une pièce non plus.</b> C'est garanti : le repli
+          <kbd>Versement</kbd> couvre le libellé, et si un code banque manque, le n° de règlement prend le relais.</li>
+        <li><b>Les champs sont tronqués aux longueurs de Sage</b> — 69 caractères pour le libellé, 13 pour la pièce,
+          17 pour la référence. Quand un règlement porte plusieurs documents, la référence est coupée mais la liste
+          complète reste lisible dans les deux zones <b>N° Facture</b>.</li>
+        <li><b>Aperçu et comptabilisation disent la même chose.</b> Les valeurs sont calculées à un seul endroit et
+          partagées par les deux écrans : ce que l'aperçu affiche est exactement ce qui sera écrit.</li>
+        <li><b>Un règlement déjà comptabilisé est ignoré</b> — même sélectionné par erreur, il ne peut pas être
+          comptabilisé une seconde fois.</li>
+      </ul>
+
+      <div class="note">
+        <b>Une vérification reste à votre charge.</b> Un chèque, une traite ou un virement <b>non rapproché</b> ne doit
+        pas être comptabilisé : l'application ne vous en empêche pas. Rapprochez d'abord, comptabilisez ensuite.</div>
+
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Les écritures sont construites par l'application selon des règles fixes, identiques pour tout le monde et
+          à chaque fois. Vous contrôlez un aperçu au lieu de saisir : plus de libellé approximatif, plus de pièce
+          oubliée, et aucune écriture passée deux fois.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section id="lettrage">
+    <div class="sec-head"><span class="sec-num">10</span><h2 class="sec-title">Le lettrage</h2></div>
+    <div class="sec-body">
+      <p>Le lettrage relie, en comptabilité, l'écriture du <b>règlement</b> à celle de la <b>facture</b> qu'il paie.
+        C'est ce qui permet de considérer la facture comme soldée et de ne plus la voir dans les comptes clients ouverts.</p>
+
+      <h3>Automatique, juste après la comptabilisation</h3>
+      <p>Dès qu'un règlement est comptabilisé, l'application <b>tente le lettrage toute seule</b>. Vous n'avez rien à faire.</p>
+      <div class="note">
+        <b>Le lettrage ne bloque jamais la comptabilisation.</b> S'il n'aboutit pas, l'écriture reste bien passée et
+        un avertissement vous l'indique : <i>« comptabilisé, non lettré »</i>. Les deux causes habituelles sont une
+        <b>affectation partielle</b> du règlement et un <b>exercice clôturé</b>. Le règlement pourra être lettré plus tard.</div>
+
+      <h3>Lettrer entre deux périodes</h3>
+      <p>Le bouton <kbd>Lettrer entre deux périodes</kbd>, dans <b>Règlements Clients</b>, sert à rattraper les
+        lettrages qui n'ont pas abouti. Vous saisissez seulement une période <b>Du / Au</b> — il n'y a aucune ligne à
+        sélectionner. L'application identifie tous les clients ayant un règlement dans cette période et lance le
+        lettrage pour chacun.</p>
+      <div class="note">
+        <b>Cette action ne se limite pas à ce que vous voyez à l'écran.</b> Pour chaque client concerné, elle balaie
+        <b>tout son historique sur la période choisie</b>, indépendamment des filtres affichés. Choisissez la période
+        avec soin.</div>
+
+      <h3>À ne pas confondre avec le repère de rapprochement</h3>
+      <p>La lettre (A, B, C…) affichée dans l'écran <b>Rapprochement</b> n'a rien à voir avec le lettrage comptable :
+        c'est un simple <b>repère visuel</b> qui matérialise à l'écran le lien entre une ligne du relevé et un
+        règlement. Il n'est jamais transmis à la comptabilité.</p>
+
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Le lettrage suit la comptabilisation sans intervention. Quand il échoue, vous le savez immédiatement au
+          lieu de le découvrir dans un compte client, et un bouton suffit à rattraper toute une période.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section id="recouvrement">
+    <div class="sec-head"><span class="sec-num">11</span><h2 class="sec-title">Suivi du recouvrement par BL (Metabase)</h2></div>
+    <div class="sec-body">
+      <p>Le suivi du recouvrement — savoir combien reste dû sur chaque BL et chaque facture — <b>n'est
+        pas un écran de GRC</b>. Il est disponible dans un tableau de bord <b>Metabase</b> dédié,
+        alimenté directement depuis la gestion commerciale pour les BL/factures, et
+        <b>obligatoirement depuis GRC</b> pour les règlements — <b>aucune autre source de
+        règlement</b> n'est prise en compte dans ce calcul.</p>
+
+      <h3>Ce que montre le tableau de bord</h3>
+      <p>Chaque ligne représente un BL ou une facture, avec :</p>
+      <ul class="clean">
+        <li>Le dépôt d'origine et le client concerné.</li>
+        <li>Le montant total du document.</li>
+        <li>Le montant déjà réglé et le solde restant.</li>
+        <li>Un signal si un client a réglé plus que le montant dû (anomalie à vérifier).</li>
+      </ul>
+
+      <h3>Règle de saisie de la référence</h3>
+      <p><b>Le champ Référence du règlement (saisi dans GRC) doit toujours contenir le(s) numéro(s)
+        de BL ou de facture concerné(s).</b> Si un règlement couvre plusieurs BL/factures en une seule
+        fois, séparez chaque numéro par le caractère <kbd>#</kbd> (ex.
+        <span class="path">BLG2601262#BLG2601263</span>). Cette règle n'est pas optionnelle : c'est
+        ce champ qui permet au calcul ci-dessous de rattacher automatiquement le règlement au(x)
+        bon(s) document(s). Un numéro absent ou mal saisi rend le document introuvable dans le calcul
+        du solde — il apparaîtra comme non réglé même si le règlement existe.</p>
+
+      <h3>Comment le solde est calculé</h3>
+      <p><b>Cas général — BL et factures à montant positif.</b> Le solde de chaque document dépend
+        uniquement des règlements qui le référencent :</p>
+      <ol class="steps">
+        <li>On identifie tous les règlements dont la référence saisie mentionne ce document. Un
+          règlement peut mentionner <b>plusieurs BL en une seule fois</b> (un client paie plusieurs
+          livraisons d'un coup avec un seul virement/chèque).</li>
+        <li>Quand un règlement couvre plusieurs BL, son montant est <b>réparti automatiquement</b>
+          entre eux : le BL <b>le plus ancien est soldé en premier</b>, puis le règlement passe au
+          suivant avec ce qui reste, et ainsi de suite jusqu'à épuisement du montant — comme on
+          éponge une dette en commençant par la plus vieille facture impayée.</li>
+        <li><b>Solde = montant total du document − part des règlements qui lui a été affectée</b> à
+          l'étape précédente.</li>
+        <li><b>Un même document n'est jamais compté deux fois</b>, même s'il existe sous plusieurs
+          formes dans les systèmes de gestion — y compris quand une facture provient de l'éclatement
+          d'un BL déjà archivé : dans ce cas, seul le BL d'origine est affiché, pas les factures qui
+          en découlent.</li>
+      </ol>
+      <p><b>Cas particulier — avoirs (montants négatifs).</b> Le solde affiché vient directement de
+        l'échéancier comptable, <b>pas</b> du calcul de répartition des règlements ci-dessus : un
+        avoir ne se règle pas comme une vente.</p>
+
+      <h3>Filtrage par dépôt</h3>
+      <p>Le tableau de bord affiche tous les dépôts ; c'est <b>Metabase</b> qui applique le filtre par
+        dépôt selon l'utilisateur connecté, pas GRC.</p>
+
+      <div class="note">
+        <b>Les chiffres ont jusqu'à 15 minutes de décalage.</b> Le recouvrement n'est pas recalculé à
+        chaque clic : un rafraîchissement automatique tourne toutes les <b>15 minutes</b> en arrière-plan.
+        Un règlement saisi à l'instant peut donc ne pas encore apparaître dans le tableau de bord —
+        ce n'est pas une anomalie, patientez quelques minutes.</div>
+
+      <div class="benefit">
+        <span class="tag">Bénéfice</span>
+        <p>Une seule source pour savoir ce qui reste dû, avec des règles de calcul cohérentes même sur
+          les cas particuliers (versement groupé, BL multi-client, facture éclatée) — sans ressaisie
+          ni tableur parallèle.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 -->
   <section id="benefices">
-    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">Ce que l'application vous fait gagner</h2></div>
+    <div class="sec-head"><span class="sec-num">12</span><h2 class="sec-title">Ce que l'application vous fait gagner</h2></div>
     <div class="sec-body">
       <p>En résumé, l'application a un but simple : <b>faire le rapprochement à votre place partout où c'est évident,
         et fiabiliser le reste.</b></p>
@@ -532,6 +789,10 @@
           <p>Rien n'est écrit en base avant approbation ; un écart de montant est signalé et demande confirmation.</p></div>
         <div class="card"><h4><span class="ic">📑</span>Traçabilité intégrée</h4>
           <p>Qui a importé, qui a réservé, quand : l'historique répond aux questions de contrôle sans effort.</p></div>
+        <div class="card"><h4><span class="ic">🧾</span>Des écritures sans ressaisie</h4>
+          <p>Libellé, référence, pièce et n° de facture sont construits par des règles fixes. Vous contrôlez un aperçu au lieu de saisir.</p></div>
+        <div class="card"><h4><span class="ic">🔗</span>Lettrage automatique</h4>
+          <p>Il suit la comptabilisation tout seul, et vous prévient quand il n'aboutit pas — au lieu de vous le laisser découvrir.</p></div>
         <div class="card"><h4><span class="ic">🎛️</span>Vue sur mesure</h4>
           <p>Colonnes, tris, filtres façon Excel et export : chacun compose l'affichage dont il a besoin.</p></div>
         <div class="card"><h4><span class="ic">🤝</span>Charge partagée</h4>

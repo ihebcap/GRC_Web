@@ -31,9 +31,19 @@
     <Reference Include="Tresorerie.Infrastructure">
       <HintPath>..\libs\Tresorerie\Tresorerie.Infrastructure.dll</HintPath>
     </Reference>
+    <Reference Include="ApLicence.Core">
+      <HintPath>..\libs\Tresorerie\ApLicence.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Tresorerie.Authorization.Core">
+      <HintPath>..\libs\Tresorerie\Tresorerie.Authorization.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Tresorerie.UICommun">
+      <HintPath>..\libs\Tresorerie\Tresorerie.UICommun.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />

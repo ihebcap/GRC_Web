@@ -23,6 +23,9 @@ Résultat attendu, mesurable.
 ## Contraintes
 - Ne jamais bypasser une règle de sécurité ou une DLL métier GRC.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
+- Si la tâche introduit ou modifie une grille de données tabulaires : respecter
+  `ARCHITECTURE.md` § Grilles de données (réutiliser `ExcelFilter.tsx` + pattern colonnes,
+  pas de nouveau composant inventé).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 - [ ] Build OK

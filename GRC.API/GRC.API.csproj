@@ -11,7 +11,11 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="System.Data.SqlClient" Version="4.9.1" />
+    <!-- TASK-061 : contrôle de licence GRLicence (lecture seule, protocole REQUEST) -->
+    <PackageReference Include="GRLicence" Version="1.1.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,5 +41,34 @@
       <HintPath>..\libs\Ninject.dll</HintPath>
     </Reference>
   </ItemGroup>
+
+  <!-- Build : copie du dossier libs\Tresorerie dans la sortie (Debug ET Release).
+       Ces DLLs sont chargées dynamiquement au runtime par TresorerieNinjectKernel
+       (modules *.IoC.*.dll, SageCompta.Core, etc.) depuis <output>\libs\Tresorerie ;
+       elles ne sont pas toutes des <Reference>, donc rien ne les copie par défaut.
+       Sans ça : "0 modules", "SageCompta.Core introuvable", décorateur TASK-036 inactif. -->
+  <ItemGroup>
+    <None Include="..\libs\Tresorerie\*.dll">
+      <Link>libs\Tresorerie\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+  <!-- Build déterministe (TASK-043) : les DLL Trésorerie référencent un Serilog 2.10 homonyme
+       du Serilog 4.2 (NuGet) exigé par Serilog.AspNetCore (TASK-041). Les deux visent la RACINE
+       de sortie ; l'ordre de copie MSBuild étant non déterministe, le 2.10 pouvait masquer le 4.2
+       → System.IO.FileNotFoundException 'Serilog, Version=4.2.0.0' au démarrage selon le poste.
+       On retire de la copie-locale RACINE uniquement les Serilog* issus de libs\Tresorerie
+       (jamais ceux du cache NuGet). Le glob <None> ci-dessus continue de livrer ces DLL dans
+       libs\Tresorerie\ (sous-dossier) pour le chargement par le kernel Ninject Trésorerie. -->
+  <Target Name="RetirerSerilogHeriteDeLaRacine" AfterTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+          Condition="'%(Extension)' == '.dll'
+                     and $([System.String]::Copy('%(FileName)').StartsWith('Serilog'))
+                     and $([System.String]::Copy('%(FullPath)').Contains('libs\Tresorerie'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>

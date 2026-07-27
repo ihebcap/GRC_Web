@@ -31,11 +31,12 @@ export function ExcelFilter({ filterType, options, selectedValues, textValue, on
     if (isOpen) computePosition();
   }, [isOpen]);
 
-  // Synchronise les champs de plage avec la valeur stockée à l'ouverture
+  // Synchronise les champs de plage et de texte avec la valeur stockée à l'ouverture
   useEffect(() => {
     const [min, max] = (textValue || '').split('~');
     setRangeMin(min || '');
     setRangeMax(max || '');
+    setLocalText(textValue || '');
   }, [textValue, isOpen]);
 
   const applyRange = () => {
@@ -66,7 +67,10 @@ export function ExcelFilter({ filterType, options, selectedValues, textValue, on
 
   const filteredOptions = React.useMemo(() => {
     if (!isOpen) return [];
-    return (options || []).filter(o => (o.label || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    return (options || []).filter(o =>
+      (o.label || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (o.value || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
   }, [options, searchTerm, isOpen]);
 
   const handleToggleAll = () => {

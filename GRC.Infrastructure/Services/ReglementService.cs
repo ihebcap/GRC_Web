@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using GRC.Application.Interfaces;
+using GRC.Application.Services;
+using GRC.Infrastructure.Repositories;
 using GRC.Infrastructure.Tresorerie;
 using global::Tresorerie.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace GRC.Infrastructure.Services
 {
@@ -12,14 +15,16 @@ namespace GRC.Infrastructure.Services
     {
         private readonly IDbConnectionFactory _dbFactory;
         private readonly TresorerieNinjectKernel _kernel;
+        private readonly ILogger<ReglementService> _logger;
 
-        public ReglementService(IDbConnectionFactory dbFactory, TresorerieNinjectKernel kernel)
+        public ReglementService(IDbConnectionFactory dbFactory, TresorerieNinjectKernel kernel, ILogger<ReglementService> logger)
         {
             _dbFactory = dbFactory;
             _kernel = kernel;
+            _logger = logger;
         }
 
-        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false)
+        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false)
         {
             if (isAdmin)
             {
@@ -53,8 +58,9 @@ namespace GRC.Infrastructure.Services
                 allReglements = repo.GetAll(societeId, debut, fin, caissesList) ?? new List<ReglementClient>();
             }
 
-            // Filtrer les règlements éligibles au rapprochement bancaire
-            allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
+            // Filtrer les règlements éligibles au rapprochement bancaire (uniquement si demandé)
+            if (eligibleRappBancaire)
+                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
 
             // Application des filtres dynamiques
             if (!string.IsNullOrEmpty(clientFilter)) {
@@ -230,7 +236,7 @@ namespace GRC.Infrastructure.Services
             }).ToList();
         }
 
-        public object GetDistinctReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, bool isAdmin = false)
+        public object GetDistinctReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, bool isAdmin = false, bool eligibleRappBancaire = false)
         {
             if (isAdmin)
             {
@@ -264,8 +270,9 @@ namespace GRC.Infrastructure.Services
                 allReglements = repo.GetAll(societeId, debut, fin, caissesList) ?? new List<ReglementClient>();
             }
 
-            // Filtrer les règlements éligibles au rapprochement bancaire
-            allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
+            // Filtrer les règlements éligibles au rapprochement bancaire (uniquement si demandé)
+            if (eligibleRappBancaire)
+                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
 
             var clients = allReglements.Where(r => !string.IsNullOrEmpty(r.ClientIntitule)).Select(r => r.ClientIntitule).Distinct().OrderBy(x => x).ToList();
             var numeros = allReglements.Where(r => !string.IsNullOrEmpty(r.Numero)).Select(r => r.Numero).Distinct().OrderBy(x => x).ToList();
@@ -286,39 +293,352 @@ namespace GRC.Infrastructure.Services
         {
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
-            
+
             var comptabilizer = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.IComptabilizer<global::Tresorerie.Core.Models.ReglementClient>>();
             var generator = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.IEcritureComptableGenerator<global::Tresorerie.Core.Models.ReglementClient>>();
+            // TASK-050 — Lettrage natif post-compta : ne lettre que si le règlement est totalement
+            // affecté (groupe d'écritures équilibré) ; filtre géré par la DLL, pas recodé ici.
+            var lettrage = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.ILettrageReglementClient>();
 
-            var options = new ParallelOptions { MaxDegreeOfParallelism = 10 };
+            // TASK-036/053 : valeurs métier (pièce, référence, libellé, DocNumero) depuis la vue GRC.
+            var viewRows = new ReglementComptaViewRepository(_dbFactory).GetByMvIds(reglementIds);
+
+            // TASK-047 — Société chargée UNE fois (lecture seule, même instance/config que celle que la DLL
+            // déréférence dans Generate) : sert à la garde de comptabilisabilité VerifierComptabilisable.
+            var societe = _kernel.GroupeService.SocieteManager.Societe;
+
+            // TASK-048 — La DLL Sage alloue elle-même IEC_ECNO (lecture du prochain n° puis INSERT) SANS verrou :
+            // elle n'est pas thread-safe. En parallèle, plusieurs threads lisaient le même « prochain n° » et
+            // collisionnaient sur la contrainte UNIQUE IEC_ECNO (SqlException 2627 → règlements perdus).
+            // Comptabilisation SÉQUENTIELLE (foreach) : un seul thread appelle jamais l'allocation → collision
+            // impossible par construction. Le curseur projet est la justesse comptable, pas le débit ; un lot de
+            // règlements ne justifie pas du parallélisme. Réduit aussi la pression MSDTC (compta cross-DB).
             int successCount = 0;
             int errorCount = 0;
-            var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+            var errors = new List<string>();
+            // Règlements comptabilisés mais dont les DocNumero1/2 n'ont pas pu être écrits :
+            // anomalie NON bloquante (la compta est committée), remontée explicitement (pas de silence).
+            var docNumeroWarnings = new List<string>();
+            // TASK-050 — Échecs/non-applications du lettrage natif (règlement partiel = cas normal,
+            // exercice clôturé = cas d'erreur) : jamais bloquant, jamais compté dans errorCount.
+            var lettrageWarnings = new List<string>();
 
-            Parallel.ForEach(reglementIds, options, id =>
+            foreach (var id in reglementIds)
             {
                 try
                 {
                     var connProvThread = new global::Tresorerie.Dapper.ConnectionProvider();
                     connProvThread.ConnectionString = _dbFactory.GetConnectionString();
                     var repoThread = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvThread);
-                    
+
                     var reg = repoThread.Get(id);
-                    if (reg != null && reg.IsComptabilise == 0)
+                    if (reg == null || reg.IsComptabilise != 0)
                     {
-                        var ecritures = generator.Generate(reg, null, null);
+                        _logger.LogInformation(
+                            "COMPTABILISATION : règlement {ReglementId} ignoré (introuvable={Introuvable} ou déjà comptabilisé IsComptabilise={Etat})",
+                            id, reg == null, reg?.IsComptabilise);
+                        continue;
+                    }
+
+                    // TASK-047 — Garde AVANT Generate : convertit le NRE opaque de la DLL en message métier clair.
+                    VerifierComptabilisable(societe, reg);
+
+                    viewRows.TryGetValue(reg.No, out var viewRow);
+
+                    // Pièce forcée = MV_Piece pour tous les types/modes présents dans la vue (TASK-038) ;
+                    // compteur Sage par défaut SEULEMENT si le règlement est absent de la vue.
+                    ComptaPieceContext.ForcedPiece = PieceAForcer(reg, viewRow);
+                    var pieceForcee = ComptaPieceContext.ForcedPiece;
+                    var (docNum1, docNum2) = viewRow != null
+                        ? CalculerDocNumeros(viewRow)
+                        : (string.Empty, string.Empty);
+                    _logger.LogInformation(
+                        "COMPTABILISATION écriture : reglementId={ReglementId}, pièceForcée={PieceForcee}, docNumero1={Doc1}, docNumero2={Doc2}, date={Date:yyyy-MM-dd}, montant={Montant}, mode={ModeNo}",
+                        id, pieceForcee, docNum1, docNum2, reg.Date, reg.MontantDeviseSociete, reg.ModeReglementNo);
+
+                    List<global::Tresorerie.Core.Models.EcritureComptable> ecritures;
+                    try
+                    {
+                        // Date = MV_Date (reg.Date) pour tous les types, via le paramètre date de Generate.
+                        ecritures = generator.Generate(reg, reg.Date, null).ToList();
+
+                        if (viewRow != null)
+                            AppliquerChampsVue(ecritures, viewRow);
+
                         comptabilizer.Comptabiliser(reg, ecritures);
-                        System.Threading.Interlocked.Increment(ref successCount);
+                    }
+                    finally
+                    {
+                        ComptaPieceContext.ForcedPiece = null;
+                    }
+
+                    // La compta est committée (IsComptabilise=1) et le re-run est impossible (garde IsComptabilise!=0).
+                    // On la compte donc en SUCCÈS ici, AVANT l'écriture des DocNumero : un échec sur ces colonnes
+                    // custom ne doit ni annuler la compta ni la faire basculer en erreur (statut trompeur).
+                    successCount++;
+                    _logger.LogInformation(
+                        "COMPTABILISATION OK : reglementId={ReglementId}, ErpNo affecté={ErpNos}, NumeroPiece={NumeroPieces}",
+                        id,
+                        string.Join(",", ecritures.Select(e => e.ErpNo).Distinct()),
+                        string.Join(",", ecritures.Select(e => e.NumeroPiece).Distinct()));
+
+                    // TASK-050 — Tentative de lettrage natif, jamais bloquante : un règlement partiellement
+                    // affecté (déséquilibre du groupe d'écritures) ou un exercice clôturé fait échouer/no-op
+                    // le lettrage en interne, sans que ce soit une erreur de compta.
+                    try
+                    {
+                        bool lettre = lettrage.LettrerAsync(reg).GetAwaiter().GetResult();
+                        _logger.LogInformation(
+                            "COMPTABILISATION lettrage : reglementId={ReglementId}, lettré={Lettre}", id, lettre);
+                        if (!lettre)
+                            lettrageWarnings.Add($"Règlement {id} comptabilisé, non lettré (affectation partielle ou exercice clôturé).");
+                    }
+                    catch (Exception exLettrage)
+                    {
+                        _logger.LogWarning(exLettrage,
+                            "COMPTABILISATION : règlement {ReglementId} comptabilisé mais lettrage échoué", id);
+                        lettrageWarnings.Add($"Règlement {id} comptabilisé, mais lettrage échoué : {exLettrage.Message}");
+                    }
+
+                    // DocNumero1/DocNumero2 : colonnes non mappées par la DLL → UPDATE post-compta, ISOLÉ.
+                    if (viewRow != null)
+                    {
+                        try
+                        {
+                            EcrireDocNumeros(ecritures, viewRow, id);
+                        }
+                        catch (Exception exDoc)
+                        {
+                            _logger.LogWarning(exDoc,
+                                "COMPTABILISATION : règlement {ReglementId} comptabilisé mais DocNumero1/2 non écrits", id);
+                            docNumeroWarnings.Add(
+                                $"Règlement {id} comptabilisé, mais DocNumero1/2 non écrits : {exDoc.Message}");
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    System.Threading.Interlocked.Increment(ref errorCount);
+                    _logger.LogError(ex,
+                        "COMPTABILISATION ÉCHEC : reglementId={ReglementId} — erreur DLL Sage : {Message}", id, ex.Message);
+                    errorCount++;
                     errors.Add($"Erreur sur le règlement {id}: {ex.Message}");
                 }
-            });
+            }
 
-            return new { success = true, successCount, errorCount, errors = errors.ToList() };
+            return new
+            {
+                success = true,
+                successCount,
+                errorCount,
+                errors = errors.ToList(),
+                docNumeroWarnings = docNumeroWarnings.ToList(),
+                lettrageWarnings = lettrageWarnings.ToList()
+            };
+        }
+
+        // TASK-051 — Lettrage manuel sur une période libre (dateMin/dateMax), indépendant de toute
+        // comptabilisation : résout les clients distincts ayant des règlements dans la période (même
+        // périmètre caisses/société que GetReglements) puis appelle le moteur natif Lettrer(clientNo,
+        // dateMin, dateMax) pour chacun. Aucune sélection de lignes côté appelant.
+        public object LettrerParPeriode(int societeId, int[] caissesList, DateTime dateMin, DateTime dateMax, bool isAdmin = false)
+        {
+            if (isAdmin)
+            {
+                using var sqlConn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+                caissesList = Dapper.SqlMapper.Query<int>(sqlConn, "SELECT CA_Id FROM RT_CAISSE WHERE SO_Id = @SocieteId", new { SocieteId = societeId }).ToArray();
+            }
+
+            var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
+            connProvider.ConnectionString = _dbFactory.GetConnectionString();
+            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+
+            // Même pattern de chunking que GetReglements/GetDistinctReglements (IN clause caisses).
+            IEnumerable<ReglementClient> allReglements;
+            if (caissesList.Length > 20)
+            {
+                var caissesChunks = caissesList.Chunk(20).ToList();
+                var allTasks = caissesChunks.Select(chunk => Task.Run(() =>
+                {
+                    var chunkRepo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+                    return chunkRepo.GetAll(societeId, dateMin, dateMax, chunk) ?? new List<ReglementClient>();
+                })).ToList();
+
+                Task.WaitAll(allTasks.ToArray());
+                allReglements = allTasks.SelectMany(t => t.Result).ToList();
+            }
+            else
+            {
+                allReglements = repo.GetAll(societeId, dateMin, dateMax, caissesList) ?? new List<ReglementClient>();
+            }
+
+            var clientsNo = allReglements.Select(r => r.ClientNo).Distinct().ToList();
+
+            var lettrage = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.ILettrageReglementClient>();
+
+            int clientsTraites = 0;
+            int clientsAvecLettrage = 0;
+            var errors = new List<string>();
+
+            // Boucle SÉQUENTIELLE : chaque Lettrer() ouvre son propre TransactionScope(Serializable)
+            // potentiellement multi-exercices — paralléliser cumulerait le risque de contention déjà
+            // écarté en TASK-048 (allocation IEC_ECNO non thread-safe côté DLL), en pire (transactions
+            // plus longues, multi-exercices par client).
+            foreach (var clientNo in clientsNo)
+            {
+                clientsTraites++;
+                try
+                {
+                    bool lettre = lettrage.Lettrer(clientNo, dateMin, dateMax);
+                    _logger.LogInformation(
+                        "LETTRAGE PÉRIODE : clientNo={ClientNo}, dateMin={DateMin:yyyy-MM-dd}, dateMax={DateMax:yyyy-MM-dd}, lettré={Lettre}",
+                        clientNo, dateMin, dateMax, lettre);
+                    if (lettre)
+                        clientsAvecLettrage++;
+                }
+                catch (Exception ex)
+                {
+                    // GetClient introuvable (client supprimé/fusionné entre-temps) ou exercice clôturé :
+                    // ne doit jamais interrompre le traitement des autres clients (TASK-051, étape 4).
+                    _logger.LogError(ex,
+                        "LETTRAGE PÉRIODE ÉCHEC : clientNo={ClientNo} — {Message}", clientNo, ex.Message);
+                    errors.Add($"Client {clientNo}: {ex.Message}");
+                }
+            }
+
+            return new
+            {
+                success = true,
+                clientsTraites,
+                clientsAvecLettrage,
+                errors
+            };
+        }
+
+        // TASK-053 — ChargerIntitulesModes supprimée : son seul usage était le repli du libellé
+        // (« mode de règlement + intitulé client »), désormais porté par la vue (mot « Versement »).
+
+        // TASK-038 — Pièce à forcer : MV_Piece pour TOUS les types/modes présents dans la vue
+        // (l'exception espèce de TASK-036 est retirée, la vue fournit désormais des pièces Sage-valides
+        // partout). Repli compteur Sage (null) uniquement si le règlement est absent de la vue.
+        private static string? PieceAForcer(global::Tresorerie.Core.Models.ReglementClient reg, ReglementComptaViewRow? viewRow)
+            => viewRow?.MV_Piece;
+
+        // TASK-047 — Garde de comptabilisabilité, EN AMONT de generator.Generate (point de vérité
+        // UNIQUE partagé par la compta réelle `Comptabiliser` ET l'aperçu `ApercuComptabilisation`).
+        // La DLL Sage déréférence sans null-check, dès l'entrée de Generate :
+        //     Societe.GetCaisse(reg.CaisseOrigine).GetMode(reg.ModeReglementNo).Type
+        // Or GetMode s'appuie sur SingleOrDefault : si le mode de règlement n'est PAS paramétré pour la
+        // caisse (couple caisse/mode absent de P_CAISSEMODREG), GetMode renvoie null → NullReferenceException
+        // opaque (cause du ticket sur le règlement 43168 : caisse 121 sans mode 18 « RELAIS »).
+        // On DÉTECTE ici la cause et on lève un message métier CLAIR ; on ne FABRIQUE aucune écriture et
+        // on ne contourne pas Generate. L'exception est captée par la gestion d'erreur PAR RÈGLEMENT
+        // (TASK-046) : le règlement KO est remonté avec ce message, sans arrêter le lot.
+        private void VerifierComptabilisable(
+            global::Tresorerie.Core.Models.Societe societe,
+            global::Tresorerie.Core.Models.ReglementClient reg)
+        {
+            var caisse = societe.GetCaisse(reg.CaisseOrigine);
+            if (caisse == null)
+                throw new InvalidOperationException(
+                    $"Règlement non comptabilisable : la caisse n°{reg.CaisseOrigine} est introuvable ou non paramétrée.");
+
+            var mode = caisse.GetMode(reg.ModeReglementNo);
+            if (mode == null)
+                throw new InvalidOperationException(
+                    $"Règlement non comptabilisable : le mode de règlement n°{reg.ModeReglementNo}{DecrireModeReglement(reg.ModeReglementNo)} n'est pas paramétré pour la caisse n°{reg.CaisseOrigine} (paramétrage comptable absent).");
+        }
+
+        // TASK-067 — Enrichit le message de VerifierComptabilisable avec l'intitulé du mode de règlement
+        // (ex. " (RELAIS)"), résolu via IModeReglementRepository (bindé dans TresorerieCoreDapperReplacementModule)
+        // indépendamment du couple caisse/mode qui vient justement de faire défaut ci-dessus. Ne doit jamais
+        // lever : cette garde protège l'appel DLL suivant d'une NullReferenceException, un échec du lookup
+        // d'intitulé ne doit pas devenir une nouvelle exception non gérée — numéro seul en repli.
+        private string DecrireModeReglement(int modeReglementNo)
+        {
+            try
+            {
+                var repo = _kernel.Resolve<global::Tresorerie.Core.Interfaces.IModeReglementRepository>();
+                var intitule = repo.Get(modeReglementNo)?.Intitule;
+                return string.IsNullOrWhiteSpace(intitule) ? string.Empty : $" ({intitule})";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "TASK-067 : résolution de l'intitulé du mode {ModeReglementNo} échouée, numéro seul affiché.", modeReglementNo);
+                return string.Empty;
+            }
+        }
+
+        // TASK-036/053 — Surcharge des champs non réécrits par le comptabilizer, à partir de la vue.
+        // TASK-053 : passe-plat pur. Tout le métier (espèce/hors espèce, repli « Versement »,
+        // extraction du 1er document, troncature aux longueurs Sage) est porté par la vue.
+        private static void AppliquerChampsVue(
+            List<global::Tresorerie.Core.Models.EcritureComptable> ecritures,
+            ReglementComptaViewRow viewRow)
+        {
+            var reference = (viewRow.ReferenceCompta ?? string.Empty).Trim();
+            var libelle = (viewRow.LibelleEcriture ?? string.Empty).Trim();
+
+            foreach (var e in ecritures)
+            {
+                e.Reference = reference;
+                e.Libelle = libelle;
+            }
+        }
+
+        // TASK-053 — DocNumero1/2 selon le mode :
+        //   espèce avec facture : DocNumero1 = n° de facture, DocNumero2 = MV_Reference telle quelle.
+        //     NB : en espèce, MV_Reference n'est PAS un BL (le BL est dans mv_info3, exposé par
+        //     ReferenceCompta) mais une référence bancaire — ex. « B0021729-2026010909541589 ».
+        //     On la relègue en zone 2 au lieu de l'écraser : aucune perte d'information.
+        //     Sans risque de débordement : ces règlements n'ont qu'UN seul document, 25 car. max
+        //     (vérifié en base) — la zone 2 suffit largement.
+        //   sinon (espèce sans facture, et tout le hors espèce) : découpage '#' inchangé
+        //     (TASK-036/039), pour ne pas écraser les BL du hors espèce.
+        private static (string DocNumero1, string DocNumero2) CalculerDocNumeros(ReglementComptaViewRow viewRow)
+        {
+            const int MaxLen = 69;   // largeur de DocNumero1/2 dans F_ECRITUREC
+
+            if (viewRow.MV_Type == 0)
+            {
+                var facture = (viewRow.FactureNumero ?? string.Empty).Trim();
+                if (facture.Length > 0)
+                {
+                    var bl = (viewRow.MV_Reference ?? string.Empty).Trim();
+                    return (Tronquer(facture, MaxLen), Tronquer(bl, MaxLen));
+                }
+            }
+
+            return MvReferenceHelper.SplitDocNumeros(viewRow.MV_Reference, MaxLen);
+
+            static string Tronquer(string s, int max) => s.Length <= max ? s : s.Substring(0, max);
+        }
+
+        // TASK-036 — DocNumero1/DocNumero2 (colonnes Sage non gérées par la DLL) : UPDATE post-compta,
+        // keyé sur EcNo (= EcritureComptable.ErpNo affecté par le comptabilizer).
+        private void EcrireDocNumeros(
+            List<global::Tresorerie.Core.Models.EcritureComptable> ecritures,
+            ReglementComptaViewRow viewRow,
+            int reglementId)
+        {
+            var (docNumero1, docNumero2) = CalculerDocNumeros(viewRow);
+            if (docNumero1.Length == 0 && docNumero2.Length == 0) return; // rien à écrire (ni facture ni référence)
+
+            // cbMarq (PK physique de F_ECRITUREC, unique par ligne) = ErpNo affecté aux écritures par le
+            // comptabilizer. NB : ErpNo n'est PAS EC_No (n° d'écriture) — vérifié en prod (ErpNo 308261/308262
+            // = cbMarq ; EC_No correspondant = 292424/292425).
+            var cbMarqs = ecritures.Select(e => e.ErpNo).Where(n => n > 0).Distinct().ToArray();
+            if (cbMarqs.Length == 0)
+                throw new InvalidOperationException(
+                    $"aucun cbMarq (ErpNo) affecté aux écritures du règlement {reglementId} — DocNumero non écrits.");
+
+            const string sql = "UPDATE GOCOM.dbo.F_ECRITUREC SET DocNumero1 = @docNumero1, DocNumero2 = @docNumero2 WHERE cbMarq IN @nos";
+            using var conn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+            conn.Open();
+            var affected = Dapper.SqlMapper.Execute(conn, sql, new { docNumero1, docNumero2, nos = cbMarqs });
+            if (affected == 0)
+                throw new InvalidOperationException(
+                    $"UPDATE F_ECRITUREC n'a touché aucune ligne (cbMarq IN {string.Join(",", cbMarqs)}) " +
+                    $"— DocNumero non écrits pour le règlement {reglementId}.");
         }
 
         public object RapprocherManuel(List<RapprochementManuelDto> items)
@@ -369,56 +689,113 @@ namespace GRC.Infrastructure.Services
         {
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
-            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
             var generator = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.IEcritureComptableGenerator<global::Tresorerie.Core.Models.ReglementClient>>();
 
-            var apercus = new List<object>();
+            // TASK-036 : l'aperçu doit refléter les mêmes valeurs que la compta réelle (pièce, référence,
+            // libellé, DocNumero, date) pour éviter tout écart aperçu ≠ réel.
+            // Lecture seule partagée, chargée UNE fois avant la boucle (pas de duplication par thread).
+            var viewRows = new ReglementComptaViewRepository(_dbFactory).GetByMvIds(reglementIds);
 
-            foreach (var id in reglementIds)
+            // TASK-047 — Société chargée UNE fois (lecture seule) : même garde de comptabilisabilité que
+            // la compta réelle (VerifierComptabilisable), pour que l'aperçu et le réel restent cohérents.
+            var societe = _kernel.GroupeService.SocieteManager.Societe;
+
+            // TASK-046 : aperçu parallélisé (degré 10) comme la compta réelle `Comptabiliser`.
+            // L'aperçu est en LECTURE SEULE (aucune écriture base) : le seul levier de la lenteur
+            // (~20 ms/règlt × N en séquentiel) est la parallélisation. Résultat fonctionnel inchangé.
+            // Ordre de sortie préservé à l'identique via un tableau indexé sur la position d'entrée
+            // (les entrées ignorées — introuvable ou déjà comptabilisé — restent null puis filtrées).
+            var results = new object[reglementIds.Count];
+            var options = new ParallelOptions { MaxDegreeOfParallelism = 10 };
+
+            Parallel.For(0, reglementIds.Count, options, i =>
             {
-                var reg = repo.Get(id);
-                if (reg != null && reg.IsComptabilise == 0)
+                var id = reglementIds[i];
+
+                // Connexion + repo créés PAR THREAD (ReglementClientRepository / ConnectionProvider
+                // ne sont pas thread-safe — même règle que Comptabiliser l.316-318).
+                var connProvThread = new global::Tresorerie.Dapper.ConnectionProvider();
+                connProvThread.ConnectionString = _dbFactory.GetConnectionString();
+                var repoThread = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvThread);
+
+                var reg = repoThread.Get(id);
+                if (reg == null || reg.IsComptabilise != 0)
+                    return;
+
+                try
                 {
+                    // TASK-047 — Garde AVANT Generate : convertit le NRE opaque de la DLL en message métier
+                    // clair, capté ci-dessous par la gestion d'erreur PAR RÈGLEMENT (TASK-046).
+                    VerifierComptabilisable(societe, reg);
+
+                    viewRows.TryGetValue(reg.No, out var viewRow);
+
+                    // ForcedPiece (AsyncLocal) posé ET nettoyé DANS l'itération (délégué synchrone,
+                    // finally interne) — jamais hissé hors de la boucle.
+                    ComptaPieceContext.ForcedPiece = PieceAForcer(reg, viewRow);
+                    _logger.LogInformation(
+                        "APERÇU COMPTA écriture : reglementId={ReglementId}, pièceForcée={PieceForcee}, date={Date:yyyy-MM-dd}, montant={Montant}, mode={ModeNo}",
+                        id, ComptaPieceContext.ForcedPiece, reg.Date, reg.MontantDeviseSociete, reg.ModeReglementNo);
+                    List<global::Tresorerie.Core.Models.EcritureComptable> ecritures;
                     try
                     {
-                        var ecritures = generator.Generate(reg, null, null);
-                        // Mapping vers un DTO lisible : les objets EcritureComptable bruts
-                        // ne sont pas exploitables tels quels côté front (noms de champs, enum Sens).
-                        var ecrituresDto = ecritures.Select(e => new EcritureApercuDto
-                        {
-                            CompteGeneral = e.CompteGeneral,
-                            ContrePartieCompteG = e.ContrePartieCompteG,
-                            TiersNumero = e.TiersNumero,
-                            CodeJournal = e.CodeJournal,
-                            Libelle = e.Libelle,
-                            Sens = (int)e.Sens,               // 0 = Débit, 1 = Crédit
-                            MontantDebit = e.MontantDebit,
-                            MontantCredit = e.MontantCredit,
-                            Date = e.Date,
-                            Echeance = e.Echeance,
-                            NumeroPiece = e.NumeroPiece
-                        }).ToList();
-
-                        apercus.Add(new {
-                            ReglementId = id,
-                            ReglementNumero = reg.Numero,
-                            Client = reg.ClientIntitule,
-                            Montant = reg.MontantDeviseSociete,
-                            Ecritures = ecrituresDto
-                        });
+                        ecritures = generator.Generate(reg, reg.Date, null).ToList();
+                        if (viewRow != null)
+                            AppliquerChampsVue(ecritures, viewRow);
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        apercus.Add(new { 
-                            ReglementId = id, 
-                            ReglementNumero = reg.Numero, 
-                            Client = reg.ClientIntitule,
-                            Erreur = ex.Message 
-                        });
+                        ComptaPieceContext.ForcedPiece = null;
                     }
+
+                    var (docNumero1, docNumero2) = viewRow != null
+                        ? CalculerDocNumeros(viewRow)
+                        : (string.Empty, string.Empty);
+
+                    // Mapping vers un DTO lisible : les objets EcritureComptable bruts
+                    // ne sont pas exploitables tels quels côté front (noms de champs, enum Sens).
+                    var ecrituresDto = ecritures.Select(e => new EcritureApercuDto
+                    {
+                        CompteGeneral = e.CompteGeneral,
+                        ContrePartieCompteG = e.ContrePartieCompteG,
+                        TiersNumero = e.TiersNumero,
+                        CodeJournal = e.CodeJournal,
+                        Libelle = e.Libelle,
+                        Reference = e.Reference,
+                        Sens = (int)e.Sens,               // 0 = Débit, 1 = Crédit
+                        MontantDebit = e.MontantDebit,
+                        MontantCredit = e.MontantCredit,
+                        Date = e.Date,
+                        Echeance = e.Echeance,
+                        NumeroPiece = e.NumeroPiece,
+                        DocNumero1 = docNumero1,
+                        DocNumero2 = docNumero2
+                    }).ToList();
+
+                    results[i] = new {
+                        ReglementId = id,
+                        ReglementNumero = reg.Numero,
+                        Client = reg.ClientIntitule,
+                        Montant = reg.MontantDeviseSociete,
+                        Ecritures = ecrituresDto
+                    };
                 }
-            }
-            return apercus;
+                catch (Exception ex)
+                {
+                    // Gestion d'erreur PAR RÈGLEMENT : une ligne KO n'arrête pas le lot.
+                    _logger.LogError(ex,
+                        "APERÇU COMPTA ÉCHEC : reglementId={ReglementId} — erreur DLL Sage : {Message}", id, ex.Message);
+                    results[i] = new {
+                        ReglementId = id,
+                        ReglementNumero = reg.Numero,
+                        Client = reg.ClientIntitule,
+                        Erreur = ex.Message
+                    };
+                }
+            });
+
+            // Ordre d'entrée conservé ; les positions ignorées (null) sont retirées.
+            return results.Where(r => r != null).ToList();
         }
     }
 
@@ -429,13 +806,16 @@ namespace GRC.Infrastructure.Services
         public string? ContrePartieCompteG { get; set; }
         public string? TiersNumero { get; set; }
         public string? CodeJournal { get; set; }
-        public string? Libelle { get; set; }
+        public string? Libelle { get; set; }        // vue.LibelleEcriture : espèce « ESP <facture> » ; hors espèce libellé saisi ou « Versement » (TASK-053)
+        public string? Reference { get; set; }       // vue.ReferenceCompta : espèce mv_info3 (BL) ; hors espèce mv_reference (TASK-053)
         public int Sens { get; set; }               // 0 = Débit, 1 = Crédit
         public decimal MontantDebit { get; set; }
         public decimal MontantCredit { get; set; }
-        public DateTime Date { get; set; }          // date comptable = date opération
+        public DateTime Date { get; set; }          // date comptable = MV_Date (date opération)
         public DateTime Echeance { get; set; }
-        public string? NumeroPiece { get; set; }    // indicatif tant que TASK-036 non faite (écrasé à la compta réelle)
+        public string? NumeroPiece { get; set; }    // MV_Piece pour tous les types/modes présents dans la vue, y compris espèce ; compteur Sage seulement si absent de la vue (TASK-038)
+        public string? DocNumero1 { get; set; }      // espèce : n° de facture ; sinon MV_Reference découpé au # (TASK-053)
+        public string? DocNumero2 { get; set; }      // espèce : le BL ; sinon suite du découpage # (TASK-053)
     }
 
     // Rapprochement manuel : payload envoyé par le front (/api/rapprochement)

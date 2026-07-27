@@ -11,6 +11,7 @@ import { Settings, X } from 'lucide-react';
 interface LigneReleve {
     id: number;
     dateOperation: string;
+    dateOperationRaw?: string;
     dateValeur: string;
     dateValeurRaw: string;
     libelle: string;
@@ -138,9 +139,10 @@ interface ReleveTableBodyProps {
     selectedReleveLigneId: number | null;
     onSelect: (id: number) => void;
     currentUserId: number;
+    onGenererReglement: (row: LigneReleve) => void;
 }
 
-const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId }: any) => {
+const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId, onGenererReglement }: any) => {
     // releveRowRenderCount++;
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
     return (
@@ -166,11 +168,34 @@ const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId }:
         <td>{row.reference}</td>
         <td>{row.code}</td>
         <td className="amount">{formatMoney(Number(row.credit))}</td>
+        <td style={{textAlign: 'center', whiteSpace: 'nowrap'}}>
+            {!row.lettrage && (
+                <button
+                    className="btn"
+                    style={{
+                        padding: '0.2rem 0.5rem',
+                        fontSize: '0.75rem',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onGenererReglement(row);
+                    }}
+                    title="Générer un règlement client (Versement) pour cette ligne"
+                >
+                    Générer règlement
+                </button>
+            )}
+        </td>
     </tr>
     );
 });
 
-const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, currentUserId }: ReleveTableBodyProps) => (
+const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, currentUserId, onGenererReglement }: ReleveTableBodyProps) => (
     <tbody>
         {rows.map(row => (
             <ReleveTableRow
@@ -179,6 +204,7 @@ const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, cur
                 isSelected={selectedReleveLigneId === row.id}
                 onSelect={onSelect}
                 currentUserId={currentUserId}
+                onGenererReglement={onGenererReglement}
             />
         ))}
     </tbody>
@@ -297,18 +323,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         setDraggedCol(null);
     };
 
-    // Utility : même logique que LettrageGenerator backend (A..Z, AA, AB...)
-    const getLettrageFromIndex = React.useCallback((index: number): string => {
-        if (index <= 0) return '';
-        let lettrage = '';
-        while (index > 0) {
-            const modulo = (index - 1) % 26;
-            lettrage = String.fromCharCode(65 + modulo) + lettrage;
-            index = Math.floor((index - modulo) / 26);
-        }
-        return lettrage;
-    }, []);
-
+    // TASK-037 : la lettre de rapprochement est desormais CALCULEE et RENVOYEE par le serveur
+    // (endpoint /reserve). getLettrageFromIndex / le compteur local ne decident plus de la lettre.
+    // getIndexFromLettrage reste utilise a l'affichage (recalcul de l'index de depart au chargement).
     const getIndexFromLettrage = React.useCallback((lettrage: string): number => {
         if (!lettrage) return 0;
         let index = 0;
@@ -333,10 +350,65 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
     }, []);
 
-    // Chargement des règlements GRC — rechargé quand la banque OU les dates APPLIQUÉES changent.
-    // Les dates appliquées sont mises à jour uniquement via le bouton Actualiser,
-    // ce qui permet à l'utilisateur de modifier les deux champs avant de relancer la requête.
-    React.useEffect(() => {
+    // État modal Générer règlement (Versement)
+    const [clients, setClients] = useState<Array<{ code: string; intitule: string; no: number }>>([]);
+    const [loadingClients, setLoadingClients] = useState(false);
+    const [modalLigne, setModalLigne] = useState<LigneReleve | null>(null);
+    const [clientInputDisplay, setClientInputDisplay] = useState('');
+    const [showClientSuggestions, setShowClientSuggestions] = useState(false);
+    const [selectedClientCode, setSelectedClientCode] = useState('');
+    const [selectedCaisseCode, setSelectedCaisseCode] = useState('');
+    const [mvReference, setMvReference] = useState('');
+    const [isSubmittingVersement, setIsSubmittingVersement] = useState(false);
+
+    const handleOpenGenererModal = React.useCallback((row: LigneReleve) => {
+        setModalLigne(row);
+        setClientInputDisplay('');
+        setShowClientSuggestions(false);
+        setSelectedClientCode('');
+        setMvReference(row.reference || '');
+
+        if (user?.caisses && user.caisses.length === 1) {
+            const caisseId = user.caisses[0];
+            if (caissesMap[caisseId]) {
+                setSelectedCaisseCode(caissesMap[caisseId].code);
+            }
+        } else {
+            setSelectedCaisseCode('');
+        }
+
+        // Chargement unique : le serveur met en cache la liste ERP (TTL 10 min),
+        // donc le coût GetAll() n'est payé qu'une fois par fenêtre de cache, pas à chaque appel.
+        // En front, on ne recharge pas si la liste est déjà disponible en state.
+        if (clients.length === 0) {
+            setLoadingClients(true);
+            axios.get(`${API_BASE}/reference/clients`)
+                .then(res => setClients(res.data))
+                .catch(err => console.error('Erreur chargement clients', err))
+                .finally(() => setLoadingClients(false));
+        }
+    }, [user, caissesMap, clients.length]);
+
+    // Combobox client : suggestions bornées à 30 résultats max dans le DOM.
+    // Empêche la création de milliers de <li> à chaque frappe, source du gel de rendu.
+    const MAX_CLIENT_SUGGESTIONS = 30;
+    const clientSuggestions = React.useMemo(() => {
+        const term = clientInputDisplay.toLowerCase().trim();
+        if (!term) return clients.slice(0, MAX_CLIENT_SUGGESTIONS);
+        return clients
+            .filter(c =>
+                (c.code || '').toLowerCase().includes(term) ||
+                (c.intitule || '').toLowerCase().includes(term)
+            )
+            .slice(0, MAX_CLIENT_SUGGESTIONS);
+    }, [clients, clientInputDisplay]);
+
+    const userCaissesOptions = React.useMemo(() => {
+        if (!user?.caisses) return [];
+        return user.caisses.map((id: number) => caissesMap[id]).filter(Boolean);
+    }, [user, caissesMap]);
+
+    const fetchReglementsGrc = React.useCallback(() => {
         if (!selectedBanqueId) {
             setReglementsGrc([]);
             return;
@@ -347,12 +419,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             const user = JSON.parse(userStr);
             setLoadingGrc(true);
             const caissesStr = user.caisses ? user.caisses.join(',') : '';
-            // Fetch Reglements GRC — borné par la période appliquée (dateFin inclusive : fin de journée)
             const dateParams = `${appliedDateDebut ? `&dateDebut=${appliedDateDebut}` : ''}${appliedDateFin ? `&dateFin=${appliedDateFin}T23:59:59` : ''}`;
-            // Le filtre lettré/non-lettré est appliqué côté client (sur le lettrage de session)
-            // pour ne pas recharger et ainsi préserver les appariements en cours.
-            // L'état « Pointé » (isPointe, rapprochement final) reste consultable via la colonne Pointé.
-            axios.get(`${API_BASE}/reglements?societeId=${user.societeId}&caisses=${caissesStr}&banqueNos=${selectedBanqueId}&page=1&pageSize=1000&pointe=false${dateParams}`)
+            axios.get(`${API_BASE}/reglements?societeId=${user.societeId}&caisses=${caissesStr}&banqueNos=${selectedBanqueId}&page=1&pageSize=1000&pointe=false&eligibleRappBancaire=true${dateParams}`)
                 .then(res => {
                     setReglementsGrc(res.data.items.map((r: any) => ({
                         ...r,
@@ -367,6 +435,37 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 .finally(() => setLoadingGrc(false));
         }
     }, [selectedBanqueId, appliedDateDebut, appliedDateFin]);
+
+    React.useEffect(() => {
+        fetchReglementsGrc();
+    }, [fetchReglementsGrc]);
+
+    const handleConfirmGenererVersement = async () => {
+        if (!modalLigne || !selectedClientCode || !selectedCaisseCode) return;
+        setIsSubmittingVersement(true);
+        try {
+            const res = await axios.post(`${API_BASE}/ReleveBancaire/generer-reglement`, {
+                ligneReleveId: modalLigne.id,
+                clientCode: selectedClientCode,
+                caisseCode: selectedCaisseCode,
+                mvReference: mvReference
+            });
+
+            if (res.data.success) {
+                showToast(`Règlement ${res.data.reglementNumero} généré avec succès ! Relancez l'auto-rapprochement pour lettrer la ligne.`, 'success');
+                setModalLigne(null);
+                fetchReglementsGrc();
+            } else {
+                showToast(res.data.erreur || 'Erreur lors de la génération du règlement.', 'error');
+            }
+        } catch (err: any) {
+            console.error(err);
+            const msg = err.response?.data?.erreur || err.response?.data?.message || err.message || 'Erreur lors de la génération.';
+            showToast(msg, 'error');
+        } finally {
+            setIsSubmittingVersement(false);
+        }
+    };
 
     // Chargement des relevés bancaires — dépend uniquement de la banque (indépendant de la période)
     React.useEffect(() => {
@@ -400,6 +499,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 setLignesReleve(res.data.map((l: any) => ({
                     id: l.id,
                     dateOperation: new Date(l.dateOperation).toLocaleDateString(),
+                    dateOperationRaw: l.dateOperation,
                     dateValeur: new Date(l.dateValeur).toLocaleDateString(),
                     dateValeurRaw: l.dateValeur,
                     libelle: l.libelle,
@@ -456,41 +556,38 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 return;
             }
 
-            // Générer les lettrages localement pour éviter les conflits avec le lettrage manuel
-            let localIndex = currentLettrageIndexRef.current;
-            const propsWithLettrage = propositions.map(p => {
-                const lettrage = getLettrageFromIndex(localIndex++);
-                return { ...p, localLettrage: lettrage };
-            });
+            // TASK-037 : plus de pre-generation de lettre cote client. /reserve-batch calcule et
+            // renvoie atomiquement la lettre attribuee cote serveur (verrou par releve + UPDATE
+            // conditionnel) => lettres distinctes garanties, meme pour un lot.
+            // TASK-066 : un seul aller-retour HTTP pour tout le lot (au lieu d'un POST /reserve par proposition).
+            const batchResp = await axios.post(`${API_BASE}/ReleveBancaire/reserve-batch`,
+                propositions.map(p => ({ ligneReleveId: p.ligneReleveId, mvId: p.reglementGrcId })),
+                { headers: { Authorization: `Bearer ${user.token}` } }
+            );
+            const batchResults: Array<{ ligneReleveId: number; mvId: number; success: boolean; lettrage: string | null }> = batchResp.data;
 
-            // Reserver séquentiellement
-            const validProps = [];
+            const validProps: Array<{ ligneReleveId: number; reglementGrcId: number; assignedLetter: string }> = [];
             let conflits = 0;
-            for (const p of propsWithLettrage) {
-                try {
-                    await axios.post(`${API_BASE}/ReleveBancaire/reserve`, {
-                        ligneReleveId: p.ligneReleveId,
-                        mvId: p.reglementGrcId,
-                        lettrage: p.localLettrage
-                    }, { headers: { Authorization: `Bearer ${user.token}` } });
-                    validProps.push(p);
-                } catch (e: any) {
-                    if (e.response?.status === 409) conflits++;
+            for (const r of batchResults) {
+                if (r.success) {
+                    validProps.push({ ligneReleveId: r.ligneReleveId, reglementGrcId: r.mvId, assignedLetter: r.lettrage! });
+                } else {
+                    conflits++;
                 }
             }
 
             const currentUserId = userStr ? JSON.parse(userStr).no : 0;
 
-            // Appliquer les propositions validées aux deux grilles (lettrage local)
+            // Appliquer les propositions validées aux deux grilles avec la lettre RENVOYEE par le serveur,
+            // matchée par Id de ligne (relevé) / MV_ID (règlement GRC).
             setLignesReleve(prev => prev.map(l => {
                 const match = validProps.find(p => p.ligneReleveId === l.id);
-                return match ? { ...l, lettrage: match.localLettrage, reservePar_UserId: currentUserId } : l;
+                return match ? { ...l, lettrage: match.assignedLetter, reservePar_UserId: currentUserId } : l;
             }));
             setReglementsGrc(prev => prev.map(r => {
                 const match = validProps.find(p => p.reglementGrcId === r.mv_Id);
-                return match ? { ...r, lettrage: match.localLettrage, reservePar_UserId: currentUserId } : r;
+                return match ? { ...r, lettrage: match.assignedLetter, reservePar_UserId: currentUserId } : r;
             }));
-            setCurrentLettrageIndex(localIndex);
 
             if (conflits > 0) {
                 showToast(`💡 ${validProps.length} correspondances trouvées et réservées. ${conflits} conflits ignorés.`, "success");
@@ -527,21 +624,21 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     // Lettrage manuel — lit les refs (valeurs fraîches) pour éviter les stale closures
     // tout en gardant une référence stable (n'invalidera pas React.memo des grilles).
     const executeManualLettrage = React.useCallback(async (grcId: number, ligneId: number) => {
-        const nextLetter = getLettrageFromIndex(currentLettrageIndexRef.current);
         try {
             const userStr = sessionStorage.getItem('gocom_user');
             const token = userStr ? JSON.parse(userStr).token : '';
             const currentUserId = userStr ? JSON.parse(userStr).no : 0;
-            
-            await axios.post(`${API_BASE}/ReleveBancaire/reserve`, {
+
+            // TASK-037 : on n'envoie plus de lettre ; le serveur calcule et renvoie la lettre attribuee.
+            const resp = await axios.post(`${API_BASE}/ReleveBancaire/reserve`, {
                 ligneReleveId: ligneId,
-                mvId: grcId,
-                lettrage: nextLetter
+                mvId: grcId
             }, { headers: { Authorization: `Bearer ${token}` } });
-            
-            setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, lettrage: nextLetter, reservePar_UserId: currentUserId } : r));
-            setLignesReleve(prev => prev.map(l => l.id === ligneId ? { ...l, lettrage: nextLetter, reservePar_UserId: currentUserId } : l));
-            setCurrentLettrageIndex(c => c + 1);
+
+            const assignedLetter: string = resp.data?.lettrage;
+
+            setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, lettrage: assignedLetter, reservePar_UserId: currentUserId } : r));
+            setLignesReleve(prev => prev.map(l => l.id === ligneId ? { ...l, lettrage: assignedLetter, reservePar_UserId: currentUserId } : l));
             setPendingReservation(null);
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
@@ -555,7 +652,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
         }
-    }, [getLettrageFromIndex]);
+    }, []);
 
     const applyManualLettrage = React.useCallback((grcId: number, ligneId: number) => {
         const grc = reglementsGrcRef.current.find(r => r.mv_Id === grcId);
@@ -980,9 +1077,12 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                         <span onClick={() => handleReleveSort('credit')} style={{cursor: 'pointer'}}>Crédit {renderSortIcon(releveSort, 'credit')}</span>
                                         <ExcelFilter columnKey="credit" filterType="text" textValue={releveFilters['credit']?.value || ''} onChange={(val) => setReleveFilters(prev => ({...prev, credit: {type: 'text', value: val}}))} />
                                     </th>
+                                    <th style={{width: '130px', textAlign: 'center'}}>
+                                        <span>Action</span>
+                                    </th>
                                 </tr>
                             </thead>
-                            <ReleveTableBody rows={sortedLignes} selectedReleveLigneId={selectedReleveLigneId} onSelect={handleSelectReleve} currentUserId={Number(user?.no) || 0} />
+                            <ReleveTableBody rows={sortedLignes} selectedReleveLigneId={selectedReleveLigneId} onSelect={handleSelectReleve} currentUserId={Number(user?.no) || 0} onGenererReglement={handleOpenGenererModal} />
                         </table>
                         )}
                     </div>
@@ -1089,6 +1189,167 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                     </div>
                 </div>
             </div>
+
+            {/* Modal Génération Règlement Versement (TASK-060) */}
+            {modalLigne && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white', borderRadius: '8px', width: '540px', maxWidth: '95vw',
+                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+                        overflow: 'hidden', display: 'flex', flexDirection: 'column'
+                    }}>
+                        <div style={{
+                            padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                        }}>
+                            <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600, color: '#0f172a' }}>
+                                Générer un règlement (Versement)
+                            </h3>
+                            <button
+                                onClick={() => setModalLigne(null)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {/* Récapitulatif de la ligne de relevé */}
+                            <div style={{ backgroundColor: '#f1f5f9', padding: '0.875rem 1rem', borderRadius: '6px', fontSize: '0.875rem', color: '#334155' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                    <div><strong>Date Opération :</strong> {modalLigne.dateOperation}</div>
+                                    <div><strong>Montant :</strong> {formatMoney(Number(modalLigne.credit))}</div>
+                                </div>
+                                <div style={{ marginBottom: '0.5rem' }}><strong>Libellé relevé :</strong> {modalLigne.libelle}</div>
+                                <div><strong>Banque :</strong> {banquesMap[Number(selectedBanqueId)]?.code ? `${banquesMap[Number(selectedBanqueId)].code} - ${banquesMap[Number(selectedBanqueId)].rib}` : '—'}</div>
+                                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#64748b' }}>
+                                    * Mode de règlement : <strong>Versement</strong> (fixé)
+                                </div>
+                            </div>
+
+                            {/* Combobox Client — champ unique, suggestions bornées */}
+                            <div className="form-group" style={{ margin: 0, position: 'relative' }}>
+                                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.25rem', color: '#1e293b' }}>
+                                    Client <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    autoComplete="off"
+                                    placeholder={loadingClients ? 'Chargement des clients...' : 'Rechercher par code ou intitulé...'}
+                                    value={clientInputDisplay}
+                                    onChange={(e) => {
+                                        setClientInputDisplay(e.target.value);
+                                        setSelectedClientCode('');
+                                        setShowClientSuggestions(true);
+                                    }}
+                                    onFocus={() => setShowClientSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowClientSuggestions(false), 300)}
+                                    style={{
+                                        width: '100%', padding: '0.5rem 0.75rem', borderRadius: '4px',
+                                        border: selectedClientCode ? '1px solid #22c55e' : '1px solid #cbd5e1',
+                                        fontSize: '0.875rem', boxSizing: 'border-box'
+                                    }}
+                                />
+                                {showClientSuggestions && (
+                                    <ul style={{
+                                        position: 'absolute', zIndex: 1000, top: '100%', left: 0, right: 0,
+                                        margin: 0, padding: 0, listStyle: 'none',
+                                        backgroundColor: '#fff', border: '1px solid #cbd5e1',
+                                        borderRadius: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                        maxHeight: '180px', overflowY: 'auto', fontSize: '0.875rem'
+                                    }}>
+                                        {loadingClients ? (
+                                            <li style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>Chargement en cours...</li>
+                                        ) : clientSuggestions.length === 0 ? (
+                                            <li style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>Aucun client trouvé</li>
+                                        ) : (
+                                            clientSuggestions.map(c => (
+                                                <li
+                                                    key={c.code}
+                                                    onMouseDown={() => {
+                                                        setSelectedClientCode(c.code);
+                                                        setClientInputDisplay(`${c.code} - ${c.intitule}`);
+                                                        setShowClientSuggestions(false);
+                                                    }}
+                                                    style={{
+                                                        padding: '0.45rem 0.75rem', cursor: 'pointer',
+                                                        backgroundColor: selectedClientCode === c.code ? '#eff6ff' : 'transparent',
+                                                        borderBottom: '1px solid #f1f5f9'
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                                                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = selectedClientCode === c.code ? '#eff6ff' : 'transparent')}
+                                                >
+                                                    <span style={{ fontWeight: 600 }}>{c.code}</span>
+                                                    <span style={{ color: '#64748b' }}> — {c.intitule}</span>
+                                                </li>
+                                            ))
+                                        )}
+                                    </ul>
+                                )}
+                            </div>
+
+                            {/* Sélection Caisse */}
+                            <div className="form-group" style={{ margin: 0 }}>
+                                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.25rem', color: '#1e293b' }}>
+                                    Caisse <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <select
+                                    value={selectedCaisseCode}
+                                    onChange={(e) => setSelectedCaisseCode(e.target.value)}
+                                    style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.875rem' }}
+                                >
+                                    <option value="">Sélectionner une caisse...</option>
+                                    {userCaissesOptions.map(ca => (
+                                        <option key={ca.code} value={ca.code}>
+                                            {ca.code} - {ca.intitule}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Champ Saisie MV_Reference */}
+                            <div className="form-group" style={{ margin: 0 }}>
+                                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.25rem', color: '#1e293b' }}>
+                                    Référence
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="Saisir la référence..."
+                                    value={mvReference}
+                                    onChange={(e) => setMvReference(e.target.value)}
+                                    style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.875rem' }}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{
+                            padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0',
+                            display: 'flex', justifyContent: 'flex-end', gap: '0.75rem'
+                        }}>
+                            <button
+                                className="btn"
+                                onClick={() => setModalLigne(null)}
+                                style={{ backgroundColor: '#e2e8f0', color: '#334155', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
+                                disabled={isSubmittingVersement}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleConfirmGenererVersement}
+                                disabled={isSubmittingVersement || !selectedClientCode || !selectedCaisseCode}
+                                style={{ padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
+                            >
+                                {isSubmittingVersement ? 'Génération en cours...' : 'Générer le règlement'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

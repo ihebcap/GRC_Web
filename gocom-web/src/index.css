@@ -20,6 +20,12 @@
   --danger: #d32f2f;
   --success: #2e7d32;
   --warning: #ed6c02;
+
+  /* Alias : plusieurs composants (ApercuComptabilisation, RelevesBancaires...)
+     référencent --success-color / --danger-color, non définis auparavant → var()
+     invalide = fond transparent (bouton "Comptabiliser" invisible). */
+  --success-color: #2e7d32;
+  --danger-color: #d32f2f;
   
   --border-color: #e0e0e0;
   

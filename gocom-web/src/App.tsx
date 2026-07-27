@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator } from 'lucide-react';
+import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import './index.css';
+import LicenceBlockedScreen from './LicenceBlockedScreen';
 
 // Types
 interface User {
@@ -59,6 +60,7 @@ import { DEFAULT_COLUMNS, getAvailableColumns, renderSharedCell, getTypeReglemen
 import ApercuComptabilisation from './ApercuComptabilisation';
 import { RapprochementBancaire } from './RapprochementBancaire';
 import { RelevesBancaires } from './RelevesBancaires';
+import ReglementGenerationEspece from './ReglementGenerationEspece';
 import { ExcelFilter } from './ExcelFilter';
 
 import { API_BASE } from './api';
@@ -73,6 +75,15 @@ function App() {
     return parsed;
   });
   const [toast, setToast] = useState<{message: string, type: 'success'|'error'|'warning'} | null>(null);
+
+  // TASK-065 — Écran de blocage licence
+  // Basculé sur vrai dès qu'un 403 GRLicence est détecté par l'intercepteur axios de api.ts.
+  const [licenceBlocked, setLicenceBlocked] = useState(false);
+  useEffect(() => {
+    const handler = () => setLicenceBlocked(true);
+    window.addEventListener('licence-blocked', handler);
+    return () => window.removeEventListener('licence-blocked', handler);
+  }, []);
 
   const showToast = (message: string, type: 'success'|'error'|'warning' = 'success') => {
     setToast({ message, type });
@@ -98,6 +109,11 @@ function App() {
     }
   }, [user]);
   
+  // TASK-065 — Priorité maximale : si la licence est invalide, bloquer TOUT affichage.
+  if (licenceBlocked) {
+    return <LicenceBlockedScreen />;
+  }
+
   if (!user || user.societeId === undefined) {
     return <Login onLogin={handleLogin} />;
   }
@@ -223,7 +239,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
   const [pageSize, setPageSize] = useState(() => parseInt(localStorage.getItem('gocom_page_size') || '10'));
   const [total, setTotal] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<'reglements' | 'comptabilisation' | 'rapprochement' | 'releves'>('reglements');
+  const [currentView, setCurrentView] = useState<'reglements' | 'comptabilisation' | 'rapprochement' | 'releves' | 'reglement-espece'>('reglements');
   const [sortCol, setSortCol] = useState('date');
   const [sortDesc, setSortDesc] = useState(true);
   
@@ -265,10 +281,17 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
   // Comptabilisation State
   const [isComptabilisationMode, setIsComptabilisationMode] = useState(false);
   const [selectedComptabilisation, setSelectedComptabilisation] = useState<Record<number, boolean>>({});
-  const [isSubmittingComptabilisation, setIsSubmittingComptabilisation] = useState(false);
+  // Présélection routée vers l'écran d'aperçu (chemin unique : liste -> aperçu -> commit). null = mode filtres.
+  const [comptaPreselection, setComptaPreselection] = useState<{ id: number; client: string; date: string; montant: number; piece: string }[] | null>(null);
   
   // Drag and Drop state
   const [draggedCol, setDraggedCol] = useState<string | null>(null);
+
+  // TASK-051 — Lettrage manuel sur période libre (dateMin/dateMax uniquement, pas de sélection de lignes)
+  const [showLettragePeriode, setShowLettragePeriode] = useState(false);
+  const [lettragePeriodeDateMin, setLettragePeriodeDateMin] = useState('');
+  const [lettragePeriodeDateMax, setLettragePeriodeDateMax] = useState('');
+  const [isSubmittingLettragePeriode, setIsSubmittingLettragePeriode] = useState(false);
 
   useEffect(() => {
     fetchReferences();
@@ -490,38 +513,95 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
     }
   };
 
-  const handleSubmitComptabilisation = async () => {
-    const ids = Object.keys(selectedComptabilisation).map(Number);
-    if (ids.length === 0) return;
-    setIsSubmittingComptabilisation(true);
+  // TASK-051 — Ouvre le formulaire de lettrage par période, préremplie avec le filtre date actif si présent.
+  const handleOpenLettragePeriode = () => {
+    const [from, to] = (filters.date || '').split('~');
+    setLettragePeriodeDateMin(from || '');
+    setLettragePeriodeDateMax(to || '');
+    setShowLettragePeriode(true);
+  };
+
+  const handleSubmitLettragePeriode = async () => {
+    if (!lettragePeriodeDateMin || !lettragePeriodeDateMax) {
+      showToast('Veuillez renseigner les deux dates.', 'warning');
+      return;
+    }
+    if (!window.confirm(
+      'Ce lettrage balaie TOUT l\'historique des clients concernés sur la période, pas seulement les règlements actuellement affichés dans la liste. Continuer ?'
+    )) {
+      return;
+    }
+    setIsSubmittingLettragePeriode(true);
     try {
-      const res = await axios.post(`${API_BASE}/reglements/comptabiliser`, ids);
-      setSelectedComptabilisation({});
-      if (res.data.errorCount > 0) showToast(`${res.data.successCount} comptabilisés, ${res.data.errorCount} erreurs.`, 'warning');
-      else {
-          showToast(`Comptabilisation réussie !`, 'success');
-          setIsComptabilisationMode(false);
-          setFilters(prev => { const f = {...prev}; delete f.comptabilise; return f; });
-      }
+      const res = await axios.post(`${API_BASE}/reglements/lettrer-periode`, {
+        dateMin: lettragePeriodeDateMin,
+        dateMax: lettragePeriodeDateMax + 'T23:59:59'
+      });
+      const { clientsTraites, clientsAvecLettrage, errors } = res.data;
+      const errorSuffix = errors && errors.length > 0 ? ` — ${errors.length} erreur(s)` : '';
+      showToast(
+        `${clientsAvecLettrage}/${clientsTraites} client(s) lettré(s)${errorSuffix}`,
+        errors && errors.length > 0 ? 'warning' : 'success'
+      );
+      setShowLettragePeriode(false);
       fetchReglements(page, debouncedFilters);
     } catch (err) {
-      showToast('Erreur lors de la comptabilisation', 'error');
+      showToast('Erreur lors du lettrage par période', 'error');
     } finally {
-      setIsSubmittingComptabilisation(false);
+      setIsSubmittingLettragePeriode(false);
     }
   };
 
+  // Chemin unique : route la sélection de la liste vers l'écran d'aperçu (pas de POST aveugle).
+  // Le commit réel est déclenché par le bouton "Comptabiliser" de l'aperçu (handleValider).
+  const handleRouteToApercu = () => {
+    const ids = Object.keys(selectedComptabilisation).map(Number);
+    if (ids.length === 0) return;
+    const preselection = ids
+      .map(id => reglements.find(r => r.no === id))
+      .filter((r): r is Reglement => !!r)
+      .map(r => ({
+        id: r.no,
+        client: r.clientIntitule,
+        date: r.date,
+        montant: r.montantDeviseSociete,
+        piece: r.pieceNumero || ''
+      }));
+    setComptaPreselection(preselection);
+    setCurrentView('comptabilisation');
+  };
+
+  // Après une comptabilisation réussie depuis l'aperçu : vider la sélection et revenir à la liste rafraîchie.
+  const handleComptabilisationValidated = () => {
+    setComptaPreselection(null);
+    setSelectedComptabilisation({});
+    setIsComptabilisationMode(false);
+    setFilters(prev => { const f = {...prev}; delete f.comptabilise; return f; });
+    setCurrentView('reglements');
+    fetchReglements(page, debouncedFilters);
+  };
+
+  // Séquencement des requêtes : seule la réponse de la DERNIÈRE requête émise est appliquée.
+  // Sans cette garde, une requête lente partie AVANT (ex. la liste complète non filtrée du
+  // chargement initial) écrase la réponse d'une requête plus récente et plus rapide (ex. le
+  // filtre "non comptabilisé" posé par le mode Comptabilisation) -> filtre allumé, liste non filtrée.
+  const fetchSeqRef = useRef(0);
+
   const fetchReglements = async (currentPage: number, currentFilters: Record<string, string> = {}) => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
       const params = buildParams(currentPage, pageSize, currentFilters);
       const res = await axios.get(`${API_BASE}/reglements`, { params });
+      if (seq !== fetchSeqRef.current) return; // réponse périmée : une requête plus récente fait foi
       setReglements(res.data.items);
       setTotal(res.data.totalItems);
     } catch (err) {
+      if (seq !== fetchSeqRef.current) return;
       console.error('Failed to fetch reglements', err);
     } finally {
-      setLoading(false);
+      // Ne pas éteindre le loader si une requête plus récente est encore en vol.
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   };
 
@@ -681,9 +761,13 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
             <DollarSign size={18} />
             <span className="sidebar-text">Rapprochement</span>
           </div>
-          <div className={`sidebar-item ${currentView === 'comptabilisation' ? 'active' : ''}`} title="Comptabilisation des règlements" onClick={() => setCurrentView('comptabilisation')}>
+          <div className={`sidebar-item ${currentView === 'comptabilisation' ? 'active' : ''}`} title="Comptabilisation des règlements" onClick={() => { setComptaPreselection(null); setCurrentView('comptabilisation'); }}>
             <Calculator size={18} />
             <span className="sidebar-text">Comptabilisation</span>
+          </div>
+          <div className={`sidebar-item ${currentView === 'reglement-espece' ? 'active' : ''}`} title="Génération de règlements espèce" onClick={() => setCurrentView('reglement-espece')}>
+            <Banknote size={18} />
+            <span className="sidebar-text">Règlement espèce</span>
           </div>
         </div>
         
@@ -717,7 +801,9 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
         ) : currentView === 'rapprochement' ? (
           <RapprochementBancaire caissesMap={caissesMap} modesMap={modesMap} availableColumns={availableColumns} user={user} showToast={showToast} onNavigateToImport={() => setCurrentView('releves')} />
         ) : currentView === 'comptabilisation' ? (
-          <ApercuComptabilisation user={user} showToast={showToast} caissesMap={caissesMap} modesMap={modesMap} />
+          <ApercuComptabilisation user={user} showToast={showToast} caissesMap={caissesMap} modesMap={modesMap} preselection={comptaPreselection ?? undefined} onValidated={handleComptabilisationValidated} />
+        ) : currentView === 'reglement-espece' ? (
+          <ReglementGenerationEspece user={user} caissesMap={caissesMap} showToast={showToast} />
         ) : (
           <>
         <div className="table-container">
@@ -746,7 +832,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                   borderRadius: '8px',
                   fontWeight: 600,
                   fontSize: '0.8125rem',
-                  display: 'none',
+                  display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
                   boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
@@ -834,8 +920,35 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                   }
                 }}
               >
-                <CheckSquare size={14} /> 
+                <CheckSquare size={14} />
                 {isRapprochementMode ? 'Fermer Rapprochement' : 'Rapprocher'}
+              </button>
+
+              <button
+                className="btn"
+                title="Lettre les règlements de tous les clients de la période, y compris ceux non affichés dans la liste actuelle"
+                style={{
+                  width: 'auto',
+                  backgroundColor: 'white',
+                  color: 'var(--text-primary)',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  fontSize: '0.8125rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  border: '1px solid var(--border-color)'
+                }}
+                onClick={handleOpenLettragePeriode}
+              >
+                <CheckSquare size={14} />
+                Lettrer entre deux périodes
               </button>
 
               <button className="btn" style={{backgroundColor: 'white', padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', fontSize: '0.8125rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'}} onClick={() => fetchReglements(page, debouncedFilters)}>
@@ -880,8 +993,8 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
               animation: 'fade-in 0.3s ease-out'
             }}>
               <div>
-                <h3 style={{margin: 0, fontSize: '1rem', color: 'var(--text-primary)'}}>Mode Comptabilisation en masse</h3>
-                <p style={{margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)'}}>Sélectionnez les règlements ci-dessous pour les comptabiliser.</p>
+                <h3 style={{margin: 0, fontSize: '1rem', color: 'var(--text-primary)'}}>Mode Comptabilisation</h3>
+                <p style={{margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)'}}>Sélectionnez un ou plusieurs règlements, puis ouvrez l'aperçu de contrôle pour comptabiliser.</p>
               </div>
               
               <div style={{marginLeft: 'auto', textAlign: 'right', marginRight: '1rem'}}>
@@ -894,12 +1007,12 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                 </div>
               </div>
               
-              <button 
+              <button
                 className="btn"
                 style={{
                   width: 'auto',
-                  backgroundColor: (Object.keys(selectedComptabilisation).length === 0 || isSubmittingComptabilisation) ? 'var(--bg-secondary)' : 'var(--accent-primary)',
-                  color: (Object.keys(selectedComptabilisation).length === 0 || isSubmittingComptabilisation) ? 'var(--text-secondary)' : 'white',
+                  backgroundColor: Object.keys(selectedComptabilisation).length === 0 ? 'var(--bg-secondary)' : 'var(--accent-primary)',
+                  color: Object.keys(selectedComptabilisation).length === 0 ? 'var(--text-secondary)' : 'white',
                   padding: '0.75rem 2rem',
                   borderRadius: '999px',
                   fontWeight: 600,
@@ -907,17 +1020,17 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  boxShadow: (Object.keys(selectedComptabilisation).length === 0 || isSubmittingComptabilisation) ? 'none' : '0 4px 6px -1px rgba(79, 70, 229, 0.2), 0 2px 4px -1px rgba(79, 70, 229, 0.1)',
-                  cursor: (Object.keys(selectedComptabilisation).length === 0 || isSubmittingComptabilisation) ? 'not-allowed' : 'pointer',
+                  boxShadow: Object.keys(selectedComptabilisation).length === 0 ? 'none' : '0 4px 6px -1px rgba(79, 70, 229, 0.2), 0 2px 4px -1px rgba(79, 70, 229, 0.1)',
+                  cursor: Object.keys(selectedComptabilisation).length === 0 ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s ease',
                   flexShrink: 0,
                   whiteSpace: 'nowrap'
                 }}
-                disabled={Object.keys(selectedComptabilisation).length === 0 || isSubmittingComptabilisation}
-                onClick={handleSubmitComptabilisation}
+                disabled={Object.keys(selectedComptabilisation).length === 0}
+                onClick={handleRouteToApercu}
               >
-                {isSubmittingComptabilisation ? <Loader2 className="animate-spin" size={18} /> : <CheckSquare size={18} />}
-                {isSubmittingComptabilisation ? 'Comptabilisation en cours...' : `Lancer la Comptabilisation (${Object.keys(selectedComptabilisation).length})`}
+                <CheckSquare size={18} />
+                {`Comptabiliser (${Object.keys(selectedComptabilisation).length})`}
               </button>
             </div>
           )}
@@ -1120,6 +1233,63 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
         </>
         )}
       </main>
+
+      {showLettragePeriode && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-primary)', borderRadius: 'var(--radius-md)', padding: '1.5rem',
+            width: '420px', boxShadow: 'var(--shadow-lg)'
+          }}>
+            <h3 style={{margin: '0 0 0.5rem 0', fontSize: '1.05rem', color: 'var(--text-primary)'}}>Lettrer entre deux périodes</h3>
+            <p style={{margin: '0 0 1rem 0', fontSize: '0.8125rem', color: '#f59e0b', fontWeight: 500}}>
+              ⚠️ Cette opération lettre tout l'historique des clients ayant un règlement dans la période, y compris les règlements non affichés dans la liste actuelle.
+            </p>
+            <div style={{display: 'flex', gap: '1rem', marginBottom: '1rem'}}>
+              <div style={{flex: 1}}>
+                <label className="form-label" style={{fontSize: '0.75rem'}}>Date min</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={lettragePeriodeDateMin}
+                  onChange={e => setLettragePeriodeDateMin(e.target.value)}
+                />
+              </div>
+              <div style={{flex: 1}}>
+                <label className="form-label" style={{fontSize: '0.75rem'}}>Date max</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={lettragePeriodeDateMax}
+                  onChange={e => setLettragePeriodeDateMax(e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{display: 'flex', justifyContent: 'flex-end', gap: '0.75rem'}}>
+              <button
+                className="btn"
+                style={{width: 'auto', backgroundColor: 'white', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8125rem', fontWeight: 500, cursor: 'pointer'}}
+                onClick={() => setShowLettragePeriode(false)}
+                disabled={isSubmittingLettragePeriode}
+              >
+                Annuler
+              </button>
+              <button
+                className="btn"
+                style={{width: 'auto', backgroundColor: 'var(--accent-primary)', color: 'white', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'}}
+                onClick={handleSubmitLettragePeriode}
+                disabled={isSubmittingLettragePeriode}
+              >
+                {isSubmittingLettragePeriode ? <Loader2 size={14} className="animate-spin" /> : <CheckSquare size={14} />}
+                Confirmer le lettrage
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

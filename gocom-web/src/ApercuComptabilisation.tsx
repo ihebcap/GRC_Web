@@ -12,6 +12,7 @@ interface User {
   societeId: number;
   societeName: string;
   caisses: number[];
+  isAdmin?: boolean;
 }
 
 interface Ecriture {
@@ -37,11 +38,23 @@ interface Apercu {
   ecritures: Ecriture[];
 }
 
+interface PreselectionItem {
+  id: number;
+  client: string;
+  date: string;
+  montant: number;
+  piece: string;
+}
+
 interface ApercuComptabilisationProps {
   user: User;
   showToast: (message: string, type?: 'success'|'error'|'warning') => void;
   caissesMap: Record<string, string>;
   modesMap: Record<string, string>;
+  // Mode "par IDs" (optionnel) : sélection explicite venant de la liste. Absent = mode filtres inchangé.
+  preselection?: PreselectionItem[];
+  // Appelé après une comptabilisation réussie (pour vider la sélection et revenir à la liste rafraîchie).
+  onValidated?: () => void;
 }
 
 const CheckboxDropdown = ({ 
@@ -56,19 +69,26 @@ const CheckboxDropdown = ({
   placeholder: string
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) { setIsOpen(false); setSearch(''); }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const filteredOptions = search
+    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options;
+
   const toggleAll = () => {
-    if (selectedValues.length === options.length) onChange([]);
-    else onChange(options.map(o => o.value));
+    const filteredValues = filteredOptions.map(o => o.value);
+    const allSelected = filteredValues.length > 0 && filteredValues.every(v => selectedValues.includes(v));
+    if (allSelected) onChange(selectedValues.filter(v => !filteredValues.includes(v)));
+    else onChange(Array.from(new Set([...selectedValues, ...filteredValues])));
   };
 
   const toggleOne = (val: string) => {
@@ -79,7 +99,7 @@ const CheckboxDropdown = ({
   return (
     <div ref={containerRef} style={{position: 'relative', width: '220px'}}>
       <div 
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => { setIsOpen(!isOpen); if (isOpen) setSearch(''); }}
         style={{
           border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.375rem 0.625rem',
           backgroundColor: 'white', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -98,16 +118,28 @@ const CheckboxDropdown = ({
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, width: '100%',
           backgroundColor: 'white', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
-          boxShadow: 'var(--shadow-md)', zIndex: 9999, maxHeight: '250px', overflowY: 'auto'
+          boxShadow: 'var(--shadow-md)', zIndex: 9999, maxHeight: '290px', overflowY: 'auto'
         }}>
-          <div 
+          <div style={{padding: '0.5rem', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, backgroundColor: 'white'}}>
+            <input
+              type="text"
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              placeholder="Rechercher..."
+              className="form-input"
+              style={{width: '100%', fontSize: '0.8125rem', padding: '0.25rem 0.5rem'}}
+            />
+          </div>
+          <div
             onClick={toggleAll}
             style={{padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 600, backgroundColor: '#f9fafb'}}
           >
-            <input type="checkbox" checked={selectedValues.length === options.length && options.length > 0} readOnly style={{cursor: 'pointer'}} />
+            <input type="checkbox" checked={filteredOptions.length > 0 && filteredOptions.every(o => selectedValues.includes(o.value))} readOnly style={{cursor: 'pointer'}} />
             (TOUT SÉLECTIONNER)
           </div>
-          {options.map(opt => (
+          {filteredOptions.map(opt => (
             <div 
               key={opt.value} 
               onClick={() => toggleOne(opt.value)}
@@ -118,14 +150,15 @@ const CheckboxDropdown = ({
               {opt.label}
             </div>
           ))}
-          {options.length === 0 && <div style={{padding: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'gray'}}>Aucun élément</div>}
+          {filteredOptions.length === 0 && <div style={{padding: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'gray'}}>Aucun élément</div>}
         </div>
       )}
     </div>
   );
 };
 
-export default function ApercuComptabilisation({ user, showToast, caissesMap }: ApercuComptabilisationProps) {
+export default function ApercuComptabilisation({ user, showToast, caissesMap, preselection, onValidated }: ApercuComptabilisationProps) {
+  const isPreselectionMode = !!preselection && preselection.length > 0;
   const [caisses, setCaisses] = useState<string[]>([]);
   const [modes, setModes] = useState<string[]>([]);
   const [dynamicModes, setDynamicModes] = useState<{value: string, label: string}[]>([]);
@@ -142,6 +175,9 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
   const [apercus, setApercus] = useState<Apercu[]>([]);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // TASK-055 — panneau persistant des messages métier (erreurs/avertissements) de la dernière
+  // comptabilisation : le toast s'efface, ce panneau reste affiché jusqu'à dismiss explicite.
+  const [resultPanel, setResultPanel] = useState<{ errors: string[]; warnings: string[] } | null>(null);
 
   // Fetch dynamic modes when caisses change
   useEffect(() => {
@@ -170,6 +206,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
     setLoading(true);
     setApercus([]);
     setExpandedRows({});
+    setResultPanel(null);
     try {
       const res = await axios.get(`${API_BASE}/reglements`, {
         params: {
@@ -197,9 +234,9 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
       const resPreview = await axios.post(`${API_BASE}/reglements/apercu-comptabilisation`, ids);
       
       const apercusData = resPreview.data.map((ap: any) => {
-         const reg = nonComptabilises.find((r: any) => r.no === ap.id);
+         const reg = nonComptabilises.find((r: any) => r.no === ap.reglementId);
          return {
-           id: ap.id,
+           id: ap.reglementId,
            client: reg?.clientIntitule || '',
            date: reg?.date || '',
            montant: reg?.montant || 0,
@@ -219,6 +256,47 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
     }
   };
 
+  // Mode "par IDs" : court-circuite le fetch par filtres, simule directement la sélection passée
+  // depuis la liste (mêmes métadonnées, pas de re-fetch des règlements).
+  const handleSimulerPreselection = async (items: PreselectionItem[]) => {
+    setLoading(true);
+    setApercus([]);
+    setExpandedRows({});
+    setResultPanel(null);
+    try {
+      const ids = items.map(r => r.id);
+      const resPreview = await axios.post(`${API_BASE}/reglements/apercu-comptabilisation`, ids);
+
+      const apercusData = resPreview.data.map((ap: any) => {
+        const meta = items.find(r => r.id === ap.reglementId);
+        return {
+          id: ap.reglementId,
+          client: meta?.client || '',
+          date: meta?.date || '',
+          montant: meta?.montant || 0,
+          piece: meta?.piece || '',
+          ecritures: ap.ecritures || []
+        };
+      });
+
+      setApercus(apercusData);
+      showToast(`Simulation générée pour ${apercusData.length} règlement${apercusData.length > 1 ? 's' : ''}`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur lors de la simulation', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // À l'arrivée avec une présélection (venant de la liste), lancer la simulation automatiquement.
+  useEffect(() => {
+    if (preselection && preselection.length > 0) {
+      handleSimulerPreselection(preselection);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselection]);
+
   const toggleRow = (id: number) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -234,29 +312,70 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
     try {
       const ids = apercus.map(a => a.id);
       const res = await axios.post(`${API_BASE}/reglements/comptabiliser`, ids);
-      if (res.data.success) {
-        showToast(`Comptabilisation réussie pour ${res.data.successCount} règlements !`, 'success');
-        if (res.data.errorCount > 0) {
-          console.error(res.data.errors);
-          showToast(`${res.data.errorCount} erreurs rencontrées`, 'warning');
-        }
-        setApercus([]);
+      const data = res.data || {};
+      const successCount: number = data.successCount ?? 0;
+      const errorCount: number = data.errorCount ?? 0;
+      const errors: string[] = data.errors || [];
+      // Comptabilisé quand même : à afficher en avertissement, jamais fusionné avec les erreurs
+      // (cf. ReglementService.cs:375-377 — ce n'est pas un échec de comptabilisation).
+      const warnings: string[] = [...(data.lettrageWarnings || []), ...(data.docNumeroWarnings || [])];
+
+      setResultPanel(errors.length > 0 || warnings.length > 0 ? { errors, warnings } : null);
+
+      // Ne parler de réussite que si au moins un règlement est passé (le back renvoie
+      // success=true même à successCount=0 — on ignore ce champ et on se base sur le compte réel).
+      if (successCount > 0) {
+        showToast(`Comptabilisation réussie pour ${successCount} règlement${successCount > 1 ? 's' : ''} !`, 'success');
+      } else {
+        showToast('Comptabilisation échouée — voir le détail ci-dessous', 'error');
       }
-    } catch (err) {
+      if (errorCount > 0) {
+        showToast(`${errorCount} erreur${errorCount > 1 ? 's' : ''} rencontrée${errorCount > 1 ? 's' : ''} — voir le détail ci-dessous`, 'warning');
+      }
+
+      // Ne vider l'aperçu que si quelque chose est réellement passé, sinon l'utilisateur perd
+      // sa sélection alors qu'il doit réessayer (ex. après fermeture du journal Sage dans l'ERP).
+      if (successCount > 0) {
+        setApercus([]);
+        // En mode présélection : vider la sélection côté liste et revenir à la liste rafraîchie.
+        if (onValidated) onValidated();
+      }
+    } catch (err: any) {
       console.error(err);
-      showToast('Erreur lors de la comptabilisation', 'error');
+      // ProblemDetails renvoyé par le contrôleur (Problem(ex.Message)) : le message métier est
+      // dans `detail`. On l'affiche plutôt que le message générique si présent.
+      const detail = err?.response?.data?.detail || err?.response?.data?.title;
+      const message = typeof detail === 'string' && detail.trim() ? detail : 'Erreur lors de la comptabilisation';
+      showToast(message, 'error');
+      setResultPanel({ errors: [message], warnings: [] });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const caisseOptions = useMemo(() => {
-    return Object.entries(caissesMap).map(([id, obj]: [string, any]) => ({ value: id, label: obj ? `${obj.code} - ${obj.intitule}` : id }));
-  }, [caissesMap]);
+    return Object.entries(caissesMap)
+      .filter(([id]) => user.isAdmin || user.caisses.includes(Number(id)) || user.caisses.length === 0)
+      .map(([id, obj]: [string, any]) => ({ value: id, label: obj ? `${obj.code} - ${obj.intitule}` : id }));
+  }, [caissesMap, user.caisses, user.isAdmin]);
 
   return (
     <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', position: 'relative'}}>
-      {/* Top bar Filters */}
+      {/* Bandeau présélection (mode "par IDs" venant de la liste) */}
+      {isPreselectionMode && (
+        <div className="card animate-fade-in" style={{padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8125rem'}}>
+          <CheckSquare size={18} style={{color: 'var(--accent-primary)'}} />
+          <span style={{fontWeight: 600}}>Comptabilisation d'une sélection de la liste</span>
+          <span style={{color: 'var(--text-secondary)'}}>({preselection!.length} règlement{preselection!.length > 1 ? 's' : ''})</span>
+          <button onClick={() => handleSimulerPreselection(preselection!)} className="btn" disabled={loading} style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'white', border: '1px solid var(--border-color)', padding: '0.375rem 0.75rem', fontSize: '0.8125rem'}}>
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            Rafraîchir l'aperçu
+          </button>
+        </div>
+      )}
+
+      {/* Top bar Filters (masquée en mode présélection : la sélection vient de la liste) */}
+      {!isPreselectionMode && (
       <div className="card animate-fade-in" style={{padding: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', position: 'relative', zIndex: 50}}>
         <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
           <Filter size={18} style={{color: 'var(--text-tertiary)'}} />
@@ -297,6 +416,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
           </button>
         </div>
       </div>
+      )}
 
       {/* Main content */}
       <div className="card table-container animate-fade-in" style={{flex: 1, minHeight: 0, paddingBottom: apercus.length > 0 ? '5rem' : '0'}}>
@@ -384,13 +504,48 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
             {apercus.length === 0 && !loading && (
               <tr>
                 <td colSpan={6} style={{textAlign: 'center', padding: '3rem', color: 'var(--text-tertiary)'}}>
-                  Aucun aperçu généré. Modifiez les filtres et cliquez sur "Générer l'Aperçu".
+                  {isPreselectionMode
+                    ? 'Aucun aperçu. Cliquez sur "Rafraîchir l\'aperçu".'
+                    : 'Aucun aperçu généré. Modifiez les filtres et cliquez sur "Générer l\'Aperçu".'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Panneau persistant des messages métier de la dernière comptabilisation (TASK-055) :
+          indépendant de `apercus` — doit rester visible même si la sélection a été vidée
+          (cas mixte succès+erreurs) ou si aucun règlement n'est passé. */}
+      {resultPanel && (resultPanel.errors.length > 0 || resultPanel.warnings.length > 0) && (
+        <div className="card animate-fade-in" style={{padding: '0.75rem 1rem', maxHeight: '220px', overflowY: 'auto'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'}}>
+            <span style={{fontWeight: 600, fontSize: '0.8125rem', color: 'var(--text-secondary)'}}>
+              Détail de la dernière comptabilisation
+            </span>
+            <button
+              onClick={() => setResultPanel(null)}
+              style={{border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: '0.75rem', fontWeight: 600}}
+            >
+              Fermer ✕
+            </button>
+          </div>
+          <div style={{display: 'flex', flexDirection: 'column', gap: '0.375rem'}}>
+            {resultPanel.errors.map((msg, i) => (
+              <div key={`err-${i}`} style={{display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.8125rem', color: '#dc2626', backgroundColor: '#fee2e2', padding: '0.375rem 0.625rem', borderRadius: '6px'}}>
+                <AlertCircle size={14} style={{marginTop: '2px', flexShrink: 0}} />
+                <span>{msg}</span>
+              </div>
+            ))}
+            {resultPanel.warnings.map((msg, i) => (
+              <div key={`warn-${i}`} style={{display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.8125rem', color: '#92400e', backgroundColor: '#fef3c7', padding: '0.375rem 0.625rem', borderRadius: '6px'}}>
+                <AlertCircle size={14} style={{marginTop: '2px', flexShrink: 0}} />
+                <span>{msg}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Validation Bottom Bar */}
       {apercus.length > 0 && (
@@ -422,7 +577,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap }: 
               border: 'none', cursor: hasErrors ? 'not-allowed' : 'pointer'
             }}>
             {isSubmitting ? <Loader2 className="animate-spin" /> : <CheckSquare />}
-            {isSubmitting ? 'Comptabilisation...' : 'Valider & Enregistrer'}
+            {isSubmitting ? 'Comptabilisation...' : 'Comptabiliser'}
           </button>
         </div>
       )}
