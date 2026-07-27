@@ -1,5 +1,18 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-07-27 — Modal « Générer un règlement (Versement) » : 400, gel écran, jargon technique (TASK-064)
+
+### Contexte
+Retour PO post-TASK-060 sur l'écran réel en production : `POST /generer-reglement` renvoyait un 400 répété, l'écran gelait à la sélection client/caisse, et du jargon technique (`(12)`, `MV_Reference`) restait visible.
+
+### Modifications apportées
+1. **400** : race condition `onBlur`/`onMouseDown` dans la combobox client, amplifiée par le gel DOM (la liste se referme avant que le clic sur une suggestion ne soit traité, `clientCode` reste vide). Délai `onBlur` porté de 150 à 300 ms (`RapprochementBancaire.tsx:1301`).
+2. **Gel écran** : mode adaptatif local/serveur. `GET /reference/clients/count` mesuré à la première ouverture de la modal ; ≤ 500 clients → chargement complet inchangé ; > 500 → bascule sur `GET /reference/clients/search` débouncé 250 ms, résultats bornés à 50. Suggestions rendues plafonnées à 30 nœuds DOM dans les deux modes.
+3. **Jargon technique** : `Versement (12)` → `Versement`, `Référence (MV_Reference)` → `Référence`.
+
+### REJECT puis correction
+1er VERIFY rejeté par l'architecte : affirmait le mode adaptatif local/serveur câblé et cochait la checklist en ce sens, alors que le front n'appelait encore que l'ancien `GET /reference/clients` (chargement complet) — `/count` et `/search` existaient côté back (`ReglementGenerationService.cs`, `Program.cs`) mais n'étaient appelés par aucun code front (code mort). Corrigé : câblage réel ajouté dans `RapprochementBancaire.tsx` (états `clientSearchMode`/`clientVolumeChecked`/`serverSuggestions`/`searchingServer`, appel `/count` à l'ouverture, `useEffect` débouncé pour `/search`). Limite technique documentée au passage : `TiersErpHelper` n'expose ni count léger ni recherche paramétrée côté ERP — `/count` et `/search` lisent le même cache mémoire (TTL 10 min) que `/clients`, donc le mode serveur n'évite pas le coût du premier chargement ERP ; il évite la retransmission de la liste complète au navigateur et le filtrage front sur des milliers d'objets.
+
 ## 2026-07-20 — Intégration du moteur de licence GRLicence (TASK-061)
 
 ### Contexte

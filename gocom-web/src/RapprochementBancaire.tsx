@@ -361,11 +361,21 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const [mvReference, setMvReference] = useState('');
     const [isSubmittingVersement, setIsSubmittingVersement] = useState(false);
 
+    // TASK-064 — Mode adaptatif local/serveur selon le volume réel de clients ERP.
+    // ≤ seuil : chargement complet + filtrage front (comportement historique).
+    // > seuil : recherche serveur bornée et débouncée, aucun chargement massif côté front.
+    const CLIENT_VOLUME_THRESHOLD = 500;
+    const [clientSearchMode, setClientSearchMode] = useState<'local' | 'server'>('local');
+    const [clientVolumeChecked, setClientVolumeChecked] = useState(false);
+    const [serverSuggestions, setServerSuggestions] = useState<Array<{ code: string; intitule: string; no: number }>>([]);
+    const [searchingServer, setSearchingServer] = useState(false);
+
     const handleOpenGenererModal = React.useCallback((row: LigneReleve) => {
         setModalLigne(row);
         setClientInputDisplay('');
         setShowClientSuggestions(false);
         setSelectedClientCode('');
+        setServerSuggestions([]);
         setMvReference(row.reference || '');
 
         if (user?.caisses && user.caisses.length === 1) {
@@ -377,22 +387,63 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             setSelectedCaisseCode('');
         }
 
-        // Chargement unique : le serveur met en cache la liste ERP (TTL 10 min),
-        // donc le coût GetAll() n'est payé qu'une fois par fenêtre de cache, pas à chaque appel.
-        // En front, on ne recharge pas si la liste est déjà disponible en state.
-        if (clients.length === 0) {
+        // Mesure du volume réel une seule fois par session (le volume ERP ne varie pas en cours
+        // de session) : bascule en mode serveur si le volume dépasse le seuil, sinon comportement
+        // historique (chargement complet, mis en cache 10 min côté serveur).
+        if (!clientVolumeChecked) {
             setLoadingClients(true);
-            axios.get(`${API_BASE}/reference/clients`)
-                .then(res => setClients(res.data))
-                .catch(err => console.error('Erreur chargement clients', err))
-                .finally(() => setLoadingClients(false));
+            axios.get(`${API_BASE}/reference/clients/count`)
+                .then(res => {
+                    setClientVolumeChecked(true);
+                    if (res.data.count > CLIENT_VOLUME_THRESHOLD) {
+                        setClientSearchMode('server');
+                        setLoadingClients(false);
+                    } else {
+                        setClientSearchMode('local');
+                        axios.get(`${API_BASE}/reference/clients`)
+                            .then(res2 => setClients(res2.data))
+                            .catch(err => console.error('Erreur chargement clients', err))
+                            .finally(() => setLoadingClients(false));
+                    }
+                })
+                .catch(err => {
+                    console.error('Erreur mesure volume clients', err);
+                    setClientVolumeChecked(true);
+                    setClientSearchMode('local');
+                    axios.get(`${API_BASE}/reference/clients`)
+                        .then(res2 => setClients(res2.data))
+                        .catch(e => console.error('Erreur chargement clients', e))
+                        .finally(() => setLoadingClients(false));
+                });
         }
-    }, [user, caissesMap, clients.length]);
+    }, [user, caissesMap, clientVolumeChecked]);
 
     // Combobox client : suggestions bornées à 30 résultats max dans le DOM.
     // Empêche la création de milliers de <li> à chaque frappe, source du gel de rendu.
     const MAX_CLIENT_SUGGESTIONS = 30;
+
+    // Mode serveur : recherche débouncée (250 ms) via /reference/clients/search,
+    // déjà bornée côté back (voir ReglementGenerationService.SearchClients).
+    React.useEffect(() => {
+        if (clientSearchMode !== 'server') return;
+        const term = clientInputDisplay.trim();
+        if (!term) {
+            setServerSuggestions([]);
+            setSearchingServer(false);
+            return;
+        }
+        setSearchingServer(true);
+        const handle = setTimeout(() => {
+            axios.get(`${API_BASE}/reference/clients/search`, { params: { q: term, max: MAX_CLIENT_SUGGESTIONS } })
+                .then(res => setServerSuggestions(res.data))
+                .catch(err => console.error('Erreur recherche clients', err))
+                .finally(() => setSearchingServer(false));
+        }, 250);
+        return () => clearTimeout(handle);
+    }, [clientSearchMode, clientInputDisplay]);
+
     const clientSuggestions = React.useMemo(() => {
+        if (clientSearchMode === 'server') return serverSuggestions;
         const term = clientInputDisplay.toLowerCase().trim();
         if (!term) return clients.slice(0, MAX_CLIENT_SUGGESTIONS);
         return clients
@@ -401,7 +452,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 (c.intitule || '').toLowerCase().includes(term)
             )
             .slice(0, MAX_CLIENT_SUGGESTIONS);
-    }, [clients, clientInputDisplay]);
+    }, [clients, clientInputDisplay, clientSearchMode, serverSuggestions]);
 
     const userCaissesOptions = React.useMemo(() => {
         if (!user?.caisses) return [];
@@ -1264,6 +1315,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     }}>
                                         {loadingClients ? (
                                             <li style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>Chargement en cours...</li>
+                                        ) : searchingServer ? (
+                                            <li style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>Recherche en cours...</li>
                                         ) : clientSuggestions.length === 0 ? (
                                             <li style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>Aucun client trouvé</li>
                                         ) : (
