@@ -1,5 +1,19 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-14 — Filtre Mode/Type de règlement (et Caisse Code/Intitulé) ignoré en cas d'intersection vide (TASK-071)
+
+### Contexte
+Signalement client 2026-09-14 (« je filtre sur Espèce, ça ne marche pas »), reproduit en direct sur la prod cliente.
+
+### Cause racine
+`buildParams` (`gocom-web/src/App.tsx`) calculait l'intersection de deux filtres portant sur la même dimension (Mode×Type de règlement, Caisse Code×Caisse Intitulé) mais, quand cette intersection était vide, produisait une chaîne `""` plutôt que la sentinelle `'-1'` déjà utilisée pour le cas « Type seul ». Le backend (`ReglementService.cs:124/134`, `string.IsNullOrEmpty`) traite une chaîne vide comme « aucun filtre demandé » et renvoie la liste complète au lieu de 0 résultat — donnant l'impression que le filtre Mode (ou Caisse) ne fonctionne pas.
+
+### Modifications apportées
+`App.tsx` (blocs `typeReglement`→`modeNos` et `caisseIntitule`→`caisseNos`) : calcul explicite de l'intersection, sentinelle `'-1'` appliquée si elle est vide. Aucun changement backend (la sentinelle existait déjà et suffit à obtenir 0 résultat). Périmètre strictement limité aux deux blocs concernés.
+
+### Vérification
+Repro avant/après en direct sur la prod (`GET /api/reglements?modeNos=`/`caisseNos=` → 42337 avant correctif ; `-1` → 0 après). Cas filtres seuls (Mode seul, Type seul, CaisseCode seul, CaisseIntitulé seul) non régressés. Test complémentaire sur 3 autres colonnes (`client`, `banque`, `piece`) confirmant l'absence d'interaction. Build front 0 erreur.
+
 ## 2026-07-27 — Modal « Générer un règlement (Versement) » : 400, gel écran, jargon technique (TASK-064)
 
 ### Contexte

@@ -431,7 +431,12 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
       if (currentFilters.caisseIntitule) {
         const nos = toCsv(currentFilters.caisseIntitule);
         const selected = nos.split(',');
-        params.caisseNos = params.caisseNos ? params.caisseNos.split(',').filter((id: string) => selected.includes(id)).join(',') : nos;
+        if (params.caisseNos) {
+          const intersected = params.caisseNos.split(',').filter((id: string) => selected.includes(id));
+          params.caisseNos = intersected.length > 0 ? intersected.join(',') : '-1';
+        } else {
+          params.caisseNos = nos || '-1';
+        }
       }
       if (currentFilters.banque) params.banqueNos = toCsv(currentFilters.banque);
       if (currentFilters.mode) params.modeNos = toCsv(currentFilters.mode);
@@ -439,7 +444,12 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
       if (currentFilters.typeReglement) {
         const selectedTypes = currentFilters.typeReglement.split('|||').map(Number);
         const matchedModes = Object.values(modesMap).filter((m: any) => selectedTypes.includes(m.typeNo)).map((m: any) => m.id);
-        params.modeNos = params.modeNos ? params.modeNos.split(',').filter((id: string) => matchedModes.includes(parseInt(id))).join(',') : (matchedModes.length > 0 ? matchedModes.join(',') : '-1');
+        if (params.modeNos) {
+          const intersected = params.modeNos.split(',').filter((id: string) => matchedModes.includes(parseInt(id)));
+          params.modeNos = intersected.length > 0 ? intersected.join(',') : '-1';
+        } else {
+          params.modeNos = matchedModes.length > 0 ? matchedModes.join(',') : '-1';
+        }
       }
 
       if (currentFilters.client) params.client = currentFilters.client;
