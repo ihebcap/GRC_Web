@@ -53,6 +53,16 @@ if (currentFilters.caisseIntitule) {
 ```
 Même défaut : pas de fallback sentinelle si l'intersection caisseCode ∩ caisseIntitule est vide → `caisseNos=""` → `ReglementService.cs:124-127` ignore le filtre caisse dans ce cas, alors qu'aucune caisse ne devrait correspondre.
 
+**Ce second foyer a été reproduit en direct sur la prod cliente (pas seulement déduit par analogie de code)**, avec en complément la validation de la sentinelle `-1` pour les deux dimensions :
+
+```
+GET /api/reglements?page=1&pageSize=1&caisseNos=      → totalItems = 42337   (= sans filtre, bug confirmé, symétrique à modeNos)
+GET /api/reglements?page=1&pageSize=1&caisseNos=-1    → totalItems = 0       (sentinelle sûre : aucun CaisseNo réel ne vaut -1)
+GET /api/reglements?page=1&pageSize=1&modeNos=-1      → totalItems = 0       (sentinelle déjà validée côté mode)
+GET /api/reglements?page=1&pageSize=1&modeNos=1&caisseNos=197 → totalItems = 1176   (sanity : filtre combiné mode+caisse réel fonctionne normalement)
+```
+Ces quatre requêtes lèvent l'incertitude notée plus bas dans « Risques » : la sentinelle `-1` est confirmée sans danger pour `caisseNos` comme pour `modeNos` sur ce jeu de données réel — pas besoin de vérifier le modèle `CaisseNo` séparément avant implémentation, c'est déjà tranché empiriquement.
+
 ## Objectif
 
 Quand l'intersection de deux filtres portant sur la même dimension (Mode×Type, ou CaisseCode×CaisseIntitulé) est vide, la requête envoyée au backend doit produire **zéro résultat**, pas ignorer le filtre. Comportement à aligner sur celui déjà correct du cas « Type seul » (sentinelle `'-1'`, qui ne matche aucun ID réel côté `ReglementService.cs` puisque les identifiants métier sont toujours positifs).
@@ -77,7 +87,7 @@ Quand l'intersection de deux filtres portant sur la même dimension (Mode×Type,
      }
    }
    ```
-2. Appliquer le même correctif au bloc `caisseIntitule` (`App.tsx:430-434`), avec la même sentinelle `'-1'` (déjà utilisée ailleurs dans ce fichier pour le même usage — vérifier qu'elle produit bien 0 résultat côté `caisseNosFilter`, `ReglementService.cs:124-127`, avant de la réutiliser telle quelle : les `CaisseNo` réels sont-ils garantis positifs comme les `ModeReglementNo` ? à confirmer par lecture du modèle, pas supposer).
+2. Appliquer le même correctif au bloc `caisseIntitule` (`App.tsx:430-434`), avec la même sentinelle `'-1'` — **déjà validée empiriquement en prod** (voir Contexte ci-dessus : `caisseNos=-1` → 0 résultat), pas besoin de re-vérifier le modèle `CaisseNo` avant d'implémenter.
 3. Ne toucher à aucun autre bloc de `buildParams` — périmètre strictement limité à ces deux intersections.
 
 ## Contraintes
@@ -88,7 +98,7 @@ Quand l'intersection de deux filtres portant sur la même dimension (Mode×Type,
 
 ## Risques / dépendances
 
-- Vérifier que `CaisseNo` (backend) ne peut jamais légitimement valoir `-1` avant de réutiliser cette sentinelle pour le bloc caisse (par analogie avec `ModeReglementNo`, mais à confirmer, pas supposer).
+- Sentinelle `-1` pour `CaisseNo` : **déjà validée empiriquement en prod** (voir Contexte), aucune vérification supplémentaire requise avant implémentation.
 - Aucun risque de régression sur le rapprochement/comptabilisation : ce bloc ne concerne que le filtrage d'affichage de la liste principale (`GetReglements`), pas les écritures.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
