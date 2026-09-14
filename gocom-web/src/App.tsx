@@ -55,7 +55,7 @@ interface Reglement {
   info4: string | null;
 }
 
-import { DEFAULT_COLUMNS, getAvailableColumns, renderSharedCell, getTypeReglementLabel, formatMoney } from './utils';
+import { DEFAULT_COLUMNS, getAvailableColumns, renderSharedCell, getTypeReglementLabel, formatMoney, fixMojibake } from './utils';
 
 import ApercuComptabilisation from './ApercuComptabilisation';
 import { RapprochementBancaire } from './RapprochementBancaire';
@@ -390,7 +390,9 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
       setCaissesMap(cmap);
 
       const mmap: Record<number, any> = {};
-      modesRes.data.forEach((m: any) => mmap[m.id] = m);
+      modesRes.data.forEach((m: any) => {
+        mmap[m.id] = { ...m, intitule: fixMojibake(m.intitule) };
+      });
       setModesMap(mmap);
 
       const bmap: Record<number, any> = {};

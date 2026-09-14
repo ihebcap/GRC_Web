@@ -1,5 +1,26 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-14 — Normalisation mojibake sur les intitulés des modes de règlement (TASK-072)
+
+### Contexte
+Constat fait lors de l'investigation de TASK-071 : sur l'API de prod cliente, les intitulés de modes de règlement dans `P_MODEREGLEMENT` (`MR_Intitule`) présentaient un mojibake historique au repos (`"EspÃ¨ce"` pour le mode 1 `ESPECE`, `"ChÃ¨que"` pour le mode 2 `CHEQUE`).
+
+### Décision
+Conformément aux règles du projet interdisant un `UPDATE` SQL direct sur table métier GRC sans validation explicite, décision PO de retenir une normalisation applicative transparente (non destructive, résiliente).
+
+### Modifications apportées
+1. **Backend (`GRC.API/Program.cs`)** :
+   - Classe utilitaire `StringEncodingHelper` avec méthode `NormalizeMojibake` (décodage du pattern `Ã` UTF-8 ré-encodé en Latin-1 / Windows-1252 vers UTF-8 valide).
+   - Normalisation du champ `intitule` sur l'endpoint `GET /api/reference/modes`.
+2. **Frontend (`gocom-web`)** :
+   - Helper `fixMojibake` dans [`utils.tsx`](file:///D:/_vibe/GRC_WEB/gocom-web/src/utils.tsx).
+   - Normalisation de sécurité appliquée dans [`App.tsx`](file:///D:/_vibe/GRC_WEB/gocom-web/src/App.tsx) lors de la constitution de `modesMap`, et dans [`ApercuComptabilisation.tsx`](file:///D:/_vibe/GRC_WEB/gocom-web/src/ApercuComptabilisation.tsx).
+
+### Vérification
+- `dotnet build GRC.API/GRC.API.csproj` : 0 erreur.
+- `npm run build` (`gocom-web`) : 0 erreur.
+- Vérification que la base SQL n'est pas modifiée directement (règle préservée).
+
 ## 2026-09-14 — Filtre Mode/Type de règlement (et Caisse Code/Intitulé) ignoré en cas d'intersection vide (TASK-071)
 
 ### Contexte

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Loader2, CheckSquare, RefreshCw, Filter, ChevronRight, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { API_BASE } from './api';
+import { fixMojibake } from './utils';
 
 interface User {
   no: number;
@@ -185,7 +186,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
       try {
         const caissesStr = caisses.length ? caisses.join(',') : user.caisses.join(',');
         const res = await axios.get(`${API_BASE}/reference/modes?caisses=${caissesStr}`);
-        const newModes = res.data.map((m: any) => ({ value: m.id.toString(), label: `${m.code} - ${m.intitule}` }));
+        const newModes = res.data.map((m: any) => ({ value: m.id.toString(), label: `${m.code} - ${fixMojibake(m.intitule)}` }));
         setDynamicModes(newModes);
         // Filter out selected modes that are no longer available
         const availableModeIds = newModes.map((m: any) => m.value);

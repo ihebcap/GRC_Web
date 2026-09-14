@@ -262,6 +262,7 @@ app.MapGet("/api/reference/modes", (IDbConnectionFactory dbFactory, ClaimsPrinci
     var connString = dbFactory.GetConnectionString();
     using var sqlConn = new System.Data.SqlClient.SqlConnection(connString);
     
+    IEnumerable<dynamic> modes;
     if (!isAdmin && !string.IsNullOrEmpty(caisses)) 
     {
         var ids = caisses.Split(',').Select(int.Parse).ToArray();
@@ -270,14 +271,22 @@ app.MapGet("/api/reference/modes", (IDbConnectionFactory dbFactory, ClaimsPrinci
             FROM P_MODEREGLEMENT m
             INNER JOIN P_CAISSEMODREG cm ON m.MR_Id = cm.MR_Id
             WHERE cm.CA_Id IN ({string.Join(",", ids)})";
-        var modes = sqlConn.Query(sql);
-        return Results.Ok(modes);
+        modes = sqlConn.Query(sql);
     }
     else 
     {
-        var modes = sqlConn.Query("SELECT MR_Id as id, MR_Code as code, MR_Intitule as intitule, MR_TypeNo as typeNo FROM P_MODEREGLEMENT");
-        return Results.Ok(modes);
+        modes = sqlConn.Query("SELECT MR_Id as id, MR_Code as code, MR_Intitule as intitule, MR_TypeNo as typeNo FROM P_MODEREGLEMENT");
     }
+
+    var normalizedModes = modes.Select(m => new 
+    {
+        id = (int)m.id,
+        code = (string)m.code,
+        intitule = StringEncodingHelper.NormalizeMojibake((string?)m.intitule),
+        typeNo = (int?)m.typeNo
+    });
+
+    return Results.Ok(normalizedModes);
 }).RequireAuthorization();
 
 app.MapGet("/api/reference/societes", (IDbConnectionFactory dbFactory) => 
@@ -357,5 +366,25 @@ public sealed class AppSettingsLicenceConfigProvider : ILicenceConfigProvider
         var timeout = System.TimeSpan.FromSeconds(timeoutSeconds);
 
         return new GRLicence.ServerConnectionConfig(address, port, timeout);
+    }
+}
+
+public static class StringEncodingHelper
+{
+    public static string? NormalizeMojibake(string? s)
+    {
+        if (string.IsNullOrEmpty(s) || !s.Contains('Ã')) return s;
+        try
+        {
+            var latin1 = System.Text.Encoding.GetEncoding("iso-8859-1");
+            var bytes = latin1.GetBytes(s);
+            var utf8 = System.Text.Encoding.UTF8.GetString(bytes);
+            if (!utf8.Contains('\ufffd')) return utf8;
+        }
+        catch
+        {
+            // En cas d'erreur de décodage, retourne la valeur originale
+        }
+        return s;
     }
 }

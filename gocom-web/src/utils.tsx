@@ -1,5 +1,17 @@
 
 
+export const fixMojibake = (s: string | null | undefined): string => {
+  if (!s || typeof s !== 'string' || !s.includes('Ã')) return s || '';
+  try {
+    const bytes = Uint8Array.from(Array.from(s, ch => ch.charCodeAt(0) & 0xff));
+    const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    if (!decoded.includes('\ufffd')) return decoded;
+  } catch {
+    // En cas d'erreur de décodage, retourner la chaîne originale
+  }
+  return s;
+};
+
 export const DEFAULT_COLUMNS = ['no', 'client', 'caisseCode', 'caisseIntitule', 'mode', 'date', 'montant', 'pointe', 'comptabilise'];
 
 export const getTypeReglementLabel = (typeNo?: number) => {
