@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>b5e57d6a-859d-49ff-a42c-4385637684e6</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -64,10 +65,7 @@
        libs\Tresorerie\ (sous-dossier) pour le chargement par le kernel Ninject Trésorerie. -->
   <Target Name="RetirerSerilogHeriteDeLaRacine" AfterTargets="ResolveAssemblyReferences">
     <ItemGroup>
-      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
-          Condition="'%(Extension)' == '.dll'
-                     and $([System.String]::Copy('%(FileName)').StartsWith('Serilog'))
-                     and $([System.String]::Copy('%(FullPath)').Contains('libs\Tresorerie'))" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(Extension)' == '.dll'                      and $([System.String]::Copy('%(FileName)').StartsWith('Serilog'))                      and $([System.String]::Copy('%(FullPath)').Contains('libs\Tresorerie'))" />
     </ItemGroup>
   </Target>
 

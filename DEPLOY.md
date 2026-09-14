@@ -147,6 +147,7 @@ sc.exe start GrcAPI
 | Erreur | Cause | Correction |
 |---|---|---|
 | Le service démarre puis s'arrête | Runtime ASP.NET Core 10 absent ou chaîne SQL invalide | `dotnet --list-runtimes` ; vérifier `ConnectionStrings.DefaultConnection` |
+| `System.InvalidOperationException: La clé de configuration 'Jwt:Key' est manquante...` | `Jwt:Key` absente ou trop courte dans `appsettings.json` ou variable d'env | Renseigner une clé aléatoire forte (>= 32 caractères / 256 bits) dans `Jwt:Key` ou `Jwt__Key` |
 | `Login failed for user` | Droits SQL insuffisants | Donner accès à la base à l'utilisateur SQL |
 | Page blanche sur `http://localhost:5000` | `wwwroot\` vide | Refaire l'ÉTAPE 1 (`npm run build` régénère `deploy\wwwroot\`) |
 | Front OK mais appels API en erreur | `wwwroot\config.js` altéré | Doit contenir `API_BASE: "/api"` |

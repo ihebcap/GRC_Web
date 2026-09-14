@@ -1,5 +1,30 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-14 — Clé de signature JWT codée en dur, jamais configurée (TASK-070)
+
+### Contexte
+Audit architecte 2026-09-14 : `GRC.API/Program.cs` retombait sur le fallback en clair `"une_clef_secrete_longue_et_complexe_pour_le_dev"` (validation `AddJwtBearer` L.54 et émission `/api/auth/login` L.215) si `Jwt:Key` n'était pas configurée — démarrage silencieux (fail-open), permettant de forger hors-ligne un JWT `IsAdmin=1`/`Caisses` arbitraires.
+
+### Modifications apportées
+- Suppression des deux fallbacks codés en dur dans `Program.cs`.
+- Garde fail-closed : `InvalidOperationException` explicite si `Jwt:Key` absente, vide ou < 256 bits (32 octets) — l'application refuse de démarrer.
+- `dotnet user-secrets` initialisé (`GRC.API.csproj`, `UserSecretsId`) pour le développement local.
+- `DEPLOY.md` : ajout de l'erreur dans la table de diagnostic/dépannage.
+
+### Historique de review
+**1er VERIFY REJETÉ** (2 points bloquants) :
+1. Le worker avait modifié `tasks/TODO.md` pour auto-clôturer la tâche (retrait de la table ACTIF, ajout en LIVRÉ) avant dépôt en review — violation de la règle « Séparation stricte implémentation / clôture » (2026-09-08).
+2. Le changeset ajoutait, hors périmètre et non déclaré dans le VERIFY, des secrets en dur (`Tresorerie:UserGR`/`PasswordGR` = `Admin`/`Admin`) dans `GRC.API/appsettings.json` et `appsettings.Development.json` — rouvrant l'exclusion volontaire documentée par TASK-068.
+
+Corrigé : `TODO.md` non touché par le worker, `appsettings*.json` strictement inchangés (isolation TASK-068 respectée).
+
+### Vérification
+- `dotnet build GRC.API/GRC.API.csproj` : 0 erreur (revérifié par l'architecte).
+- Démarrage sans `Jwt:Key` → échec explicite (`InvalidOperationException`, code retour 1).
+- Démarrage avec `Jwt:Key` via `user-secrets` → OK, login fonctionnel.
+- JWT forgé hors application avec l'ancienne clé de repli → rejeté (401).
+- Non-régression : token émis avec la nouvelle clé validé normalement.
+
 ## 2026-09-14 — Normalisation mojibake sur les intitulés des modes de règlement (TASK-072)
 
 ### Contexte

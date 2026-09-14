@@ -51,7 +51,12 @@ builder.Host.UseWindowsService();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddControllers();
 
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "une_clef_secrete_longue_et_complexe_pour_le_dev";
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || System.Text.Encoding.UTF8.GetByteCount(jwtKey) < 32)
+{
+    throw new InvalidOperationException("La clé de configuration 'Jwt:Key' est manquante ou trop courte (minimum 256 bits / 32 octets requis). Configurez-la via dotnet user-secrets en développement ou via la variable d'environnement 'Jwt__Key' (ou appsettings.json) en production.");
+}
+
 builder.Services.AddAuthentication("Bearer").AddJwtBearer(options => {
     options.TokenValidationParameters = new TokenValidationParameters {
         ValidateIssuer = false,
@@ -212,7 +217,9 @@ app.MapPost("/api/auth/login", (
 
         // Generate JWT
     var tokenHandler = new JwtSecurityTokenHandler();
-    var key = System.Text.Encoding.UTF8.GetBytes(config["Jwt:Key"] ?? "une_clef_secrete_longue_et_complexe_pour_le_dev");
+    var keyString = config["Jwt:Key"] 
+        ?? throw new InvalidOperationException("La clé de configuration 'Jwt:Key' est introuvable.");
+    var key = System.Text.Encoding.UTF8.GetBytes(keyString);
     var claims = new List<Claim>
     {
         new Claim("UserId", user.No.ToString()),
