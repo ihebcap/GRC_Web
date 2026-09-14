@@ -87,7 +87,21 @@ Quand l'intersection de deux filtres portant sur la même dimension (Mode×Type,
      }
    }
    ```
-2. Appliquer le même correctif au bloc `caisseIntitule` (`App.tsx:430-434`), avec la même sentinelle `'-1'` — **déjà validée empiriquement en prod** (voir Contexte ci-dessus : `caisseNos=-1` → 0 résultat), pas besoin de re-vérifier le modèle `CaisseNo` avant d'implémenter.
+2. Appliquer le même correctif au bloc `caisseIntitule` (`App.tsx:430-434`), avec la même sentinelle `'-1'` — **déjà validée empiriquement en prod** (voir Contexte ci-dessus : `caisseNos=-1` → 0 résultat), pas besoin de re-vérifier le modèle `CaisseNo` avant d'implémenter :
+   ```js
+   if (currentFilters.caisseCode) params.caisseNos = toCsv(currentFilters.caisseCode);
+   if (currentFilters.caisseIntitule) {
+     const nos = toCsv(currentFilters.caisseIntitule);
+     const selected = nos.split(',');
+     if (params.caisseNos) {
+       const intersected = params.caisseNos.split(',').filter((id: string) => selected.includes(id));
+       params.caisseNos = intersected.length > 0 ? intersected.join(',') : '-1';
+     } else {
+       params.caisseNos = nos || '-1';
+     }
+   }
+   ```
+   Note sur `nos || '-1'` : si `currentFilters.caisseIntitule` est une chaîne non vide (condition du `if`), `toCsv` ne peut produire `''` que si elle ne contenait que des séparateurs `|||` sans valeur — cas limite improbable en pratique (les valeurs viennent de cases à cocher peuplées depuis `caissesMap`, jamais de saisie libre), mais couvert par cohérence avec le bloc `typeReglement` qui traite le même cas.
 3. Ne toucher à aucun autre bloc de `buildParams` — périmètre strictement limité à ces deux intersections.
 
 ## Contraintes
