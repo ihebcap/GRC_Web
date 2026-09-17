@@ -498,6 +498,19 @@ namespace GRC.Infrastructure.Services
 
             var lettrage = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.ILettrageReglementClient>();
 
+            // TASK-051 étape 5bis — diagnostic résidu VERIFY rejeté (clientsAvecLettrage=0 inexpliqué) :
+            // GetAllExercice() est l'interface publique déjà injectée dans le moteur natif (confirmé par
+            // IL, Lettrer(clientNo,dateMin,dateMax) l'appelle telle quelle) — on la réutilise en LECTURE
+            // SEULE pour lister, par exercice chevauchant, les bornes intersectées avant l'appel à
+            // Lettrer(). On ne recode PAS la règle de lettrage (GetNextLettre / équilibre Σdébit=Σcrédit) :
+            // seule l'arithmétique triviale d'intersection (déjà documentée dans TASK-051.md) est
+            // dupliquée, exclusivement à des fins de log — le résultat de cette intersection n'influence
+            // jamais l'appel à Lettrer(clientNo, dateMin, dateMax), qui reste inchangé.
+            var erpCompta = _kernel.Resolve<global::Tresorerie.Erp.ICore.IErpComptaService>();
+            var exercicesChevauchants = erpCompta.GetAllExercice()
+                .Where(e => e.Debut <= dateMax && e.Fin >= dateMin)
+                .ToList();
+
             int clientsTraites = 0;
             int clientsAvecLettrage = 0;
             var errors = new List<string>();
@@ -511,6 +524,15 @@ namespace GRC.Infrastructure.Services
                 clientsTraites++;
                 try
                 {
+                    foreach (var exercice in exercicesChevauchants)
+                    {
+                        var dateMinReg = exercice.Debut > dateMin ? exercice.Debut : dateMin;
+                        var dateMaxReg = exercice.Fin < dateMax ? exercice.Fin : dateMax;
+                        _logger.LogInformation(
+                            "LETTRAGE PÉRIODE DIAGNOSTIC : clientNo={ClientNo}, exercice={ExerciceNo} [{ExerciceDebut:yyyy-MM-dd}..{ExerciceFin:yyyy-MM-dd}], intersection=[{DateMinReg:yyyy-MM-dd}..{DateMaxReg:yyyy-MM-dd}]",
+                            clientNo, exercice.No, exercice.Debut, exercice.Fin, dateMinReg, dateMaxReg);
+                    }
+
                     bool lettre = lettrage.Lettrer(clientNo, dateMin, dateMax);
                     _logger.LogInformation(
                         "LETTRAGE PÉRIODE : clientNo={ClientNo}, dateMin={DateMin:yyyy-MM-dd}, dateMax={DateMax:yyyy-MM-dd}, lettré={Lettre}",

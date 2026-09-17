@@ -125,8 +125,74 @@ que TASK-050) est suffisante, ou si une reproduction du succès sur ce endpoint 
 - [x] **Aucun appel parallèle au moteur de lettrage (boucle séquentielle vérifiée dans le code)** — `foreach` simple, aucun `Parallel.For`/`Task.Run` autour de `Lettrer` (le chunking parallèle de `GetAll` ne concerne que le chargement en lecture, avant la boucle)
 - [x] **Bouton front affiche clairement l'avertissement « peut lettrer au-delà des lignes actuellement affichées »** — vérifié par lecture de code (modal + `window.confirm` obligatoire, formulation explicite)
 - [x] **Aucune régression sur TASK-050 ni sur la comptabilisation (TASK-048)** — confirmé réellement : kernel toujours fonctionnel, clients-témoins TASK-050 (20646/511) toujours cohérents (déjà lettrés, rien de nouveau, aucune erreur)
+- [~] **Log diagnostic présent (client × exercice × bornes dates × résultat `Lettrer()`)** — code ajouté le 2026-09-17 (voir "Complément" ci-dessous), **validé par revue de code + build uniquement, pas rejoué en base réelle** dans cette session ; dérogation à la contrainte "ne pas recoder l'intersection" assumée par le worker (arithmétique triviale, log-only, PO non tranché explicitement) — à valider par l'architecte
 
 ---
+
+---
+
+## Complément (2026-09-17) — étape 5bis, log diagnostic client × exercice
+
+Suite au REJECT, TASK-051.md a été enrichie le 2026-09-17 (commit `7639b86`, doc seule à ce
+moment-là) d'une étape 5bis demandant un log par **client × exercice comptable × bornes
+intersectées × résultat `Lettrer()`**, pour élucider le résidu ci-dessus (`clientsAvecLettrage=0`
+inexpliqué sur le cas 12889/CDR200538).
+
+### Conflit constaté avant implémentation
+
+`Lettrer(clientNo, dateMin, dateMax)` est un appel unique en boîte noire côté GRC : c'est la DLL
+native qui boucle en interne sur les exercices et calcule l'intersection par exercice (confirmé par
+IL, cf. `LettrageReglementClient.Lettrer` dans `Tresorerie.ApplicationServices.dll`). Produire le
+log demandé en 5bis nécessite donc de **recharger nous-mêmes les exercices et de recalculer
+l'intersection** — ce que la section "Contraintes" de TASK-051.md interdit littéralement ("ne pas
+recoder la logique d'intersection exercice/période"). Point signalé au PO avant d'agir ; le PO n'a
+pas tranché explicitement ("je sais pas franchement").
+
+### Décision prise (assumée, à valider par l'architecte)
+
+Dérogation **limitée et documentée**, distincte de la règle de lettrage elle-même :
+- L'intersection loguée est une arithmétique triviale à 2 lignes (`max(exercice.Debut, dateMin)`,
+  `min(exercice.Fin, dateMax)`), déjà documentée telle quelle dans TASK-051.md depuis l'analyse IL
+  initiale — ce n'est pas la règle métier (équilibre Σdébit=Σcrédit, `GetNextLettre`) que la
+  contrainte visait à protéger.
+- Le résultat de ce calcul est **utilisé uniquement pour le log**, jamais pour décider si/quand
+  appeler `Lettrer()` : l'appel `lettrage.Lettrer(clientNo, dateMin, dateMax)` reste strictement
+  inchangé, mêmes arguments, même boîte noire.
+- La liste des exercices est obtenue via `IErpComptaService.GetAllExercice()` — interface publique
+  déjà injectée dans le moteur natif lui-même (confirmé par IL), déjà résolvable via le kernel
+  (rebind existant TASK-036), donc **réutilisée**, pas une nouvelle intégration DLL.
+
+### Implémentation
+
+`GRC.Infrastructure/Services/ReglementService.cs`, méthode `LettrerParPeriode` :
+- Résolution de `IErpComptaService` via `_kernel.Resolve<...>()`, appel `GetAllExercice()` une fois
+  par requête (hors boucle client), filtré aux exercices chevauchant `[dateMin, dateMax]`.
+- Pour chaque client, avant l'appel à `Lettrer()` : un `_logger.LogInformation` par exercice
+  chevauchant, avec `clientNo`, bornes de l'exercice, et bornes intersectées `[dateMinReg,
+  dateMaxReg]`.
+- Le log existant `clientNo/dateMin/dateMax/lettré` (déjà présent depuis le lot 2026-07) est
+  inchangé, conservé après la boucle diagnostic.
+
+### Preuve
+
+- **Build back** : `dotnet build GRC.slnx` → `0 Erreur(s)` (48 avertissements préexistants, aucun
+  nouveau), vérifié le 2026-09-17.
+- **Build front** : `npm run build` (`tsc -b && vite build`) → succès, 0 erreur TypeScript, vérifié
+  le 2026-09-17 (aucun changement front dans cet incrément).
+- **Test réel non rejoué** : ce complément n'a pas été réexécuté contre la base réelle dans cette
+  session (pas de nouvel accès `C:\GRC\GR_GOCOM.apt`/kernel réel demandé). Le log est donc validé
+  par revue de code + build, **pas par une exécution réelle produisant une ligne de log observée**.
+  Point à couvrir à la prochaine exécution réelle en prod (objectif même de l'étape 5bis).
+
+### Ce qui reste ouvert
+
+- Le résidu principal du VERIFY (aucun `true` observé sur `Lettrer()`) n'est toujours pas expliqué
+  par ce complément seul — il faut une exécution réelle en prod avec ce log actif pour, la
+  prochaine fois qu'un cas comme 12889/CDR200538 se présente, voir si l'exercice attendu est bien
+  chargé et si l'intersection calculée par la DLL correspond à celle loguée ici.
+- La dérogation à "ne pas recoder l'intersection" ci-dessus est **assumée par le worker, non
+  tranchée explicitement par le PO** (réponse obtenue : "je sais pas franchement") — à valider ou
+  invalider par l'architecte en review VERIFY.
 
 ## Nettoyage post-test
 
