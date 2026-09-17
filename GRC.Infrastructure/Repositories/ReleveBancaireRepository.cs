@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Dapper;
 using GRC.Domain.Entities;
 using GRC.Application.Interfaces;
+using GRC.Infrastructure.Tresorerie;
 using Microsoft.Extensions.Logging;
 
 namespace GRC.Infrastructure.Repositories
@@ -13,11 +14,16 @@ namespace GRC.Infrastructure.Repositories
     public class ReleveBancaireRepository
     {
         private readonly string _connectionString;
+        private readonly TresorerieNinjectKernel _kernel;
         private readonly ILogger<ReleveBancaireRepository> _logger;
 
-        public ReleveBancaireRepository(IDbConnectionFactory connectionFactory, ILogger<ReleveBancaireRepository> logger)
+        public ReleveBancaireRepository(
+            IDbConnectionFactory connectionFactory,
+            TresorerieNinjectKernel kernel,
+            ILogger<ReleveBancaireRepository> logger)
         {
             _connectionString = connectionFactory.GetConnectionString();
+            _kernel = kernel;
             _logger = logger;
         }
 
@@ -213,10 +219,76 @@ namespace GRC.Infrastructure.Repositories
             return paires;
         }
 
+        // TASK-069 — Pré-contrôle d'autorisation caisse (HasEntityActionRestriction sur l'utilisateur JWT réel).
+        private void VerifierAutorisationReglementCaisse(
+            int userId,
+            int mvId,
+            Guid actionGuid,
+            Dictionary<int, bool>? cache = null)
+        {
+            var connProvider = new global::Tresorerie.Dapper.ConnectionProvider { ConnectionString = _connectionString };
+            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+            var reg = repo.Get(mvId);
+            if (reg == null)
+                return;
+
+            int caisseNo = reg.CaisseOrigine;
+            if (cache != null && cache.TryGetValue(caisseNo, out bool isAuth))
+            {
+                if (!isAuth)
+                {
+                    _logger.LogWarning(
+                        "AUTORISATION RAPPROCHEMENT refusée (cache) : userId={UserId} non autorisé sur la caisse n°{CaisseNo}.",
+                        userId, caisseNo);
+                    throw new UnauthorizedAccessException(
+                        $"Vous n'êtes pas autorisé à agir sur la caisse n°{caisseNo}.");
+                }
+                return;
+            }
+
+            var societe = _kernel.GroupeService.SocieteManager.Societe;
+            var caisse = societe?.GetCaisse(caisseNo);
+            if (caisse == null)
+            {
+                if (cache != null) cache[caisseNo] = false;
+                _logger.LogWarning(
+                    "AUTORISATION RAPPROCHEMENT refusée : caisse n°{CaisseNo} introuvable pour userId={UserId}.",
+                    caisseNo, userId);
+                throw new UnauthorizedAccessException(
+                    $"Caisse n°{caisseNo} introuvable ou non paramétrée.");
+            }
+
+            var authRepo = _kernel.Resolve<global::Tresorerie.Authorization.Core.Repositories.IAuthorizationRepository>();
+            bool restreint = authRepo.HasEntityActionRestriction(
+                userId,
+                global::Tresorerie.Core.Enum.AuthorizationEntity.Reglement,
+                actionGuid,
+                new List<global::Tresorerie.Core.Models.Caisse> { caisse },
+                global::Tresorerie.Core.Enum.ProfilType.Grc);
+
+            if (cache != null) cache[caisseNo] = !restreint;
+
+            if (restreint)
+            {
+                _logger.LogWarning(
+                    "AUTORISATION RAPPROCHEMENT refusée : userId={UserId} non autorisé sur la caisse n°{CaisseNo} pour le règlement {MvId}.",
+                    userId, caisseNo, mvId);
+                throw new UnauthorizedAccessException(
+                    $"Vous n'êtes pas autorisé à agir sur la caisse n°{caisseNo}.");
+            }
+        }
+
         // TASK-037 : la lettre est CALCULEE cote serveur (la lettre proposee par le client est ignoree).
         // Calcul + ecriture serialises par releve via sp_getapplock dans une transaction (pas de check-then-act).
-        public async Task<ReleveBancaireLigne?> ReserverLigneAsync(int ligneReleveId, int mvId, int userId)
+        public async Task<ReleveBancaireLigne?> ReserverLigneAsync(int ligneReleveId, int mvId, int userId, bool isAdmin = false)
         {
+            // TASK-069 — Pré-contrôle d'autorisation caisse sur l'utilisateur JWT réel
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                VerifierAutorisationReglementCaisse(userId, mvId, actionGuid);
+            }
+
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
@@ -264,8 +336,11 @@ namespace GRC.Infrastructure.Repositories
                             var idx = GRC.Application.Services.LettrageGenerator.GetIndexFromLettrage(l);
                             if (idx > maxIndex) maxIndex = idx;
                         }
-                        string lettreServeur = GRC.Application.Services.LettrageGenerator.GetLettrage(maxIndex + 1);
-                        _logger.LogInformation("RÉSERVATION : enteteId={EnteteId}, maxIndex={MaxIndex} → lettre calculée={Lettre}", enteteId.Value, maxIndex, lettreServeur);
+
+                        int nextIndex = maxIndex + 1;
+                        string lettreServeur = GRC.Application.Services.LettrageGenerator.GetLettrage(nextIndex);
+                        _logger.LogInformation("RÉSERVATION : enteteId={EnteteId}, maxIndex={MaxIndex}, nextIndex={NextIndex}, lettre={Lettrage}",
+                            enteteId.Value, maxIndex, nextIndex, lettreServeur);
 
                         // 4. UPDATE conditionnel : ligne encore libre ET MV_ID pas deja reserve.
                         string sql = @"
@@ -276,25 +351,22 @@ namespace GRC.Infrastructure.Repositories
                               AND Lettrage IS NULL
                               AND NOT EXISTS (SELECT 1 FROM dbo.RAPP_ReleveBancaire_Ligne x WHERE x.MV_ID=@MvId);
                         ";
-                        var result = await connection.QuerySingleOrDefaultAsync<ReleveBancaireLigne>(sql, new {
-                            Lettrage = lettreServeur, MvId = mvId, UserId = userId, LigneReleveId = ligneReleveId
+
+                        var result = await connection.QuerySingleOrDefaultAsync<ReleveBancaireLigne>(sql, new
+                        {
+                            Lettrage = lettreServeur,
+                            MvId = mvId,
+                            UserId = userId,
+                            LigneReleveId = ligneReleveId
                         }, transaction);
 
-                        // 5. rowcount 0 -> rollback -> 409 ; rowcount 1 -> commit, on renvoie la ligne (avec Lettrage).
-                        if (result == null)
-                        {
-                            _logger.LogInformation("RÉSERVATION : UPDATE rowcount=0 (ligne déjà lettrée ou mvId={MvId} déjà réservé) → conflit/409", mvId);
-                            transaction.Rollback();
-                            return null;
-                        }
-
+                        _logger.LogInformation("RÉSERVATION : UPDATE execute, succes={Success}", result != null);
                         transaction.Commit();
-                        _logger.LogInformation("RÉSERVATION : commit OK ligne={LigneReleveId}, mvId={MvId}, lettre={Lettre}", ligneReleveId, mvId, result.Lettrage);
                         return result;
                     }
-                    catch (Exception ex)
+                    catch (System.Exception ex)
                     {
-                        _logger.LogError(ex, "RÉSERVATION : exception, rollback ligne={LigneReleveId}, mvId={MvId}", ligneReleveId, mvId);
+                        _logger.LogError(ex, "RÉSERVATION rollback sur exception : ligne={LigneReleveId}, mvId={MvId}, userId={UserId}", ligneReleveId, mvId, userId);
                         transaction.Rollback();
                         throw;
                     }
@@ -309,10 +381,21 @@ namespace GRC.Infrastructure.Repositories
         //   (déjà tenu pour la transaction entière -> pas de gain/perte de sérialisation vs boucle unitaire),
         // - chaque paire est traitée indépendamment (une paire en conflit n'annule pas les autres),
         // - la numérotation de lettre progresse en mémoire au fil du lot (pas de re-lecture DB par paire).
-        public async Task<List<ReserveBatchItemResultDto>> ReserverLignesBatchAsync(List<ReserveBatchItemDto> items, int userId)
+        public async Task<List<ReserveBatchItemResultDto>> ReserverLignesBatchAsync(List<ReserveBatchItemDto> items, int userId, bool isAdmin = false)
         {
             var resultats = new List<ReserveBatchItemResultDto>();
             if (items == null || items.Count == 0) return resultats;
+
+            // TASK-069 — Pré-contrôle d'autorisation caisse sur l'utilisateur JWT réel
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                var cache = new Dictionary<int, bool>();
+                foreach (var item in items)
+                {
+                    VerifierAutorisationReglementCaisse(userId, item.MvId, actionGuid, cache);
+                }
+            }
 
             using (var connection = new SqlConnection(_connectionString))
             {
@@ -442,9 +525,20 @@ namespace GRC.Infrastructure.Repositories
             }
         }
 
-        public async Task<ValidationResultDto> SauvegarderValidationAsync(List<ValidationPairDto> paires, int userId)
+        public async Task<ValidationResultDto> SauvegarderValidationAsync(List<ValidationPairDto> paires, int userId, bool isAdmin = false)
         {
             var result = new ValidationResultDto();
+
+            // TASK-069 — Pré-contrôle d'autorisation caisse sur chaque règlement à valider
+            if (!isAdmin && paires != null && paires.Count > 0)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                var cache = new Dictionary<int, bool>();
+                foreach (var pair in paires)
+                {
+                    VerifierAutorisationReglementCaisse(userId, pair.GrcReglementId, actionGuid, cache);
+                }
+            }
 
             // 1. Re-check de réservation en une seule passe, on ferme la connexion avant la suite
             var pairesValides = new List<ValidationPairDto>();

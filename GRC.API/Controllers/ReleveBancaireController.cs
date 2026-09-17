@@ -153,6 +153,8 @@ namespace GRC.API.Controllers
             if (!int.TryParse(userIdStr, out int userId))
                 return Unauthorized();
 
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             // Corrélation : regroupe toutes les lignes de cette approbation dans le fichier de log.
             using (_logger.BeginScope("Approbation userId={UserId} paires={NbPaires}", userId, pairesLettrage.Count))
             {
@@ -164,7 +166,7 @@ namespace GRC.API.Controllers
                 try
                 {
                     // Appelle la méthode Dapper du Repository
-                    var validationResult = await _releveRepository.SauvegarderValidationAsync(pairesLettrage, userId);
+                    var validationResult = await _releveRepository.SauvegarderValidationAsync(pairesLettrage, userId, isAdmin);
 
                     _logger.LogInformation(
                         "APPROBATION sortie : Success={Success}, SuccessCount={SuccessCount}, ErrorCount={ErrorCount}, FailedLigneIds={FailedLigneIds}",
@@ -172,6 +174,11 @@ namespace GRC.API.Controllers
                         string.Join(",", validationResult.FailedLigneIds));
 
                     return Ok(validationResult);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "APPROBATION refusée (autorisation) : userId={UserId}", userId);
+                    return Forbid();
                 }
                 catch (System.Exception ex)
                 {
@@ -196,6 +203,8 @@ namespace GRC.API.Controllers
             if (!int.TryParse(userIdStr, out int userId))
                 return Unauthorized();
 
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             // Corrélation : regroupe les lignes de cette réservation dans le fichier de log.
             using (_logger.BeginScope("Réservation userId={UserId} ligne={LigneReleveId} mv={MvId}", userId, request.LigneReleveId, request.MvId))
             {
@@ -207,7 +216,7 @@ namespace GRC.API.Controllers
                 {
                     // La lettre proposee par le client (request.Lettrage) est volontairement ignoree :
                     // le repository calcule et renvoie la lettre attribuee (result.Lettrage).
-                    var result = await _releveRepository.ReserverLigneAsync(request.LigneReleveId, request.MvId, userId);
+                    var result = await _releveRepository.ReserverLigneAsync(request.LigneReleveId, request.MvId, userId, isAdmin);
 
                     if (result != null)
                     {
@@ -224,6 +233,11 @@ namespace GRC.API.Controllers
                             request.LigneReleveId, request.MvId, conflitInfo);
                         return StatusCode(409, new { message = "Ligne ou règlement déjà réservé.", detail = conflitInfo });
                     }
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "RÉSERVATION refusée (autorisation) : userId={UserId}, ligneReleveId={LigneReleveId}, mvId={MvId}", userId, request.LigneReleveId, request.MvId);
+                    return Forbid();
                 }
                 catch (System.Exception ex)
                 {
@@ -243,6 +257,8 @@ namespace GRC.API.Controllers
             if (!int.TryParse(userIdStr, out int userId))
                 return Unauthorized();
 
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             if (requests == null || requests.Count == 0)
                 return BadRequest("Aucune paire à réserver.");
 
@@ -253,14 +269,22 @@ namespace GRC.API.Controllers
                     userId, requests.Count,
                     string.Join(", ", requests.Select(r => $"[ligne={r.LigneReleveId},mv={r.MvId}]")));
 
-                var items = requests.Select(r => new ReserveBatchItemDto { LigneReleveId = r.LigneReleveId, MvId = r.MvId }).ToList();
-                var resultats = await _releveRepository.ReserverLignesBatchAsync(items, userId);
+                try
+                {
+                    var items = requests.Select(r => new ReserveBatchItemDto { LigneReleveId = r.LigneReleveId, MvId = r.MvId }).ToList();
+                    var resultats = await _releveRepository.ReserverLignesBatchAsync(items, userId, isAdmin);
 
-                _logger.LogInformation(
-                    "RÉSERVATION LOT sortie : {Success}/{Total} succès",
-                    resultats.Count(r => r.Success), requests.Count);
+                    _logger.LogInformation(
+                        "RÉSERVATION LOT sortie : {Success}/{Total} succès",
+                        resultats.Count(r => r.Success), requests.Count);
 
-                return Ok(resultats);
+                    return Ok(resultats);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "RÉSERVATION LOT refusée (autorisation) : userId={UserId}", userId);
+                    return Forbid();
+                }
             }
         }
 
@@ -282,9 +306,19 @@ namespace GRC.API.Controllers
             else
                 return StatusCode(403, new { message = "Impossible de libérer la ligne (pas le réservataire ou déjà libre)." });
         }
+
+        // TASK-069 — Suppression d'un relevé réservée aux administrateurs (protection contre suppression destructive non autorisée).
         [HttpDelete("{id}")]
         public async Task<IActionResult> SupprimerReleve(int id)
         {
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+            if (!isAdmin)
+            {
+                var userId = User.FindFirst("UserId")?.Value;
+                _logger.LogWarning("SUPPRESSION RELEVÉ refusée (non-admin) : userId={UserId}, releveId={ReleveId}", userId, id);
+                return Forbid();
+            }
+
             var result = await _releveRepository.SupprimerReleveAsync(id);
             if (result == -1)
                 return NotFound(new { message = "Relevé introuvable." });

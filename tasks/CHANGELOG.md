@@ -1,5 +1,18 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Contrôle de droits de caisse manquant sur comptabilisation/pointage/rapprochement/suppression (TASK-069)
+
+### Contexte
+Audit architecte 2026-09-14 : `Comptabiliser`, `RapprocherManuel`, `ReserverLigneAsync`/batch, `SauvegarderValidationAsync`, `ApercuComptabilisation` et `SupprimerReleve` n'appliquaient aucun contrôle de droits de caisse, contrairement à `GenererReglementsEspece`/`GenererVersementDepuisReleveAsync` (TASK-059/060). Un utilisateur web restreint à une caisse pouvait agir sur — et même lire le détail comptable de — des règlements/relevés hors de son périmètre en connaissant simplement l'ID (IDOR).
+
+### Modifications apportées
+- `VerifierAutorisationCaisse` (nouvelle méthode privée, `ReglementService.cs`) : résout la caisse du règlement, appelle `IAuthorizationRepository.HasEntityActionRestriction` avec l'utilisateur JWT réel (action `ReglementComptabiliser` pour comptabilisation/aperçu, `ReglementModifier` pour pointage/réservation/validation faute de classe d'action dédiée), lève `UnauthorizedAccessException` sinon.
+- Pré-contrôle ajouté sur les 5 fonctions d'écriture/lecture concernées ; `SupprimerReleve` reçoit une garde `IsAdmin` simple (le relevé n'a pas de caisse).
+- Contrôleurs (`ReglementController`, `ReleveBancaireController`) : capture de `UnauthorizedAccessException` → `403 Forbid()`.
+
+### Vérification
+Build 0 erreur. Code relu ligne à ligne sur deux sessions distinctes, cohérent avec le pattern déjà validé (TASK-059/060). Test réel en base non réalisable : investigation approfondie a tracé le blocage à un problème réseau (connexion SQL applicative vers `DESKTOP-2VCUE93` en timeout malgré un port TCP répondant), indépendant du code. Accepté par décision PO explicite sur la seule base de la relecture de code, après plusieurs tentatives documentées de déblocage (voir `VERIFY/TASK-069_verify.md` archivé pour le détail complet de l'investigation).
+
 ## 2026-09-17 — Aperçu comptabilisation : erreur de paramétrage avalée, affichée comme "Équilibré" (TASK-073)
 
 ### Contexte
