@@ -1,5 +1,24 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Dé-rapprochement en lot manquant + élucidation du crash du 07-20 (TASK-066, résiduel)
+
+### Contexte
+Reprise du lot du 2026-07-20 (commit `1c14f37`) : `POST /reserve-batch` avait bien migré le rapprochement automatique vers un seul appel HTTP, mais le **dé-rapprochement** (`delettrerByLettrage`, `handleDelettrerTout`) était resté en boucle séquentielle `POST /release` par ligne. Un crash navigateur signalé par le PO le 07-20 restait aussi sans explication formelle.
+
+### Modifications apportées
+- `GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs` : `LibererLignesBatchAsync`, symétrique à `ReserverLignesBatchAsync` — transaction/connexion unique, `sp_getapplock` exclusif par `enteteId` distinct, traitement indépendant par ligne (un conflit n'échoue que cette ligne).
+- `GRC.API/Controllers/ReleveBancaireController.cs` : endpoint `POST /api/ReleveBancaire/release-batch`.
+- `gocom-web/src/RapprochementBancaire.tsx` : `delettrerByLettrage`/`handleDelettrerTout` migrés vers `/release-batch`.
+
+### 1er passage REJETÉ par l'architecte (2026-09-17)
+`delettrerByLettrage` libérait côté UI **toute** la lettre dès qu'au moins une ligne réussissait (`anySuccess`), sans filtrer sur les `ligneReleveId` réellement confirmés par le serveur — divergence front/base possible sur échec partiel (ex. une ligne déjà `DateValidation` renseignée). Corrigé : filtrage strict sur `releasedIds` pour les lignes, délettrage du règlement GRC uniquement si **toutes** les lignes de la lettre sont libérées, messages UX différenciés (succès total/partiel/échec).
+
+### Élucidation du crash du 07-20
+Preuve matérielle : `deploy/GRC.API.dll` déployé le 07-20 avait pour `ProductVersion` le commit `569f806` (TASK-035, 10 juillet), **antérieur** au commit `1c14f37` (27 juillet) qui introduit le lot batch — confirmé par les logs serveur du 07-20 (0 occurrence `reserve-batch`, 211 appels unitaires `/reserve`). Le crash s'est donc produit sous l'ancien mécanisme séquentiel, pas à cause du code par lot.
+
+### Vérification
+Build API + front 0 erreur (`dotnet build`, `npx tsc --noEmit`). Banc d'essai réel (`harness_task066`, SQL Server local) : 30 lignes libérées en 235 ms, conflits mélangés isolés correctement (6 items, 2 succès/4 refus ciblés sans rollback du lot), non-régression du `/release` unitaire. Test/relecture front dédié à l'échec partiel après le REJECT. Détail complet dans `VERIFY/TASK-066_verify.md` archivé.
+
 ## 2026-09-17 — Contrôle de droits de caisse manquant sur comptabilisation/pointage/rapprochement/suppression (TASK-069)
 
 ### Contexte

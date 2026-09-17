@@ -654,18 +654,38 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
     // Retire un lettrage (les 2 côtés de la paire) en le ciblant par sa lettre.
     // Callback stable (deps=[]) : utilise uniquement des setters, jamais de state lu.
+    // TASK-066 : un seul appel release-batch au lieu d'une boucle séquentielle N appels /release.
+    // Traitement indépendant par ligne : seules les lignes effectivement confirmées (success=true) par le serveur sont libérées.
     const delettrerByLettrage = React.useCallback(async (lettre: string) => {
         const lignes = lignesReleveRef.current.filter(l => l.lettrage === lettre);
+        if (lignes.length === 0) {
+            setReglementsGrc(prev => prev.map(r => r.lettrage === lettre ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
+            return;
+        }
         try {
             const userStr = sessionStorage.getItem('gocom_user');
             const token = userStr ? JSON.parse(userStr).token : '';
-            for (const l of lignes) {
-                await axios.post(`${API_BASE}/ReleveBancaire/release`, {
-                    ligneReleveId: l.id
-                }, { headers: { Authorization: `Bearer ${token}` } });
+            const resp = await axios.post(`${API_BASE}/ReleveBancaire/release-batch`,
+                lignes.map(l => ({ ligneReleveId: l.id })),
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const results: Array<{ ligneReleveId: number; success: boolean }> = resp.data;
+            const releasedIds = new Set(results.filter(r => r.success).map(r => r.ligneReleveId));
+            const failedCount = results.length - releasedIds.size;
+
+            // 1. Mise à jour des lignes de relevé : STRICTEMENT celles dont le serveur a confirmé la libération
+            if (releasedIds.size > 0) {
+                setLignesReleve(prev => prev.map(l => releasedIds.has(l.id) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
             }
-            setReglementsGrc(prev => prev.map(r => r.lettrage === lettre ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
-            setLignesReleve(prev => prev.map(l => l.lettrage === lettre ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
+
+            // 2. Mise à jour côté règlement GRC : la lettre n'est libérée que si TOUTES les lignes de cette lettre ont été libérées
+            if (failedCount === 0) {
+                setReglementsGrc(prev => prev.map(r => r.lettrage === lettre ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
+            } else if (releasedIds.size > 0) {
+                showToast(`Dissociation partielle : ${releasedIds.size} ligne(s) libérée(s), ${failedCount} échec(s) (déjà validée ou verrouillée).`, "warning");
+            } else {
+                showToast("Impossible de libérer la ligne (déjà libre, validée ou non autorisé).", "warning");
+            }
         } catch (e) {
             console.error(e);
             showToast("Erreur lors de la dissociation.", "error");
@@ -763,23 +783,47 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     }, [delettrerByLettrage, applyManualLettrage]);
 
     // Retire TOUS les lettrages en attente (non encore approuvés) des 2 grilles
+    // TASK-066 : un seul appel release-batch au lieu d'une boucle séquentielle N appels /release.
+    // Traitement indépendant par ligne : seules les lignes confirmées par le serveur sont libérées.
     const handleDelettrerTout = async () => {
         const userStr = sessionStorage.getItem('gocom_user');
         const token = userStr ? JSON.parse(userStr).token : '';
         const currentUserId = userStr ? JSON.parse(userStr).no : 0;
         
         const lignesToRelease = lignesReleveRef.current.filter(l => l.lettrage && (!l.reservePar_UserId || Number(l.reservePar_UserId) === Number(currentUserId)));
+        if (lignesToRelease.length === 0) return;
         
         try {
-            for (const l of lignesToRelease) {
-                await axios.post(`${API_BASE}/ReleveBancaire/release`, {
-                    ligneReleveId: l.id
-                }, { headers: { Authorization: `Bearer ${token}` } });
-            }
-            setReglementsGrc(prev => prev.map(r => (r.lettrage && (!r.reservePar_UserId || Number(r.reservePar_UserId) === Number(currentUserId))) ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
-            setLignesReleve(prev => prev.map(l => (l.lettrage && (!l.reservePar_UserId || Number(l.reservePar_UserId) === Number(currentUserId))) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
+            const resp = await axios.post(`${API_BASE}/ReleveBancaire/release-batch`,
+                lignesToRelease.map(l => ({ ligneReleveId: l.id })),
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            const results: Array<{ ligneReleveId: number; success: boolean }> = resp.data;
+            const releasedIds = new Set(results.filter(r => r.success).map(r => r.ligneReleveId));
+            const unreleasedIds = new Set(results.filter(r => !r.success).map(r => r.ligneReleveId));
+
+            // Lettres dont au moins une ligne n'a pas pu être libérée côté serveur
+            const failedLettres = new Set(lignesToRelease.filter(l => unreleasedIds.has(l.id)).map(l => l.lettrage).filter(Boolean));
+
+            // Lettres dont des lignes ont été libérées ET aucune ligne n'a échoué
+            const releasedLignes = lignesToRelease.filter(l => releasedIds.has(l.id));
+            const fullyReleasedLettres = new Set(
+                releasedLignes
+                    .map(l => l.lettrage)
+                    .filter((lettre): lettre is string => Boolean(lettre) && !failedLettres.has(lettre))
+            );
+
+            // Côté GRC : libérer seulement les règlements dont l'intégralité des lignes associées a été libérée
+            setReglementsGrc(prev => prev.map(r => (r.lettrage && fullyReleasedLettres.has(r.lettrage)) ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
+            // Côté Relevé : libérer STRICTEMENT les lignes retournées avec success=true
+            setLignesReleve(prev => prev.map(l => releasedIds.has(l.id) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
+
+            const failedCount = results.length - releasedIds.size;
+            if (failedCount > 0) {
+                showToast(`Dissociation : ${releasedIds.size} ligne(s) libérée(s), ${failedCount} échec(s).`, "warning");
+            }
         } catch (e) {
             console.error(e);
             showToast("Erreur lors de la dissociation globale.", "error");

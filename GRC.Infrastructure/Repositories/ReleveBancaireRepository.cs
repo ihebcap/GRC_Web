@@ -511,6 +511,95 @@ namespace GRC.Infrastructure.Repositories
             }
         }
 
+        // TASK-066 : version lot de LibererLigneAsync — un seul aller-retour réseau au lieu de N.
+        // Même logique (libération conditionnelle, verrou applock par enteteId), mais :
+        // - une seule connexion/transaction pour tout le lot,
+        // - le verrou sp_getapplock par enteteId est pris une seule fois par enteteId distinct
+        //   (sérialisation garantie avec les réservations concurrentes du même relevé),
+        // - chaque ligne est traitée indépendamment (une ligne déjà libre ou en conflit n'annule pas les autres).
+        public async Task<List<ReleaseBatchItemResultDto>> LibererLignesBatchAsync(List<ReleaseBatchItemDto> items, int userId)
+        {
+            var resultats = new List<ReleaseBatchItemResultDto>();
+            if (items == null || items.Count == 0) return resultats;
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // 1. Dériver l'enteteId de chaque ligne en une seule requête.
+                        var ligneIds = items.Select(i => i.LigneReleveId).Distinct().ToList();
+                        var enteteParLigne = (await connection.QueryAsync<(int LigneId, int EnteteId)>(
+                            "SELECT Id AS LigneId, ReleveBancaireEnteteId AS EnteteId FROM dbo.RAPP_ReleveBancaire_Ligne WHERE Id IN @Ids",
+                            new { Ids = ligneIds }, transaction))
+                            .ToDictionary(x => x.LigneId, x => x.EnteteId);
+
+                        // 2. Verrou applock par enteteId distinct, pris une seule fois (tenu pour la transaction).
+                        var entetesDistincts = enteteParLigne.Values.Distinct().ToList();
+                        foreach (var enteteId in entetesDistincts)
+                        {
+                            var lockResult = await connection.ExecuteScalarAsync<int>(
+                                "DECLARE @r INT; EXEC @r = sp_getapplock @Resource=@Resource, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000; SELECT @r;",
+                                new { Resource = "rapp_lettrage_" + enteteId.ToString() }, transaction);
+                            if (lockResult < 0)
+                            {
+                                _logger.LogInformation("LIBÉRATION LOT : verrou non obtenu enteteId={EnteteId}", enteteId);
+                                transaction.Rollback();
+                                foreach (var i in items)
+                                    resultats.Add(new ReleaseBatchItemResultDto { LigneReleveId = i.LigneReleveId, Success = false, Message = "Verrou non obtenu." });
+                                return resultats;
+                            }
+                        }
+
+                        // 3. Traitement indépendant par ligne (une UPDATE conditionnelle par ligne).
+                        string sql = @"
+                            UPDATE dbo.RAPP_ReleveBancaire_Ligne
+                            SET Lettrage=NULL, MV_ID=NULL, ReservePar_UserId=NULL, DateReservation=NULL
+                            WHERE Id=@LigneReleveId AND ReservePar_UserId=@UserId AND DateValidation IS NULL;
+                        ";
+
+                        foreach (var item in items)
+                        {
+                            if (!enteteParLigne.ContainsKey(item.LigneReleveId))
+                            {
+                                _logger.LogInformation("LIBÉRATION LOT : ligne {LigneReleveId} introuvable", item.LigneReleveId);
+                                resultats.Add(new ReleaseBatchItemResultDto { LigneReleveId = item.LigneReleveId, Success = false, Message = "Ligne introuvable." });
+                                continue;
+                            }
+
+                            var rowCount = await connection.ExecuteAsync(sql, new
+                            {
+                                LigneReleveId = item.LigneReleveId,
+                                UserId = userId
+                            }, transaction);
+
+                            if (rowCount > 0)
+                            {
+                                resultats.Add(new ReleaseBatchItemResultDto { LigneReleveId = item.LigneReleveId, Success = true, Message = "Ligne libérée." });
+                            }
+                            else
+                            {
+                                _logger.LogInformation("LIBÉRATION LOT : impossible de libérer ligne={LigneReleveId} userId={UserId}", item.LigneReleveId, userId);
+                                resultats.Add(new ReleaseBatchItemResultDto { LigneReleveId = item.LigneReleveId, Success = false, Message = "Impossible de libérer la ligne (pas le réservataire ou déjà libre)." });
+                            }
+                        }
+
+                        transaction.Commit();
+                        _logger.LogInformation("LIBÉRATION LOT : commit OK — {Success}/{Total} succès", resultats.Count(r => r.Success), items.Count);
+                        return resultats;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "LIBÉRATION LOT : exception, rollback");
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
         public async Task<object?> GetLigneConflitAsync(int ligneReleveId, int mvId)
         {
             using (var connection = new SqlConnection(_connectionString))
@@ -770,6 +859,18 @@ namespace GRC.Infrastructure.Repositories
         public int MvId { get; set; }
         public bool Success { get; set; }
         public string? Lettrage { get; set; }
+    }
+
+    public class ReleaseBatchItemDto
+    {
+        public int LigneReleveId { get; set; }
+    }
+
+    public class ReleaseBatchItemResultDto
+    {
+        public int LigneReleveId { get; set; }
+        public bool Success { get; set; }
+        public string? Message { get; set; }
     }
 
     public class ValidationPairDto

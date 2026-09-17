@@ -307,6 +307,45 @@ namespace GRC.API.Controllers
                 return StatusCode(403, new { message = "Impossible de libérer la ligne (pas le réservataire ou déjà libre)." });
         }
 
+        // TASK-066 : libération en lot — un seul aller-retour HTTP pour N lignes (au lieu d'un POST /release par ligne).
+        // Verrouillage applock par enteteId respecté côté repository (une seule prise par enteteId distinct,
+        // tenue pour toute la transaction du lot).
+        [HttpPost("release-batch")]
+        public async Task<IActionResult> ReleaseLignesBatch([FromBody] List<ReleaseRequest> requests)
+        {
+            var userIdStr = User.FindFirst("UserId")?.Value;
+            if (!int.TryParse(userIdStr, out int userId))
+                return Unauthorized();
+
+            if (requests == null || requests.Count == 0)
+                return BadRequest("Aucune ligne à libérer.");
+
+            using (_logger.BeginScope("Libération lot userId={UserId} nbLignes={NbLignes}", userId, requests.Count))
+            {
+                _logger.LogInformation(
+                    "LIBÉRATION LOT entrée : userId={UserId}, {NbLignes} ligne(s) : {Lignes}",
+                    userId, requests.Count,
+                    string.Join(", ", requests.Select(r => r.LigneReleveId)));
+
+                try
+                {
+                    var items = requests.Select(r => new ReleaseBatchItemDto { LigneReleveId = r.LigneReleveId }).ToList();
+                    var resultats = await _releveRepository.LibererLignesBatchAsync(items, userId);
+
+                    _logger.LogInformation(
+                        "LIBÉRATION LOT sortie : {Success}/{Total} succès",
+                        resultats.Count(r => r.Success), requests.Count);
+
+                    return Ok(resultats);
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "LIBÉRATION LOT échec : userId={UserId}", userId);
+                    throw;
+                }
+            }
+        }
+
         // TASK-069 — Suppression d'un relevé réservée aux administrateurs (protection contre suppression destructive non autorisée).
         [HttpDelete("{id}")]
         public async Task<IActionResult> SupprimerReleve(int id)
