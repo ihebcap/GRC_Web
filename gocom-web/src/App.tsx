@@ -74,7 +74,8 @@ function App() {
     if (parsed?.token) axios.defaults.headers.common['Authorization'] = `Bearer ${parsed.token}`;
     return parsed;
   });
-  const [toast, setToast] = useState<{message: string, type: 'success'|'error'|'warning'} | null>(null);
+  const [toast, setToast] = useState<{message: string, type: 'success'|'error'|'warning', onConfirm?: () => void} | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   // TASK-065 — Écran de blocage licence
   // Basculé sur vrai dès qu'un 403 GRLicence est détecté par l'intercepteur axios de api.ts.
@@ -86,8 +87,16 @@ function App() {
   }, []);
 
   const showToast = (message: string, type: 'success'|'error'|'warning' = 'success') => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3000);
+  };
+
+  // Remplace window.confirm() : reste sur le même système de toast (non bloquant),
+  // sans auto-dismiss tant que l'utilisateur n'a pas choisi.
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setToast({ message, type: 'warning', onConfirm });
   };
   
   const handleLogin = (u: User) => {
@@ -120,7 +129,7 @@ function App() {
   
   return (
     <>
-      <Dashboard user={user} onLogout={handleLogout} showToast={showToast} />
+      <Dashboard user={user} onLogout={handleLogout} showToast={showToast} showConfirm={showConfirm} />
       {toast && (
         <div style={{
           position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999,
@@ -132,6 +141,22 @@ function App() {
         }}>
           {toast.type === 'error' ? <X size={20} /> : <CheckSquare size={20} />}
           {toast.message}
+          {toast.onConfirm && (
+            <div style={{display: 'flex', gap: '0.5rem', marginLeft: '0.5rem'}}>
+              <button
+                onClick={() => { const fn = toast.onConfirm; setToast(null); fn && fn(); }}
+                style={{background: 'rgba(255,255,255,0.25)', border: 'none', color: 'white', padding: '0.35rem 0.75rem', borderRadius: '6px', fontWeight: 600, fontSize: '0.8125rem', cursor: 'pointer', whiteSpace: 'nowrap'}}
+              >
+                Confirmer
+              </button>
+              <button
+                onClick={() => setToast(null)}
+                style={{background: 'transparent', border: '1px solid rgba(255,255,255,0.5)', color: 'white', padding: '0.35rem 0.75rem', borderRadius: '6px', fontWeight: 500, fontSize: '0.8125rem', cursor: 'pointer', whiteSpace: 'nowrap'}}
+              >
+                Annuler
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>
@@ -227,7 +252,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
 }
 
 // --- DASHBOARD COMPONENT ---
-function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => void; showToast: (msg: string, type?: 'success'|'error'|'warning') => void }) {
+function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onLogout: () => void; showToast: (msg: string, type?: 'success'|'error'|'warning') => void; showConfirm: (msg: string, onConfirm: () => void) => void }) {
   const availableColumns = React.useMemo(() => getAvailableColumns(user), [user]);
 
   const [reglements, setReglements] = useState<Reglement[]>([]);
@@ -538,11 +563,8 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
       showToast('Veuillez renseigner les deux dates.', 'warning');
       return;
     }
-    if (!window.confirm(
-      'Ce lettrage balaie TOUT l\'historique des clients concernés sur la période, pas seulement les règlements actuellement affichés dans la liste. Continuer ?'
-    )) {
-      return;
-    }
+    // L'avertissement ("balaie tout l'historique...") est déjà affiché dans le modal
+    // (bandeau ⚠️ + bouton "Confirmer le lettrage") — pas de second blocage natif.
     setIsSubmittingLettragePeriode(true);
     try {
       const res = await axios.post(`${API_BASE}/reglements/lettrer-periode`, {
@@ -856,7 +878,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                 }}
                 onClick={() => {
                   if (Object.keys(selectedComptabilisation).length > 0) {
-                    if (window.confirm('Voulez-vous annuler la sélection en cours ?')) {
+                    showConfirm('Voulez-vous annuler la sélection en cours ?', () => {
                       setIsComptabilisationMode(false);
                       setSelectedComptabilisation({});
                       setFilters(prev => {
@@ -864,7 +886,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                         delete f.comptabilise;
                         return f;
                       });
-                    }
+                    });
                   } else {
                     setIsComptabilisationMode(!isComptabilisationMode);
                     if (!isComptabilisationMode) {
@@ -907,7 +929,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                 }}
                 onClick={() => {
                   if (Object.keys(selectedReglements).length > 0) {
-                    if (window.confirm('Voulez-vous annuler le rapprochement en cours ?')) {
+                    showConfirm('Voulez-vous annuler le rapprochement en cours ?', () => {
                       setIsRapprochementMode(false);
                       setSelectedReglements({});
                       setFilters(prev => {
@@ -915,7 +937,7 @@ function Dashboard({ user, onLogout, showToast }: { user: User; onLogout: () => 
                         delete f.pointe;
                         return f;
                       });
-                    }
+                    });
                   } else {
                     setIsRapprochementMode(!isRapprochementMode);
                     if (!isRapprochementMode) {
