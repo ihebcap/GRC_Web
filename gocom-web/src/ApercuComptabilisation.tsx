@@ -317,6 +317,8 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
   const totalCredit = validApercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantCredit, 0), 0);
   const isBalanced = validApercus.length > 0 && Math.abs(totalDebit - totalCredit) < 0.01;
 
+  console.debug('[TASK-040] panneau Validation Globale', { apercusLength: apercus.length, hasErrors });
+
   const handleValider = async () => {
     const validIds = apercus.filter(a => !a.hasError).map(a => a.id);
     if (validIds.length === 0 || hasErrors) return;
