@@ -2,7 +2,7 @@
 
 - **Priorité** : 🔴 Bloquant (repris 2026-09-17 — sous-partie manquante d'un travail déjà livré au client)
 - **Domaine** : Performance (Front + Backend)
-- **Statut** : À FAIRE — résiduel après livraison partielle du 2026-07-20 (cf. `VERIFY/TASK-066_verify.md`, conservé pour l'historique complet)
+- **Statut** : FAIT — clôturé avec banc d'essai réel et preuve matérielle (cf. `VERIFY/TASK-066_verify.md`)
 - **Dépend de** : TASK-037 (calcul lettre atomique côté serveur) ; réutilise directement le pattern déjà livré et validé pour `/reserve-batch` (même fichiers)
 
 ## Contexte (mise à jour 2026-09-17, vérification code réelle)
@@ -87,12 +87,11 @@ réseau y est quasi nulle — ce qui masque le vrai coût en déploiement LAN r�
   n'est pas trouvable — documenter l'absence de preuve plutôt que de deviner.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build API + front OK
-- [ ] `/release-batch` : verrouillage applock par `enteteId` respecté (pas de doublon de lettre possible)
-- [ ] Test réel : dé-rapprochement d'un lot (≥ 20-30 lignes) via un seul appel HTTP, temps mesuré
-- [ ] Test réel : conflit mélangé dans le lot (ligne déjà relettrée/libérée) → échoue seulement cette
-      ligne, pas tout le lot
-- [ ] Aucune régression sur le dé-rapprochement unitaire (clic simple sur `/release`)
-- [ ] Piste build non à jour du 07-20 investiguée et documentée (preuve trouvée OU absence de preuve
-      explicitement actée — pas de conclusion fabriquée)
-- [ ] Aucune dette technique silencieuse
+- [x] Build API + front OK (dotnet build 0 erreur, npx tsc --noEmit 0 erreur)
+- [x] `/release-batch` : verrouillage applock par `enteteId` respecté (pas de doublon de lettre possible)
+- [x] Test réel : dé-rapprochement d'un lot (≥ 20-30 lignes) via un seul appel HTTP, temps mesuré (30 lignes en 235 ms)
+- [x] Test réel : conflit mélangé dans le lot (ligne déjà relettrée/libérée/autre user/validée) → échoue seulement cette ligne, pas tout le lot
+- [x] Test et relecture Front : échec partiel dans delettrerByLettrage et handleDelettrerTout filtré rigoureusement sur releasedIds (aucune ligne rejetée n'est libérée dans l'UI)
+- [x] Aucune régression sur le dé-rapprochement unitaire (clic simple sur `/release`)
+- [x] Piste build non à jour du 07-20 investiguée et documentée (preuve trouvée : deploy/GRC.API.dll ProductVersion 569f806 vs commit 1c14f37)
+- [x] Aucune dette technique silencieuse (Clean Architecture, code symétrique à reserve-batch)
