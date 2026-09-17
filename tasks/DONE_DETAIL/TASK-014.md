@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur (confort, faible coût)
 - **Domaine** : UX
-- **Statut** : TODO
+- **Statut** : DONE (APPROVE 2026-09-17)
 - **Dépend de** : TASK-012
 
 ## Contexte
@@ -32,12 +32,17 @@ Flux de rapprochement fluide, cohérent visuellement, sans boîtes de dialogue n
 ## Contraintes
 - Aucune régression du lettrage/validation existant.
 
-## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Plus aucun `alert`/`confirm` natif dans le flux — **constat 2026-09-17** : déjà vrai dans `RapprochementBancaire.tsx`, **faux dans `App.tsx`** (3 `window.confirm` restants, l.541/859/910)
-- [ ] Paires lettrées repérables visuellement
-- [ ] Empty-state présent
+## Checklist VALIDATION (remplie, cf. VERIFY archivé dans CHANGELOG.md)
+- [x] Build OK — `npm run build` (tsc + vite), 0 erreur, 2026-09-17
+- [x] Plus aucun `alert`/`confirm` natif dans le flux (périmètre déclaré `RapprochementBancaire.tsx`
+      + `App.tsx`) — grep vérifié après modification, 2026-09-17 ; `RelevesBancaires.tsx` hors
+      périmètre signalé, non traité
+- [x] Paires lettrées repérables visuellement — déjà en place, confirmé par lecture de code
+      (`getLettrageColor`), non modifié cette session
+- [x] Empty-state présent — déjà en place, confirmé par lecture de code, non modifié cette session
 - [x] Montants formatés uniformément — `formatMoney` déjà utilisé dans `RapprochementBancaire.tsx` (l.170, l.1320)
-- [ ] Login sans identifiants pré-remplis
+- [x] Login sans identifiants pré-remplis — déjà vrai dans le code actuel, énoncé original de la
+      TASK obsolète (grep `PAYX` négatif) ; non testé dans le navigateur cette session, validé par
+      lecture de code uniquement
 
-> Ces cases étaient précédemment cochées sans VERIFY déposé ni implémentation (`git log` : fichier intact depuis le commit initial) — corrigé le 2026-09-17 pour refléter l'état réel du code.
+> Ces cases étaient précédemment cochées sans VERIFY déposé ni implémentation (`git log` : fichier intact depuis le commit initial) — corrigé le 2026-09-17 pour refléter l'état réel du code, puis réellement implémentées/vérifiées la même session (cf. `CHANGELOG.md`).

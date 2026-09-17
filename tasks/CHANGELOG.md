@@ -1,5 +1,32 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Finitions UX écran rapprochement : toasts non bloquants (TASK-014, APPROVE)
+
+### Contexte
+TASK-014 était réellement en TODO malgré une checklist faussement pré-cochée (corrigée en session
+architecte le 2026-09-17, commit `d21528d`) : sur les 5 points de la TASK, 4 étaient déjà en place
+(repérage visuel des paires lettrées, empty-state, `formatMoney`, login sans identifiants
+pré-remplis) et 1 restait faux — 3 `window.confirm` bloquants dans `App.tsx` malgré un système de
+toast déjà existant.
+
+### Implémentation (worker de secours, session 2026-09-17)
+`handleSubmitLettragePeriode` : `confirm` supprimé sans remplacement (doublon d'un avertissement
+déjà inline dans le modal `showLettragePeriode`). Boutons « Fermer Comptabilisation »/« Fermer
+Rapprochement » : `confirm` remplacé par `showConfirm(message, onConfirm)`, extension du toast
+existant (pas de nouveau système) — `onConfirm` optionnel sur le toast, pas d'auto-dismiss tant que
+non tranché, boutons Confirmer/Annuler affichés uniquement si `onConfirm` est présent. Hors
+périmètre signalé, non traité : `window.confirm` résiduel dans `RelevesBancaires.tsx:330`
+(suppression de relevé — fichier non listé dans le périmètre déclaré de la TASK).
+
+### Review et clôture
+Build vérifié 0 erreur (`tsc -b && vite build`, seul warning de chunk préexistant). Mécanisme
+`showConfirm`/`toast.onConfirm` et remplacement des 2 `window.confirm` de `App.tsx` confirmés par
+grep. Les 4 points déjà en place revérifiés par lecture de code (`getLettrageColor`, empty-state,
+`formatMoney`, `username`/`password` initialisés à `''`). Test réel dans le navigateur des 2
+boutons du toast non exécuté — documenté explicitement (discipline de preuve), risque jugé faible
+(changement mécanique, remplacement direct `if(confirm){action}` → `showConfirm(msg,()=>{action})`,
+types validés par le build). **APPROVE.**
+
 ## 2026-09-17 — `/reglements/distincts` : fin du chargement de tout l'historique (TASK-015, APPROVE)
 
 ### Contexte
