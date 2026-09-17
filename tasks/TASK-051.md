@@ -47,6 +47,7 @@ Le binding IoC de `ILettrageReglementClient` dans `TresorerieNinjectKernel.Activ
 3. **Boucler séquentiellement** sur les clients distincts (pas de `Parallel.ForEach`) : chaque appel `Lettrer(clientNo, dateMin, dateMax)` ouvre son propre `TransactionScope(Serializable)` sur potentiellement plusieurs exercices — cumuler du parallélisme ici reproduirait exactement le risque déjà écarté en TASK-048 (contention/MSDTC), en pire (transactions plus longues, multi-exercices). **Séquentiel par défaut, à ne changer que si un besoin de perf réel est démontré.**
 4. **Gestion d'erreur par client** (pattern `Comptabiliser`) : un client en échec (ex. `GetClient` introuvable — cas normal si le client a été supprimé/fusionné entre-temps) ne doit pas interrompre le traitement des autres clients. Capturer, logger, remonter dans une liste d'erreurs nommées par client.
 5. **Retour structuré** : `{ success, clientsTraites, clientsAvecLettrage, errors[] }` (ou équivalent), affiché côté front en résumé (toast ou modal), pas juste un booléen brut.
+5bis. **Log diagnostic (ajouté 2026-09-17, résidu du VERIFY rejeté)** : via `ILogger<ReglementService>` injecté (infra Serilog confirmée opérationnelle en prod, TASK-041), tracer pour **chaque client × chaque exercice chevauchant** : `clientNo`, bornes exercice, `[dateMinReg, dateMaxReg]` calculées après intersection, et le **résultat** de l'appel `Lettrer(...)` (bool). Objectif : la prochaine exécution réelle en prod doit permettre de voir, pour le cas connu non expliqué (client 12889/CDR200538), si l'intersection de dates calculée exclut le règlement, si l'exercice n'est pas chargé, ou si `Lettrer()` est bien appelé mais retourne `false` malgré l'éligibilité apparente. Niveau `Information`, pas de nouvelle dépendance, additif strict (mêmes contraintes que TASK-041 : aucun secret, n'affecte pas le comportement).
 6. **Front** : bouton dédié, formulaire deux dates (proposer par défaut les dates de filtre déjà actives dans la liste, si présentes, sans obliger l'utilisateur à les ressaisir — à la discrétion du worker), confirmation avant lancement (opération non triviale : balaie potentiellement plus que ce qui est affiché, cf. avertissement ci-dessus — le prévenir explicitement dans le libellé du bouton ou une info-bulle).
 
 ## Contraintes
@@ -67,6 +68,7 @@ Le binding IoC de `ILettrageReglementClient` dans `TresorerieNinjectKernel.Activ
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
 - [ ] Build back + front OK (0 erreur)
+- [ ] Log diagnostic présent (client × exercice × bornes dates × résultat `Lettrer()`) — visible dans `logs/grc-AAAAMMJJ.log`
 - [ ] Endpoint `lettrer-periode` respecte le scoping société/caisses (un client hors périmètre caisses de l'utilisateur n'est jamais traité)
 - [ ] Période avec plusieurs clients ayant des règlements totalement affectés → tous lettrés, résumé correct (`clientsAvecLettrage` cohérent)
 - [ ] Client dans la période mais sans règlement totalement affecté → traité sans erreur, simplement aucun lettrage

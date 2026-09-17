@@ -18,17 +18,17 @@ Conditions actuelles :
 Le bouton devrait donc être visible + actif dès qu'une simulation renvoie des résultats. Le panneau étant en `position: absolute; bottom: 1rem` dans son conteneur ([l.397-398](../gocom-web/src/ApercuComptabilisation.tsx#L397)), un **problème de layout** (conteneur sans `position: relative`, hauteur insuffisante, recouvrement, hors-viewport) est le suspect n°1.
 
 ## Objectif
-**Confirmer d'abord si c'est un vrai bug** (repro PO) ou une simple méconnaissance du panneau flottant. Si bug : rendre le bouton de validation systématiquement visible et accessible après une simulation à résultats.
+Rendre le bouton de validation systématiquement visible et accessible après une simulation à résultats — livré directement (cf. étape 0 assouplie), testé sur la nouvelle version déployée plutôt que par repro préalable.
 
-## Étape 0 — Reproduction (bloquant avant tout dev)
-Faire reproduire au PO : lancer une simulation qui **renvoie des résultats** et observer le bas de l'écran.
-- **Si le bandeau « Validation Globale » apparaît** → pas de bug, fermer la TASK (formation/UX mineure).
-- **S'il n'apparaît pas** → bug de layout confirmé, poursuivre.
+## Étape 0 — Reproduction (assouplie 2026-09-17)
+Décision PO : ne plus bloquer sur une session de repro dédiée — livrer directement le correctif de layout (option robuste ci-dessous) **accompagné d'un log diagnostic front**, puis observer le comportement réel à la prochaine utilisation.
+- Log diagnostic (`console.debug` ou équivalent, retirable facilement) juste avant le rendu du panneau [l.396](../gocom-web/src/ApercuComptabilisation.tsx#L396) : `apercus.length`, `hasErrors`. Objectif : si le panneau reste invisible malgré le correctif, distinguer immédiatement "liste vide → pas un bug" de "liste non vide mais bandeau toujours invisible → autre cause à creuser", sans nouvelle session avec le PO.
+- Le correctif de layout (étape 1-3 ci-dessous) est appliqué **directement**, pas conditionné à une repro préalable.
 
 ## Fichiers concernés
 - `gocom-web/src/ApercuComptabilisation.tsx` : panneau flottant [l.396-428](../gocom-web/src/ApercuComptabilisation.tsx#L396) et son conteneur parent [l.302](../gocom-web/src/ApercuComptabilisation.tsx#L302).
 
-## Étapes d'implémentation (si bug confirmé)
+## Étapes d'implémentation
 1. Vérifier que le conteneur parent du panneau (`.card.table-container`, [l.302](../gocom-web/src/ApercuComptabilisation.tsx#L302)) porte bien `position: relative` — sinon le `position: absolute` se cale sur un ancêtre inattendu.
 2. S'assurer que le panneau reste dans le viewport (pas masqué par un overflow / une hauteur `minHeight:0`).
 3. Option robuste : ancrer le panneau en `position: fixed` bas-de-page ou le sortir du conteneur scrollable, pour garantir sa visibilité indépendamment du contenu.
@@ -38,11 +38,12 @@ Faire reproduire au PO : lancer une simulation qui **renvoie des résultats** et
 - Ne pas lever la garde `disabled={hasErrors}` : un déséquilibre / compte manquant doit rester bloquant.
 
 ## Risques / dépendances
-- Faible côté code. Le vrai risque est de **coder un correctif pour un non-bug** : l'étape 0 (repro) est impérative avant tout changement.
+- Faible côté code. Risque accepté par le PO (2026-09-17) : livrer le correctif sans repro préalable, avec le log diagnostic front en filet de sécurité pour interpréter le résultat réel sur la version déployée.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Repro PO effectuée (bug confirmé ou infirmé)
-- [ ] Si bug : après simulation à résultats, le bouton « Valider & Enregistrer » est visible sans scroll/manipulation
+- [ ] Log diagnostic front présent (`apercus.length`, `hasErrors`) juste avant le rendu du panneau
+- [ ] Après simulation à résultats, le bouton « Valider & Enregistrer » est visible sans scroll/manipulation
 - [ ] Bouton actif quand écritures valides ; désactivé si `hasErrors` / `isSubmitting`
 - [ ] Clic → `POST /reglements/comptabiliser` → toast de succès, `apercus` vidé
 - [ ] Build front OK
+- [ ] Testé sur la version déployée (pas seulement en dev) — noter le résultat observé dans le VERIFY
