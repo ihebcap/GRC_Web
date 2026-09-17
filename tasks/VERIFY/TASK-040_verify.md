@@ -1,27 +1,33 @@
 # VERIFY — TASK-040 — Bouton « Valider & Enregistrer » non visible
 
-## Diagnostic (Étape 0)
-Bug **identifié par analyse code** — repro visuelle PO **non encore effectuée** (bloquant restant, cf. bas de fiche) :
-- Le panneau flottant « Validation Globale » est en `position: absolute` (`bottom/left/right`) — [ApercuComptabilisation.tsx:419-420](../../gocom-web/src/ApercuComptabilisation.tsx#L419).
-- Son conteneur racine [l.280](../../gocom-web/src/ApercuComptabilisation.tsx#L280) n'avait **aucun `position: relative`** → l'`absolute` se calait sur un ancêtre positionné inattendu (layout app / viewport), rendant le panneau potentiellement hors zone visible.
-- L'intention de design était bien un panneau ancré au bas de l'onglet : le contenu réserve déjà l'espace via `paddingBottom: '5rem'` [l.324](../../gocom-web/src/ApercuComptabilisation.tsx#L324).
+## Reprise en rôle worker de secours (2026-09-17)
+Session précédente : correctif `position: relative` déjà commité (`7639b86`/historique), mais le
+**log diagnostic front** prévu par la TASK (étape 0 assouplie) n'avait **jamais été ajouté au
+code** malgré la checklist VERIFY qui le mentionnait comme réalisé. Repris cette session, en
+rôle worker de secours — code seul, aucune clôture (TODO/DONE/CHANGELOG non touchés, pas de
+déplacement vers `DONE_DETAIL/`), conformément à la règle de séparation implémentation/clôture.
 
-## Correctif appliqué (périmètre TASK-040 — 1 ligne)
-Ajout de `position: relative` au conteneur racine (Option 1 de la TASK) :
+## Diagnostic (Étape 0)
+- Le panneau flottant « Validation Globale » est en `position: absolute` (`bottom/left/right`) — [ApercuComptabilisation.tsx:592-593](../../gocom-web/src/ApercuComptabilisation.tsx#L592).
+- Son conteneur racine [l.374](../../gocom-web/src/ApercuComptabilisation.tsx#L374) porte désormais `position: relative` (correctif déjà en place avant cette reprise).
+- L'intention de design était bien un panneau ancré au bas de l'onglet : le contenu réserve déjà l'espace via `paddingBottom` conditionnel [l.433](../../gocom-web/src/ApercuComptabilisation.tsx#L433).
+
+## Correctif appliqué cette session (1 ligne)
+Ajout du log diagnostic front juste avant le rendu (`apercus.length`, `hasErrors`), pour distinguer
+« liste vide → pas un bug » de « liste non vide mais bandeau toujours invisible → autre cause » sans
+nouvelle session de repro PO dédiée :
 
 ```diff
-- <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%'}}>
-+ <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', position: 'relative'}}>
+  const isBalanced = validApercus.length > 0 && Math.abs(totalDebit - totalCredit) < 0.01;
+
++ console.debug('[TASK-040] panneau Validation Globale', { apercusLength: apercus.length, hasErrors });
+
+  const handleValider = async () => {
 ```
 
-**Ce correctif est isolé dans l'index git** : `git diff --cached` sur ce fichier ne contient **que** cette ligne. Vérifiable :
-```
-$ git diff --cached gocom-web/src/ApercuComptabilisation.tsx
-@@ -255,7 +255,7 @@
-   return (
--    <div style={{... height: '100%'}}>
-+    <div style={{... height: '100%', position: 'relative'}}>
-```
+**Isolé dans l'index git** : `git diff --cached gocom-web/src/ApercuComptabilisation.tsx` ne contient
+que cette ligne (confirmé — le correctif `position: relative` d'une session antérieure n'apparaît
+plus en diff, déjà commité).
 
 ## ⚠️ Changements hors périmètre présents dans le working tree (NON indexés)
 Le fichier était **déjà modifié avant TASK-040** (état `M` au démarrage de session). Ces changements **ne sont pas de TASK-040**, restent **non-indexés**, et doivent être rattachés à leur(s) propre(s) TASK :
@@ -40,14 +46,14 @@ Ils n'ont **pas** été supprimés (travail légitime d'une autre tâche), mais 
 - Garde `disabled={isSubmitting || hasErrors}` conservée [l.440](../../gocom-web/src/ApercuComptabilisation.tsx#L440).
 
 ## Checklist VALIDATION
-- [ ] **Repro visuelle PO (Étape 0)** — non effectuée, bloquant restant
-- [x] Correctif isolé : `git diff --cached` = uniquement `position: relative`
-- [x] Après simulation à résultats, panneau ancré au bas de l'onglet (par construction ; à confirmer visuellement PO)
-- [x] Bouton actif si écritures valides ; désactivé si `hasErrors` / `isSubmitting` (inchangé)
-- [ ] **Clic runtime → `POST /reglements/comptabiliser` → toast + `apercus` vidé** — non validé (à faire par PO)
-- [x] Build front OK (`tsc -b && vite build` → ✓ built) — build effectué working tree complet
+- [x] Log diagnostic front présent (`apercus.length`, `hasErrors`) juste avant le rendu du panneau — 2026-09-17, code (`ApercuComptabilisation.tsx:320`)
+- [x] `position: relative` sur le conteneur racine — déjà en place (session antérieure), vérifié par lecture de code 2026-09-17
+- [ ] **Après simulation à résultats, le bouton est visible sans scroll/manipulation** — non observé en usage réel, à confirmer par le PO sur la version déployée (log diagnostic servira de filet si le symptôme persiste)
+- [x] Bouton actif si écritures valides ; désactivé si `hasErrors` / `isSubmitting` — inchangé, relu 2026-09-17
+- [ ] **Clic runtime → `POST /reglements/comptabiliser` → toast + `apercus` vidé** — non testé en base (pas d'accès réseau kernel Trésorerie depuis le poste worker), à confirmer par le PO
+- [x] Build front OK — `npm run build` (`tsc -b && vite build`) → ✓ built, 0 erreur, 2026-09-17
+- [ ] **Testé sur la version déployée** — non fait cette session, dépend d'un déploiement + retour PO
 
 ## Bloquants restants avant APPROVE
-1. Repro visuelle PO (Étape 0) confirmant que le symptôme existait puis a disparu.
-2. Validation runtime du clic (`POST /comptabiliser`).
-3. Décision PO sur le lot hors périmètre : créer sa TASK dédiée.
+1. Observation réelle sur la version déployée (bouton visible + clic → comptabilisation), avec le log diagnostic comme filet d'interprétation si le symptôme persiste malgré le correctif.
+2. Décision PO sur le lot hors périmètre déjà signalé dans une itération précédente (recherche dropdown + filtrage caisses admin) — à vérifier si une TASK dédiée existe déjà avant de la recréer.
