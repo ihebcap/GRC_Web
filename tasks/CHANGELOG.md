@@ -1,6 +1,31 @@
 # CHANGELOG — Rapprochement Bancaire
 
-## 2026-09-17 — Journalisation Serilog : clôture définitive du résiduel serveur (TASK-041)
+## 2026-09-17 — `/reglements/distincts` : fin du chargement de tout l'historique (TASK-015, APPROVE)
+
+### Contexte
+`/api/reglements/distincts` (alimente les filtres du dashboard) retombait systématiquement sur le
+fallback `2000-01-01 → 2030-01-01` : le frontend (`fetchReferences`, appel unique au montage, avant
+toute sélection de période) n'a jamais transmis `dateDebut`/`dateFin`, malgré un paramètre d'API déjà
+présent côté contrôleur. Tout l'historique était donc chargé en mémoire puis dédupliqué à chaque
+ouverture du dashboard — même défaut que TASK-008-A, non couvert par celui-ci pour cet endpoint
+spécifique.
+
+### Décision et implémentation (worker de secours, session 2026-09-17)
+Bornage tranché par le PO en session : **fenêtre glissante 12 mois** par défaut (compromis entre
+réduction du volume et non-vidage des filtres de valeurs anciennes légitimes). Fix confiné à
+`GRC.Infrastructure/Services/ReglementService.cs::GetDistinctReglements` (fallback de date), aucun
+changement de contrat d'API, front non modifié (rien de pertinent à transmettre à l'appel mount).
+Étape 2 de la TASK (« idéalement `SELECT DISTINCT` côté base ») non implémentée, volontairement
+qualifiée non-bloquante à l'origine — `repo.GetAll` provient d'une DLL fermée (`Tresorerie.Dapper.dll`),
+écrire du SQL brut sur un schéma non vérifiable aurait été un risque de divergence silencieuse.
+
+### Review et clôture (agent ARCHITECT distinct, séparation implémentation/clôture)
+Build vérifié 0 erreur (2026-09-17). 2 cases de la checklist VALIDATION non cochées par le worker
+(filtres frontend au-delà de 12 mois, temps de réponse) — non testables faute d'accès réseau au
+kernel Trésorerie depuis ce poste, mais chaque case documente explicitement pourquoi (discipline de
+preuve respectée). Risque 🟠 Majeur/Performance, pas RISK HIGH/CRITICAL UX : pas de blocage sur ces
+2 points, le chemin `repo.GetAll` avec bornes explicites étant déjà exercé/validé ailleurs
+(`GetReglements`, TASK-018). **APPROVE.**
 
 ### Contexte
 TASK-041 (Serilog, 1 fichier/jour sur réservation/approbation/comptabilisation) était fonctionnelle
