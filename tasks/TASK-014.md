@@ -33,9 +33,11 @@ Flux de rapprochement fluide, cohérent visuellement, sans boîtes de dialogue n
 - Aucune régression du lettrage/validation existant.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [x] Build OK
-- [x] Plus aucun `alert`/`confirm` natif dans le flux
-- [x] Paires lettrées repérables visuellement
-- [x] Empty-state présent
-- [x] Montants formatés uniformément
-- [x] Login sans identifiants pré-remplis
+- [ ] Build OK
+- [ ] Plus aucun `alert`/`confirm` natif dans le flux — **constat 2026-09-17** : déjà vrai dans `RapprochementBancaire.tsx`, **faux dans `App.tsx`** (3 `window.confirm` restants, l.541/859/910)
+- [ ] Paires lettrées repérables visuellement
+- [ ] Empty-state présent
+- [x] Montants formatés uniformément — `formatMoney` déjà utilisé dans `RapprochementBancaire.tsx` (l.170, l.1320)
+- [ ] Login sans identifiants pré-remplis
+
+> Ces cases étaient précédemment cochées sans VERIFY déposé ni implémentation (`git log` : fichier intact depuis le commit initial) — corrigé le 2026-09-17 pour refléter l'état réel du code.
