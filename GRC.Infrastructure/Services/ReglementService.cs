@@ -249,9 +249,12 @@ namespace GRC.Infrastructure.Services
 
             var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
 
-            var debut = dateDebut ?? new DateTime(2000, 1, 1);
-            var fin = dateFin ?? new DateTime(2030, 1, 1);
-            
+            // TASK-015 — Pas de bornage transmis par le front à l'ouverture du dashboard (fetchReferences
+            // n'envoie ni dateDebut ni dateFin) : à défaut de période explicite, on se limite aux 12 derniers
+            // mois glissants (fenêtre validée PO 2026-09-17) plutôt que de recharger tout l'historique 2000→2030.
+            var debut = dateDebut ?? DateTime.Now.AddMonths(-12);
+            var fin = dateFin ?? DateTime.Now;
+
             IEnumerable<ReglementClient> allReglements = new List<ReglementClient>();
             if (caissesList.Length > 20)
             {
@@ -261,7 +264,7 @@ namespace GRC.Infrastructure.Services
                     var chunkRepo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
                     return chunkRepo.GetAll(societeId, debut, fin, chunk) ?? new List<ReglementClient>();
                 })).ToList();
-                
+
                 Task.WaitAll(allTasks.ToArray());
                 allReglements = allTasks.SelectMany(t => t.Result).ToList();
             }
