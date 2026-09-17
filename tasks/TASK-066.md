@@ -1,9 +1,38 @@
-# TASK-066 — Réservation en lot : boucle séquentielle front N allers-retours (constat lenteur PO 2026-07-20)
+# TASK-066 — Réservation en lot : dé-rapprochement jamais migré + hypothèse build non à jour (résiduel)
 
-- **Priorité** : 🟠 Majeur
+- **Priorité** : 🔴 Bloquant (repris 2026-09-17 — sous-partie manquante d'un travail déjà livré au client)
 - **Domaine** : Performance (Front + Backend)
-- **Statut** : À FAIRE
-- **Dépend de** : TASK-037 (calcul lettre atomique côté serveur)
+- **Statut** : À FAIRE — résiduel après livraison partielle du 2026-07-20 (cf. `VERIFY/TASK-066_verify.md`, conservé pour l'historique complet)
+- **Dépend de** : TASK-037 (calcul lettre atomique côté serveur) ; réutilise directement le pattern déjà livré et validé pour `/reserve-batch` (même fichiers)
+
+## Contexte (mise à jour 2026-09-17, vérification code réelle)
+
+Le lot du 2026-07-20 (commit `1c14f37`) a livré `POST /api/ReleveBancaire/reserve-batch` +
+`ReserverLignesBatchAsync` (`GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs:384`) et le
+front (`gocom-web/src/RapprochementBancaire.tsx`, `handleAutoReconcile` ~594-614) a bien été migré
+vers un seul appel HTTP au lieu de la boucle séquentielle — **mais uniquement pour le rapprochement
+automatique**.
+
+**Vérifié par lecture de code (2026-09-17), pas supposé** : le **dé-rapprochement** n'a jamais été
+migré. `delettrerByLettrage` (~ligne 662) et `handleDelettrerTout` (~ligne 774) dans
+`RapprochementBancaire.tsx` font toujours :
+```js
+for (const l of lignes) {
+  await axios.post(`${API_BASE}/ReleveBancaire/release`, ...);
+}
+```
+— exactement le pattern N allers-retours séquentiels que cette TASK visait à éliminer. **Aucun
+endpoint `/release-batch` n'existe** côté backend. Le code est resté inchangé sur ce point depuis le
+07-20 (seuls 2 commits touchent ce fichier : `ac0e990` init, `1c14f37` qui contient la migration
+partielle — rien depuis).
+
+Rappel de l'incident déclencheur : le PO avait signalé un crash navigateur reproductible en testant
+le lot, sur **les deux actions** (rapprochement auto ET dé-rapprochement) — jamais reproduit depuis,
+livré quand même le 07-20 sur décision PO, analyse reportée. `VERIFY/TASK-066_verify.md` documente
+un fait clé non exploité : les logs serveur du 07-20 montrent **0 occurrence de `reserve-batch`**
+malgré 211 appels `/reserve` unitaires ce jour-là — suggérant que le build front réellement déployé
+ce jour ne contenait peut-être pas encore le code du lot (cache/déploiement partiel), et que le
+crash a été observé avec l'**ancienne** boucle séquentielle, pas la nouvelle.
 
 ## Contexte
 
@@ -16,52 +45,54 @@ traitement unitaire. L'environnement de ce log est local (`DataSource DESKTOP-2V
 réseau y est quasi nulle — ce qui masque le vrai coût en déploiement LAN réel (scope du projet, cf.
 `tasks/TODO.md` en-tête : « Déploiement LAN fermé, multi-postes »).
 
-## Problème constaté (par lecture de code)
+## Problème constaté
 
-`gocom-web/src/RapprochementBancaire.tsx:562-579` : l'auto-rapprochement itère les propositions dans une
-boucle `for...of` avec un `await axios.post(${API_BASE}/ReleveBancaire/reserve)` **par proposition, en
-série** — jamais en parallèle, jamais en lot. Pour N propositions, c'est N allers-retours HTTP séquentiels.
-Sur LAN réel (latence réseau non nulle, plusieurs dizaines de ms par aller-retour), un lot de plusieurs
-dizaines de lignes (cf. génération réglement du même log : 48 échéances en une passe) peut se traduire par
-plusieurs secondes de blocage UI perçu comme un gel.
+1. **Dé-rapprochement non migré (le vrai gap de code)** : `delettrerByLettrage`/`handleDelettrerTout`
+   font N appels séquentiels `POST /ReleveBancaire/release`, un par ligne — même défaut que celui déjà
+   corrigé pour le rapprochement auto, jamais traité côté "tout délettrer".
+2. **Hypothèse crash non vérifiée** : possible que le crash du 07-20 se soit produit avec l'ancien
+   code (build non à jour), pas avec le nouveau — à confirmer avant de considérer le sujet clos.
 
-Côté serveur, `GRC.API/Controllers/ReleveBancaireController.cs:192-230` →
-`ReleveBancaireRepository.ReserverLigneAsync` prend un `sp_getapplock` **par `enteteId`** (visible au log :
-tous les appels du lot ligne 144–197 partagent `enteteId=6`). Ce verrou sérialise déjà les réservations
-d'un même relevé côté base — voulu pour garantir l'unicité de la lettre (cf. mémoire
-`lettrage-repere-interne`, TASK-037). Une parallélisation front seule sur ce même relevé ne gagnerait donc
-que la latence réseau (aller-retour HTTP), pas le temps base — mais c'est probablement l'essentiel du coût
-en LAN.
+## Objectif
 
-## Hypothèse à valider avant tout dev
+1. Ajouter un endpoint `POST /ReleveBancaire/release-batch` symétrique à `/reserve-batch` (même
+   architecture : une transaction, verrou `sp_getapplock` par `enteteId`, traitement indépendant par
+   ligne pour qu'un conflit n'échoue pas tout le lot) et migrer `delettrerByLettrage`/
+   `handleDelettrerTout` pour l'utiliser au lieu de la boucle séquentielle actuelle.
+2. Élucider si le crash du 07-20 est lié à l'ancien code (build non à jour ce jour-là) : comparer la
+   date de build/déploiement du bundle front réellement livré le 07-20 avec le commit `1c14f37`
+   (contenant la migration `/reserve-batch`) — décrire dans le VERIFY ce qui a été trouvé (log de
+   déploiement, hash de build, ou toute preuve disponible), sans fabriquer une conclusion si la preuve
+   manque.
 
-1. Reproduire sur poste client réel (pas localhost) avec un lot de taille comparable (≥ 20-30 propositions)
-   et mesurer le temps total ressenti + un profil réseau (Network tab navigateur) pour confirmer que le
-   coût dominant est bien le nombre d'allers-retours séquentiels, pas autre chose (ex. re-render React à
-   chaque étape, taille de payload, etc.).
-2. Si confirmé : évaluer un endpoint de réservation en lot (`POST /ReleveBancaire/reserve-batch` ou
-   équivalent) qui applique la boucle et le verrouillage **côté serveur** (un seul aller-retour réseau,
-   verrous `sp_getapplock` toujours séquentiels par `enteteId` en interne) plutôt qu'une simple
-   parallélisation `Promise.all` côté front (qui n'apporterait rien vu la sérialisation serveur existante
-   et risquerait de créer de la contention supplémentaire sur l'applock).
+## Fichiers concernés
 
-## Fichiers concernés (probables, à confirmer après repro)
-
-- `gocom-web/src/RapprochementBancaire.tsx` (boucle séquentielle, lignes ~562-579)
-- `GRC.API/Controllers/ReleveBancaireController.cs` (endpoint `reserve`, éventuel nouvel endpoint lot)
-- `GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs` (`ReserverLigneAsync`, éventuelle version lot)
+- `gocom-web/src/RapprochementBancaire.tsx` — `delettrerByLettrage` (~662), `handleDelettrerTout`
+  (~774) : boucle séquentielle à remplacer par un seul appel `/release-batch`.
+- `GRC.API/Controllers/ReleveBancaireController.cs` — nouvel endpoint `POST release-batch`, à écrire
+  sur le modèle exact de `reserve-batch` (même fichier, cf. `VERIFY/TASK-066_verify.md` pour le détail
+  de l'architecture déjà validée : transaction unique, applock par `enteteId`, DTOs de résultat par
+  ligne).
+- `GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs` — `ReleverLignesBatchAsync` ou
+  équivalent symétrique à `ReserverLignesBatchAsync` (:384).
 
 ## Contraintes
 
 - Ne pas court-circuiter le verrouillage `sp_getapplock` par `enteteId` (garantie d'unicité de lettre,
-  TASK-037) — toute évolution doit le préserver, y compris dans un endpoint lot.
-- Pas de fix avant reproduction réelle mesurée (pas de log actuel ne démontrant une lenteur serveur) —
-  éviter un correctif sur une cause non confirmée.
+  TASK-037) — même exigence que pour `/reserve-batch`, déjà respectée là-bas, à répliquer ici.
+- Ne pas toucher à `/reserve`, `/reserve-batch`, `/release` unitaire — uniquement ajouter le pendant
+  lot du dé-rapprochement.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
+- Ne pas fabriquer une conclusion sur la cause du crash si la preuve (date de build réelle du 07-20)
+  n'est pas trouvable — documenter l'absence de preuve plutôt que de deviner.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Repro réelle en LAN avec mesure avant/après (pas seulement raisonnement)
-- [ ] Verrouillage applock par `enteteId` toujours respecté (pas de doublon de lettre possible)
 - [ ] Build API + front OK
-- [ ] Aucune régression sur la réservation unitaire (clic simple)
+- [ ] `/release-batch` : verrouillage applock par `enteteId` respecté (pas de doublon de lettre possible)
+- [ ] Test réel : dé-rapprochement d'un lot (≥ 20-30 lignes) via un seul appel HTTP, temps mesuré
+- [ ] Test réel : conflit mélangé dans le lot (ligne déjà relettrée/libérée) → échoue seulement cette
+      ligne, pas tout le lot
+- [ ] Aucune régression sur le dé-rapprochement unitaire (clic simple sur `/release`)
+- [ ] Piste build non à jour du 07-20 investiguée et documentée (preuve trouvée OU absence de preuve
+      explicitement actée — pas de conclusion fabriquée)
 - [ ] Aucune dette technique silencieuse
