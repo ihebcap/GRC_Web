@@ -1,5 +1,30 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Bouton « Valider & Enregistrer » invisible (TASK-040, APPROVE avec réserve)
+
+### Contexte
+Le PO ne voyait que le bouton « Simulation », pas de bouton de validation de la comptabilisation.
+Le dispositif existait déjà côté code (panneau flottant « Validation Globale », `handleValider` →
+`POST /reglements/comptabiliser`) — suspicion de bug de layout (`position: absolute` sans ancrage
+fiable). Décision PO 2026-09-17 : ne plus bloquer sur une repro dédiée, livrer directement le
+correctif + un log diagnostic front comme filet d'interprétation.
+
+### Implémentation (worker de secours, session de reprise)
+Correctif `position: relative` sur le conteneur racine du panneau déjà commité lors d'une session
+antérieure. Le log diagnostic (`console.debug('[TASK-040] ...', { apercusLength, hasErrors })`)
+prévu par la même étape n'avait, lui, jamais été ajouté au code malgré une checklist VERIFY qui le
+mentionnait comme fait — repris et ajouté cette session (`b1f9c56`, diff isolé à 2 lignes confirmé
+par `git show`). Front uniquement, aucune modification de `handleValider`/l'endpoint, garde
+`disabled={isSubmitting || hasErrors}` conservée. Build 0 erreur (`tsc -b && vite build`).
+
+### Réserve actée à l'APPROVE
+Observation réelle (bouton visible sans scroll + clic → comptabilisation) sur la version déployée
+non faite cette session — dépend d'un déploiement hors de portée du poste worker. Approuvé par
+décision PO sur la base du correctif + du log diagnostic comme filet, à confirmer au prochain usage
+réel. Lot hors périmètre détecté dans le même fichier lors de la review (`isAdmin` sur `User`,
+recherche `CheckboxDropdown`, filtrage caisses par droits) volontairement exclu du commit, non
+détruit — à rattacher à une TASK dédiée.
+
 ## 2026-09-17 — Finitions UX écran rapprochement : toasts non bloquants (TASK-014, APPROVE)
 
 ### Contexte
