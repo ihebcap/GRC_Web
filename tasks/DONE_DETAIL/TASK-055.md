@@ -1,7 +1,8 @@
 # TASK-055 — Remonter à l'utilisateur les messages d'erreur/avertissement de la comptabilisation
 
-- **Priorité** : 🟠 UX / exploitabilité (demande PO 2026-07-15)
+- **Priorité** : 🔴 UX / exploitabilité (demande PO 2026-07-15, relevée après récidive 2026-07-22)
 - **Domaine** : Front (`ApercuComptabilisation.tsx`) — appoint mineur possible côté API
+- **Statut** : FAIT — panneau persistant implémenté conforme à la TASK, build front 0 erreur revérifié par l'architecte. Scénario "journal Sage verrouillé" (repro écran réel) non rejouable depuis le poste dev, câblage validé par lecture de code — cf. `VERIFY/TASK-055_verify.md` archivé
 - **Dépend de** : rien (le back renvoie déjà l'information nécessaire)
 
 ## Contexte

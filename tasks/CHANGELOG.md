@@ -1,5 +1,21 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Messages d'erreur/avertissement de comptabilisation remontés à l'écran (TASK-055)
+
+### Contexte
+Constat PO 2026-07-15 (règlement 47660) : la DLL Sage lève des messages métier actionnables (« Le journal [CRA] est en cours d'utilisation ! ») que le back remonte déjà dans `errors[]`/`lettrageWarnings[]`/`docNumeroWarnings[]`, mais le front (`ApercuComptabilisation.tsx`) les jetait en `console.error` et n'affichait qu'un compteur générique (« 1 erreurs rencontrées »). Priorité relevée 🟠→🔴 le 2026-07-22 après récidive du règlement 51893, échoué à l'identique 6 fois en 2h faute de message exploitable à l'écran. Bug annexe dans le périmètre : `success=true` renvoyé par le back même à `successCount=0`, produisant un toast vert « réussie pour 0 règlements » sur un lot 100% en échec.
+
+### Modifications apportées
+`gocom-web/src/ApercuComptabilisation.tsx` (`handleValider`), front uniquement :
+- Panneau de résultat persistant (`resultPanel`), rendu indépendamment de `apercus` (reste visible même si l'aperçu est vidé) : `errors[]` en rouge, `[...lettrageWarnings, ...docNumeroWarnings]` en jaune, jamais fusionnés — distinction essentielle car un règlement comptabilisé mais non lettré reste un succès.
+- Message de succès/échec décidé sur `successCount > 0` calculé côté front, plus sur le flag `success` du back (bugué, toujours vrai).
+- `setApercus([])`/`onValidated()` appelés seulement si `successCount > 0`, pour que l'utilisateur garde son aperçu et puisse réessayer après fermeture du journal Sage sans tout régénérer.
+- `catch` : lecture de `err.response?.data?.detail`/`title` (`ProblemDetails` renvoyé par `Problem(ex.Message)` côté `ReglementController.cs`) avant repli sur le message générique.
+- Aucune stack trace ni type d'exception .NET affiché — uniquement les messages métier déjà construits côté back à partir de `ex.Message`.
+
+### Vérification
+Build front revérifié par l'architecte (`npm run build`, `tsc -b && vite build`, 0 erreur). Code relu ligne à ligne (`ApercuComptabilisation.tsx:320-365` et panneau `:557-588`), conforme point par point au VERIFY soumis. `git diff --stat` confirme qu'aucun fichier back n'a été touché. Résidu non bloquant : le scénario "journal Sage verrouillé" (repro écran réel avec le message visible) nécessite une manipulation ERP réelle non réalisable depuis ce poste dev — câblage validé par lecture de code exhaustive, à observer par le PO en conditions réelles.
+
 ## 2026-09-17 — Dé-rapprochement en lot manquant + élucidation du crash du 07-20 (TASK-066, résiduel)
 
 ### Contexte
