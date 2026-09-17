@@ -1,5 +1,37 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Message « mode de règlement non paramétré » enrichi de l'intitulé (TASK-067, clôture différée)
+
+### Contexte
+`grc-20260722.log` montrait le règlement 51893 échouer à l'identique 6 fois en 2h avec le message
+« le mode de règlement n°18 n'est pas paramétré pour la caisse n°121 », sans jamais donner
+l'intitulé du mode (« RELAIS ») pourtant connu du commentaire du code — information que
+l'utilisateur ou le support devait aller chercher en base. Combiné à TASK-055 (message alors
+invisible à l'écran), les tentatives répétées suggéraient une incompréhension du blocage.
+
+### Constat de cette session (architecte)
+Le code correctif était **déjà implémenté et committé le 2026-07-27** (`1c14f37`,
+`ReglementService.cs:571-589`), mais **aucun VERIFY n'avait jamais été déposé** : TASK-067 est
+restée visible dans le backlog ACTIF pendant près de deux mois alors que le correctif tournait déjà
+en production. Une session worker de secours a repris le dossier, relu le code, confirmé l'API DLL
+réellement utilisée (`IModeReglementRepository.Get(int) -> ModeReglement.Intitule`, via `inspect_tool`
+sur `Tresorerie.Core.dll`) et déposé `VERIFY/TASK-067_verify.md` sans modifier de code. Cette review
+architecte approuve sur cette base et clôture.
+
+### Modifications (pour mémoire, déjà en production depuis le 2026-07-27)
+`ReglementService.DecrireModeReglement` : résout l'intitulé du mode de règlement via
+`_kernel.Resolve<IModeReglementRepository>()`, l'ajoute entre parenthèses au message de
+`VerifierComptabilisable` si trouvé, repli silencieux sur le numéro seul sinon (mode introuvable ou
+résolution en échec) — `try/catch` limité à la résolution, jamais à toute la méthode, pour ne pas
+transformer cette garde en nouvelle source d'exception non gérée.
+
+### Vérification
+Build 0 erreur (`dotnet build GRC.slnx -c Debug`, revérifié cette session). Pas de test réel en base
+(pas de harness dédié à cette TASK, contrairement à TASK-051/069) — validé par lecture de code
+exhaustive + confirmation de signature DLL, même niveau de preuve accepté pour TASK-069. Bénéfice
+utilisateur effectif dès maintenant : TASK-055, livrée le même jour, rend ce message visible à
+l'écran.
+
 ## 2026-09-17 — Messages d'erreur/avertissement de comptabilisation remontés à l'écran (TASK-055)
 
 ### Contexte
