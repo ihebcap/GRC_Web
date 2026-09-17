@@ -212,3 +212,18 @@ uniquement (dérogation ponctuelle au rôle architecte/revue habituel défini da
 réel en base a été autorisé et exécuté à la demande explicite du PO suite au premier REJECT. Le résiduel
 documenté ci-dessus (succès du lettrage non reproduit) doit être tranché par le PO/l'architecte avant
 clôture définitive dans `DONE.md`.
+
+## Ruling architecte — dérogation "ne pas recoder l'intersection" (2026-09-17)
+
+**Dérogation acceptée**, limitée strictement au périmètre décrit par le worker :
+- L'intersection recalculée n'est **jamais** utilisée pour décider si/quand `Lettrer()` est appelé
+  — seule la log line en dépend. La contrainte d'origine visait à empêcher toute divergence entre
+  une règle métier réimplémentée côté GRC et le comportement réel de la DLL (risque de faux
+  positif/négatif sur un lettrage) ; un simple affichage diagnostic ne présente pas ce risque même
+  s'il se trompe.
+- Portée strictement bornée à ce diff (`ReglementService.cs`, log uniquement) — ne vaut pas
+  précédent général pour réinterpréter "ne pas recoder" ailleurs dans le projet.
+
+**Ne change pas le statut de TASK-051** : le résidu principal (aucun `Lettrer()` observé à `true`)
+reste entier, non expliqué, non couvert par ce complément. **Pas de clôture DONE** — la tâche reste
+ACTIF dans `TODO.md`, en attente de la prochaine exécution réelle en prod avec ce log actif.
