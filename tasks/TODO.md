@@ -41,6 +41,7 @@ Contexte cadré avec le PO :
 - **2026-07-20** : **TASK-059**, **TASK-062**, **TASK-063** (uniformisation de tous les filtres de l'écran génération règlements espèce en mode liste avec checklist + recherche), **TASK-060** (génération règlement versement depuis ligne de relevé, résolution serveur par `LigneReleveId` après 1 REJECT), **TASK-061** (intégration moteur de licence `GRLicence`, périmètre du blocage précisé après 1 REJECT)
 - **2026-07-16** : **TASK-053** (écriture comptable, 4 champs différenciés espèce/hors espèce...), **TASK-045** (filtre d'éligibilité rapprochement conditionnel) — cf. `DONE_DETAIL/` / `CHANGELOG.md`.
 - **2026-09-14** : **TASK-070** (suppression de la clé de repli JWT codée en dur, fail-closed au démarrage sans `Jwt:Key` ou si < 256 bits, rejet des JWT forgés avec l'ancienne clé, initialisation `user-secrets` dev, `appsettings*.json` non touchés — isolation TASK-068 respectée, doc `DEPLOY.md`)
+- **2026-09-17** : **TASK-073** (aperçu comptabilisation : contrat `HasError`/`Ecritures` unifié back+front, badge "Non comptabilisable", exclusion des totaux, blocage "Comptabiliser" — renumérotée depuis TASK-071, collision d'identifiant)
 
 → voir `DONE.md` / `DONE_DETAIL/` / `CHANGELOG.md`.
 

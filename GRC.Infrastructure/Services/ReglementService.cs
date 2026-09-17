@@ -289,8 +289,28 @@ namespace GRC.Infrastructure.Services
             return new { clients, numeros, pieces, references, libelles, extraits, banqueClients, info1s, info2s, info3s, info4s };
         }
 
-        public object Comptabiliser(List<int> reglementIds)
+        public object Comptabiliser(List<int> reglementIds, int jwtUserId, bool isAdmin)
         {
+            if (reglementIds == null || reglementIds.Count == 0)
+                return new { success = true, successCount = 0, errorCount = 0, errors = new List<string>(), docNumeroWarnings = new List<string>(), lettrageWarnings = new List<string>() };
+
+            // TASK-069 — Pré-contrôle d'autorisation caisse (HasEntityActionRestriction sur l'utilisateur JWT réel).
+            // Si un règlement demandé n'appartient pas aux caisses autorisées pour jwtUserId, refus immédiat.
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementComptabiliser().Guid;
+                var cacheCaisses = new Dictionary<int, bool>();
+                var connProvAuth = new global::Tresorerie.Dapper.ConnectionProvider { ConnectionString = _dbFactory.GetConnectionString() };
+                var repoAuth = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvAuth);
+
+                foreach (var id in reglementIds)
+                {
+                    var reg = repoAuth.Get(id);
+                    if (reg == null) continue;
+                    VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid, cacheCaisses);
+                }
+            }
+
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
 
@@ -641,11 +661,79 @@ namespace GRC.Infrastructure.Services
                     $"— DocNumero non écrits pour le règlement {reglementId}.");
         }
 
-        public object RapprocherManuel(List<RapprochementManuelDto> items)
+        // TASK-069 — Pré-contrôle d'autorisation caisse réutilisant HasEntityActionRestriction avec jwtUserId réel.
+        private void VerifierAutorisationCaisse(
+            int jwtUserId,
+            int caisseNo,
+            Guid actionGuid,
+            Dictionary<int, bool>? cache = null)
+        {
+            if (cache != null && cache.TryGetValue(caisseNo, out bool isAuth))
+            {
+                if (!isAuth)
+                {
+                    _logger.LogWarning(
+                        "AUTORISATION CAISSE refusée (cache) : userId={UserId} non autorisé sur la caisse n°{CaisseNo}.",
+                        jwtUserId, caisseNo);
+                    throw new UnauthorizedAccessException(
+                        $"Vous n'êtes pas autorisé à agir sur la caisse n°{caisseNo}.");
+                }
+                return;
+            }
+
+            var societe = _kernel.GroupeService.SocieteManager.Societe;
+            var caisse = societe?.GetCaisse(caisseNo);
+            if (caisse == null)
+            {
+                if (cache != null) cache[caisseNo] = false;
+                _logger.LogWarning(
+                    "AUTORISATION CAISSE refusée : caisse n°{CaisseNo} introuvable pour userId={UserId}.",
+                    caisseNo, jwtUserId);
+                throw new UnauthorizedAccessException(
+                    $"Caisse n°{caisseNo} introuvable ou non paramétrée.");
+            }
+
+            var authRepo = _kernel.Resolve<global::Tresorerie.Authorization.Core.Repositories.IAuthorizationRepository>();
+            bool restreint = authRepo.HasEntityActionRestriction(
+                jwtUserId,
+                global::Tresorerie.Core.Enum.AuthorizationEntity.Reglement,
+                actionGuid,
+                new List<global::Tresorerie.Core.Models.Caisse> { caisse },
+                global::Tresorerie.Core.Enum.ProfilType.Grc);
+
+            if (cache != null) cache[caisseNo] = !restreint;
+
+            if (restreint)
+            {
+                _logger.LogWarning(
+                    "AUTORISATION CAISSE refusée : userId={UserId} non autorisé sur la caisse n°{CaisseNo} (action {ActionGuid}).",
+                    jwtUserId, caisseNo, actionGuid);
+                throw new UnauthorizedAccessException(
+                    $"Vous n'êtes pas autorisé à agir sur la caisse n°{caisseNo}.");
+            }
+        }
+
+        public object RapprocherManuel(List<RapprochementManuelDto> items, int jwtUserId, bool isAdmin)
         {
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
             var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+
+            if (items == null || items.Count == 0)
+                return new { success = true, successCount = 0, errorCount = 0, errors = new List<string>() };
+
+            // TASK-069 — Pré-contrôle d'autorisation caisse sur chaque règlement à pointer.
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                var cacheCaisses = new Dictionary<int, bool>();
+                foreach (var item in items)
+                {
+                    var reg = repo.Get(item.ReglementId);
+                    if (reg == null) continue;
+                    VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid, cacheCaisses);
+                }
+            }
 
             int successCount = 0;
             int errorCount = 0;
@@ -685,8 +773,28 @@ namespace GRC.Infrastructure.Services
             return new { success = errorCount == 0, successCount, errorCount, errors };
         }
 
-        public object ApercuComptabilisation(List<int> reglementIds)
+        public object ApercuComptabilisation(List<int> reglementIds, int jwtUserId, bool isAdmin)
         {
+            if (reglementIds == null || reglementIds.Count == 0)
+                return Array.Empty<object>();
+
+            // TASK-069 — Pré-contrôle d'autorisation caisse : évite la fuite de lecture comptable
+            // pour des règlements hors périmètre de l'utilisateur web.
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementComptabiliser().Guid;
+                var cacheCaisses = new Dictionary<int, bool>();
+                var connProvAuth = new global::Tresorerie.Dapper.ConnectionProvider { ConnectionString = _dbFactory.GetConnectionString() };
+                var repoAuth = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvAuth);
+
+                foreach (var id in reglementIds)
+                {
+                    var reg = repoAuth.Get(id);
+                    if (reg == null) continue;
+                    VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid, cacheCaisses);
+                }
+            }
+
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
             connProvider.ConnectionString = _dbFactory.GetConnectionString();
             var generator = _kernel.Resolve<global::Tresorerie.ApplicationServices.Comptabilite.Interfaces.IEcritureComptableGenerator<global::Tresorerie.Core.Models.ReglementClient>>();
@@ -718,12 +826,13 @@ namespace GRC.Infrastructure.Services
                 connProvThread.ConnectionString = _dbFactory.GetConnectionString();
                 var repoThread = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvThread);
 
-                var reg = repoThread.Get(id);
-                if (reg == null || reg.IsComptabilise != 0)
-                    return;
-
+                global::Tresorerie.Core.Models.ReglementClient? reg = null;
                 try
                 {
+                    reg = repoThread.Get(id);
+                    if (reg == null || reg.IsComptabilise != 0)
+                        return;
+
                     // TASK-047 — Garde AVANT Generate : convertit le NRE opaque de la DLL en message métier
                     // clair, capté ci-dessous par la gestion d'erreur PAR RÈGLEMENT (TASK-046).
                     VerifierComptabilisable(societe, reg);
@@ -777,7 +886,9 @@ namespace GRC.Infrastructure.Services
                         ReglementNumero = reg.Numero,
                         Client = reg.ClientIntitule,
                         Montant = reg.MontantDeviseSociete,
-                        Ecritures = ecrituresDto
+                        Ecritures = ecrituresDto,
+                        HasError = false,
+                        Erreur = (string?)null
                     };
                 }
                 catch (Exception ex)
@@ -787,8 +898,11 @@ namespace GRC.Infrastructure.Services
                         "APERÇU COMPTA ÉCHEC : reglementId={ReglementId} — erreur DLL Sage : {Message}", id, ex.Message);
                     results[i] = new {
                         ReglementId = id,
-                        ReglementNumero = reg.Numero,
-                        Client = reg.ClientIntitule,
+                        ReglementNumero = reg?.Numero,
+                        Client = reg?.ClientIntitule,
+                        Montant = reg?.MontantDeviseSociete ?? 0m,
+                        Ecritures = new List<EcritureApercuDto>(),
+                        HasError = true,
                         Erreur = ex.Message
                     };
                 }

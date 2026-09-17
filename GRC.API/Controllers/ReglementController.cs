@@ -95,7 +95,9 @@ namespace GRC.API.Controllers
         [HttpPost("comptabiliser")]
         public IActionResult Comptabiliser([FromBody] List<int> reglementIds)
         {
-            var userId = User.FindFirst("UserId")?.Value;
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             using (_logger.BeginScope("Comptabilisation userId={UserId} nb={Nb}", userId, reglementIds?.Count ?? 0))
             {
                 _logger.LogInformation(
@@ -103,9 +105,14 @@ namespace GRC.API.Controllers
                     userId, reglementIds?.Count ?? 0, reglementIds != null ? string.Join(",", reglementIds) : "");
                 try
                 {
-                    var result = _reglementService.Comptabiliser(reglementIds);
+                    var result = _reglementService.Comptabiliser(reglementIds, userId, isAdmin);
                     _logger.LogInformation("COMPTABILISATION sortie : {Resultat}", result);
                     return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "COMPTABILISATION refusée (autorisation) : userId={UserId}", userId);
+                    return Forbid();
                 }
                 catch (System.Exception ex)
                 {
@@ -146,7 +153,9 @@ namespace GRC.API.Controllers
         [HttpPost("apercu-comptabilisation")]
         public IActionResult ApercuComptabilisation([FromBody] List<int> reglementIds)
         {
-            var userId = User.FindFirst("UserId")?.Value;
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
             using (_logger.BeginScope("Aperçu compta userId={UserId} nb={Nb}", userId, reglementIds?.Count ?? 0))
             {
                 _logger.LogInformation(
@@ -154,9 +163,14 @@ namespace GRC.API.Controllers
                     userId, reglementIds?.Count ?? 0, reglementIds != null ? string.Join(",", reglementIds) : "");
                 try
                 {
-                    var result = _reglementService.ApercuComptabilisation(reglementIds);
+                    var result = _reglementService.ApercuComptabilisation(reglementIds, userId, isAdmin);
                     _logger.LogInformation("APERÇU COMPTA sortie OK : userId={UserId}", userId);
                     return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "APERÇU COMPTA refusé (autorisation) : userId={UserId}", userId);
+                    return Forbid();
                 }
                 catch (System.Exception ex)
                 {
@@ -241,14 +255,29 @@ namespace GRC.API.Controllers
         {
             if (items == null || items.Count == 0)
                 return BadRequest("Aucun règlement à rapprocher.");
-            try
+
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
+            using (_logger.BeginScope("Rapprochement manuel userId={UserId} nb={Nb}", userId, items.Count))
             {
-                var result = _reglementService.RapprocherManuel(items);
-                return Ok(result);
-            }
-            catch (System.Exception ex)
-            {
-                return Problem(ex.Message);
+                _logger.LogInformation("RAPPROCHEMENT MANUEL entrée : userId={UserId}, nb={Nb}", userId, items.Count);
+                try
+                {
+                    var result = _reglementService.RapprocherManuel(items, userId, isAdmin);
+                    _logger.LogInformation("RAPPROCHEMENT MANUEL sortie : userId={UserId}", userId);
+                    return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "RAPPROCHEMENT MANUEL refusé (autorisation) : userId={UserId}", userId);
+                    return Forbid();
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "RAPPROCHEMENT MANUEL échec : userId={UserId}", userId);
+                    return Problem(ex.Message);
+                }
             }
         }
     }

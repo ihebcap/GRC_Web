@@ -37,6 +37,8 @@ interface Apercu {
   montant: number;
   piece: string;
   ecritures: Ecriture[];
+  hasError: boolean;
+  erreur?: string | null;
 }
 
 interface PreselectionItem {
@@ -238,11 +240,13 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
          const reg = nonComptabilises.find((r: any) => r.no === ap.reglementId);
          return {
            id: ap.reglementId,
-           client: reg?.clientIntitule || '',
+           client: reg?.clientIntitule || ap.client || '',
            date: reg?.date || '',
-           montant: reg?.montant || 0,
+           montant: reg?.montant ?? ap.montant ?? 0,
            piece: reg?.pieceNumero || '',
-           ecritures: ap.ecritures || []
+           ecritures: ap.ecritures || [],
+           hasError: Boolean(ap.hasError),
+           erreur: ap.erreur || null
          };
       });
 
@@ -272,11 +276,13 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
         const meta = items.find(r => r.id === ap.reglementId);
         return {
           id: ap.reglementId,
-          client: meta?.client || '',
+          client: meta?.client || ap.client || '',
           date: meta?.date || '',
-          montant: meta?.montant || 0,
+          montant: meta?.montant ?? ap.montant ?? 0,
           piece: meta?.piece || '',
-          ecritures: ap.ecritures || []
+          ecritures: ap.ecritures || [],
+          hasError: Boolean(ap.hasError),
+          erreur: ap.erreur || null
         };
       });
 
@@ -302,17 +308,21 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const totalDebit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantDebit, 0), 0);
-  const totalCredit = apercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantCredit, 0), 0);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
-  const hasErrors = apercus.some(a => a.ecritures.some(e => !e.compteGeneral));
+  const validApercus = apercus.filter(a => !a.hasError);
+  const hasParamErrors = apercus.some(a => a.hasError);
+  const hasAccountErrors = validApercus.some(a => a.ecritures.some(e => !e.compteGeneral));
+  const hasErrors = hasParamErrors || hasAccountErrors;
+
+  const totalDebit = validApercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantDebit, 0), 0);
+  const totalCredit = validApercus.reduce((acc, curr) => acc + curr.ecritures.reduce((s, e) => s + e.montantCredit, 0), 0);
+  const isBalanced = validApercus.length > 0 && Math.abs(totalDebit - totalCredit) < 0.01;
 
   const handleValider = async () => {
-    if (apercus.length === 0) return;
+    const validIds = apercus.filter(a => !a.hasError).map(a => a.id);
+    if (validIds.length === 0 || hasErrors) return;
     setIsSubmitting(true);
     try {
-      const ids = apercus.map(a => a.id);
-      const res = await axios.post(`${API_BASE}/reglements/comptabiliser`, ids);
+      const res = await axios.post(`${API_BASE}/reglements/comptabiliser`, validIds);
       const data = res.data || {};
       const successCount: number = data.successCount ?? 0;
       const errorCount: number = data.errorCount ?? 0;
@@ -436,26 +446,45 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
             {apercus.map(ap => {
               const rowDebit = ap.ecritures.reduce((s, e) => s + e.montantDebit, 0);
               const rowCredit = ap.ecritures.reduce((s, e) => s + e.montantCredit, 0);
-              const isRowBalanced = Math.abs(rowDebit - rowCredit) < 0.01;
-              const hasRowError = ap.ecritures.some(e => !e.compteGeneral);
+              const isRowBalanced = ap.ecritures.length > 0 && Math.abs(rowDebit - rowCredit) < 0.01;
+              const hasRowAccountError = ap.ecritures.some(e => !e.compteGeneral);
+              const isRowError = ap.hasError || hasRowAccountError;
 
               return (
                 <React.Fragment key={ap.id}>
-                  <tr style={{cursor: 'pointer', backgroundColor: hasRowError ? '#fee2e2' : 'transparent'}} onClick={() => toggleRow(ap.id)}>
+                  <tr style={{cursor: 'pointer', backgroundColor: isRowError ? '#fee2e2' : 'transparent'}} onClick={() => toggleRow(ap.id)}>
                     <td style={{textAlign: 'center', color: 'var(--text-tertiary)'}}>
                       {expandedRows[ap.id] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                     </td>
-                    <td>{new Date(ap.date).toLocaleDateString('fr-FR')}</td>
-                    <td style={{fontWeight: 500}}>{ap.client}</td>
-                    <td>{ap.piece}</td>
+                    <td>{ap.date ? new Date(ap.date).toLocaleDateString('fr-FR') : '-'}</td>
+                    <td style={{fontWeight: 500}}>
+                      <div>{ap.client || '-'}</div>
+                      {ap.hasError && ap.erreur && (
+                        <div style={{color: '#dc2626', fontSize: '0.75rem', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'normal'}}>
+                          <AlertCircle size={12} style={{flexShrink: 0}} />
+                          <span>{ap.erreur}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>{ap.piece || '-'}</td>
                     <td style={{textAlign: 'right', fontWeight: 600}}>{formatMoney(ap.montant)}</td>
                     <td style={{textAlign: 'center'}}>
-                      {hasRowError ? (
-                        <span style={{color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}><AlertCircle size={14}/> Erreur Compte</span>
+                      {ap.hasError ? (
+                        <span style={{color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}} title={ap.erreur || undefined}>
+                          <AlertCircle size={14}/> Non comptabilisable
+                        </span>
+                      ) : hasRowAccountError ? (
+                        <span style={{color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}>
+                          <AlertCircle size={14}/> Erreur Compte
+                        </span>
                       ) : isRowBalanced ? (
-                        <span style={{color: 'var(--success-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}><CheckCircle2 size={14}/> Équilibré</span>
+                        <span style={{color: 'var(--success-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}>
+                          <CheckCircle2 size={14}/> Équilibré
+                        </span>
                       ) : (
-                        <span style={{color: '#ea580c', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}><AlertCircle size={14}/> Déséquilibré</span>
+                        <span style={{color: '#ea580c', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 600}}>
+                          <AlertCircle size={14}/> Déséquilibré
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -464,38 +493,48 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
                     <tr style={{backgroundColor: 'var(--bg-secondary)'}}>
                       <td></td>
                       <td colSpan={5} style={{padding: '1rem'}}>
-                        <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem'}}>
-                          <thead>
-                            <tr style={{borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)'}}>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Journal</th>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Compte</th>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Contrepartie</th>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Tiers</th>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}}>Libellé</th>
-                              <th style={{padding: '0.5rem', textAlign: 'center'}}>Sens</th>
-                              <th style={{padding: '0.5rem', textAlign: 'right'}}>Débit</th>
-                              <th style={{padding: '0.5rem', textAlign: 'right'}}>Crédit</th>
-                              <th style={{padding: '0.5rem', textAlign: 'center'}}>Échéance</th>
-                              <th style={{padding: '0.5rem', textAlign: 'left'}} title="Indicatif — recalculé à la comptabilisation réelle">Pièce*</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {ap.ecritures.map((e, idx) => (
-                              <tr key={idx} style={{borderBottom: '1px solid rgba(0,0,0,0.05)'}}>
-                                <td style={{padding: '0.5rem'}}>{e.codeJournal}</td>
-                                <td style={{padding: '0.5rem', fontWeight: 600, color: !e.compteGeneral ? '#dc2626' : 'inherit'}}>{e.compteGeneral || 'MANQUANT'}</td>
-                                <td style={{padding: '0.5rem'}}>{e.contrePartieCompteG}</td>
-                                <td style={{padding: '0.5rem'}}>{e.tiersNumero}</td>
-                                <td style={{padding: '0.5rem'}}>{e.libelle}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.sens === 1 ? 'C' : 'D'}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantDebit ? formatMoney(e.montantDebit) : ''}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantCredit ? formatMoney(e.montantCredit) : ''}</td>
-                                <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.echeance ? new Date(e.echeance).toLocaleDateString('fr-FR') : ''}</td>
-                                <td style={{padding: '0.5rem', color: 'var(--text-tertiary)'}}>{e.numeroPiece}</td>
+                        {ap.hasError ? (
+                          <div style={{display: 'flex', alignItems: 'flex-start', gap: '0.5rem', color: '#dc2626', backgroundColor: '#fee2e2', padding: '0.75rem 1rem', borderRadius: '6px', fontSize: '0.8125rem'}}>
+                            <AlertCircle size={16} style={{marginTop: '2px', flexShrink: 0}} />
+                            <div>
+                              <div style={{fontWeight: 600, marginBottom: '0.25rem'}}>Erreur de paramétrage :</div>
+                              <div>{ap.erreur || 'Erreur lors de la génération des écritures comptables.'}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem'}}>
+                            <thead>
+                              <tr style={{borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)'}}>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}}>Journal</th>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}}>Compte</th>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}}>Contrepartie</th>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}}>Tiers</th>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}}>Libellé</th>
+                                <th style={{padding: '0.5rem', textAlign: 'center'}}>Sens</th>
+                                <th style={{padding: '0.5rem', textAlign: 'right'}}>Débit</th>
+                                <th style={{padding: '0.5rem', textAlign: 'right'}}>Crédit</th>
+                                <th style={{padding: '0.5rem', textAlign: 'center'}}>Échéance</th>
+                                <th style={{padding: '0.5rem', textAlign: 'left'}} title="Indicatif — recalculé à la comptabilisation réelle">Pièce*</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {ap.ecritures.map((e, idx) => (
+                                <tr key={idx} style={{borderBottom: '1px solid rgba(0,0,0,0.05)'}}>
+                                  <td style={{padding: '0.5rem'}}>{e.codeJournal}</td>
+                                  <td style={{padding: '0.5rem', fontWeight: 600, color: !e.compteGeneral ? '#dc2626' : 'inherit'}}>{e.compteGeneral || 'MANQUANT'}</td>
+                                  <td style={{padding: '0.5rem'}}>{e.contrePartieCompteG}</td>
+                                  <td style={{padding: '0.5rem'}}>{e.tiersNumero}</td>
+                                  <td style={{padding: '0.5rem'}}>{e.libelle}</td>
+                                  <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.sens === 1 ? 'C' : 'D'}</td>
+                                  <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantDebit ? formatMoney(e.montantDebit) : ''}</td>
+                                  <td style={{padding: '0.5rem', textAlign: 'right'}}>{e.montantCredit ? formatMoney(e.montantCredit) : ''}</td>
+                                  <td style={{padding: '0.5rem', textAlign: 'center'}}>{e.echeance ? new Date(e.echeance).toLocaleDateString('fr-FR') : ''}</td>
+                                  <td style={{padding: '0.5rem', color: 'var(--text-tertiary)'}}>{e.numeroPiece}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -560,22 +599,28 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
         }}>
           <div>
             <h3 style={{margin: 0, fontSize: '1rem', color: 'var(--text-primary)', fontWeight: 600}}>Validation Globale</h3>
-            <div style={{fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem', marginTop: '0.25rem'}}>
-               <span>Sélection : <strong>{apercus.length} règlements</strong></span>
-               <span>Total Débit : <strong style={{color: isBalanced ? 'inherit' : '#ea580c'}}>{formatMoney(totalDebit)}</strong></span>
-               <span>Total Crédit : <strong style={{color: isBalanced ? 'inherit' : '#ea580c'}}>{formatMoney(totalCredit)}</strong></span>
-               {!isBalanced && <span style={{color: '#ea580c', fontWeight: 600}}>(Déséquilibre !)</span>}
-               {hasErrors && <span style={{color: '#dc2626', fontWeight: 600}}>(Erreurs de compte détectées !)</span>}
+            <div style={{fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem', marginTop: '0.25rem', alignItems: 'center'}}>
+               <span>Sélection : <strong>{apercus.length} règlement{apercus.length > 1 ? 's' : ''}</strong></span>
+               <span>Total Débit : <strong style={{color: (isBalanced && !hasErrors) ? 'inherit' : '#ea580c'}}>{formatMoney(totalDebit)}</strong></span>
+               <span>Total Crédit : <strong style={{color: (isBalanced && !hasErrors) ? 'inherit' : '#ea580c'}}>{formatMoney(totalCredit)}</strong></span>
+               {validApercus.length > 0 && !isBalanced && !hasParamErrors && <span style={{color: '#ea580c', fontWeight: 600}}>(Déséquilibre !)</span>}
+               {hasAccountErrors && <span style={{color: '#dc2626', fontWeight: 600}}>(Erreurs de compte détectées !)</span>}
+               {hasParamErrors && (
+                 <span style={{color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'}}>
+                   <AlertCircle size={14} /> ({apercus.filter(a => a.hasError).length} non comptabilisable{apercus.filter(a => a.hasError).length > 1 ? 's' : ''})
+                 </span>
+               )}
             </div>
           </div>
           <button 
             className="btn btn-primary"
             onClick={handleValider}
-            disabled={isSubmitting || hasErrors}
+            disabled={isSubmitting || hasErrors || validApercus.length === 0}
+            title={hasErrors ? "Impossible de comptabiliser : des règlements sont en erreur" : undefined}
             style={{
               padding: '0.75rem 1.5rem', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem',
-              backgroundColor: hasErrors ? '#9ca3af' : 'var(--success-color)',
-              border: 'none', cursor: hasErrors ? 'not-allowed' : 'pointer'
+              backgroundColor: (hasErrors || validApercus.length === 0) ? '#9ca3af' : 'var(--success-color)',
+              border: 'none', cursor: (hasErrors || validApercus.length === 0) ? 'not-allowed' : 'pointer'
             }}>
             {isSubmitting ? <Loader2 className="animate-spin" /> : <CheckSquare />}
             {isSubmitting ? 'Comptabilisation...' : 'Comptabiliser'}

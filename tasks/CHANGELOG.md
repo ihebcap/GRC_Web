@@ -1,5 +1,17 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Aperçu comptabilisation : erreur de paramétrage avalée, affichée comme "Équilibré" (TASK-073)
+
+### Contexte
+Constat PO 2026-09-17 : sur l'écran d'aperçu de comptabilisation, 4 règlements sélectionnés affichaient une sous-grille de détail entièrement vide, un badge "Équilibré" erroné, et un total "Total Débit : 0,00 / Total Crédit : 0,00" malgré des montants réels non nuls. Cause : le `catch` de `ReglementService.ApercuComptabilisation` (exception de `VerifierComptabilisable` — caisse ou mode de règlement non paramétré — ou de `generator.Generate`) construisait un objet sans le champ `Ecritures` ; le front (`ap.ecritures || []`) transformait l'absence de champ en tableau vide, sur lequel `reduce`/`.some` évaluaient silencieusement "équilibré, sans erreur".
+
+### Modifications apportées
+- Backend : contrat de réponse unifié dans `ApercuComptabilisation` — `HasError`/`Erreur`/`Ecritures` toujours explicites dans les deux branches (nominal et erreur), `reg` capturé hors du `try` pour préserver les métadonnées (numéro, client, montant) même en cas d'échec.
+- Frontend : lecture de `hasError`/`erreur`, badge "Non comptabilisable" dédié, message métier affiché sous le nom du client et dans le détail déplié (au lieu d'une grille vide), règlements en erreur exclus des totaux/`isBalanced`, bouton "Comptabiliser" désactivé et `handleValider` restreint aux seuls règlements valides.
+- Renumérotée de TASK-071 à TASK-073 (collision avec une tâche différente déjà close sous ce numéro le même jour).
+
+Builds back/front/lint 0 erreur. Test réel non rejoué sur ce poste dev (blocage d'authentification du kernel Trésorerie, même cause que TASK-069) — validé par relecture de code exhaustive.
+
 ## 2026-09-14 — Clé de signature JWT codée en dur, jamais configurée (TASK-070)
 
 ### Contexte
