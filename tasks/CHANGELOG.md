@@ -1,5 +1,26 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-17 — Journalisation Serilog : clôture définitive du résiduel serveur (TASK-041)
+
+### Contexte
+TASK-041 (Serilog, 1 fichier/jour sur réservation/approbation/comptabilisation) était fonctionnelle
+et validée côté build depuis le 2026-07-10, mais restait marquée « résiduel » faute d'observation
+réelle côté serveur — le validateur de config Trésorerie (`TresorerieGroupConfigurationValidator`)
+empêche toute vérification runtime depuis un poste dev.
+
+### Constat de cette session (architecte)
+Le PO a remis un export de 2 mois de logs de production réels
+(`C:\Users\Iheb\Downloads\log_grc_gocom\logs`, `grc-20260722.log` → `grc-20260917.log`, ~28 Mo
+cumulés). Analyse : rotation quotidienne intacte sur toute la période, les 3 zones (réservation,
+approbation, comptabilisation) sont bien tracées avec identifiants métier (`reglementId`, `mvId`,
+`enteteId`) et exceptions DLL Sage complètes (stack + `reglementId` fautif), preuve que l'init
+Trésorerie et les endpoints servent réellement en continu depuis juillet. Revue explicite
+anti-fuite de secret (`grep -i password|pwd|connectionstring|jwt|secret|hash`) : seulement 2 faux
+positifs (numéro de pièce `TT26182JWTVD`, paramètre `jwtUserId` = un id, pas un token).
+
+**Décision** : clôture définitive de TASK-041, dernier point de la checklist VALIDATION levé.
+Aucun code touché par cette clôture.
+
 ## 2026-09-17 — Message « mode de règlement non paramétré » enrichi de l'intitulé (TASK-067, clôture différée)
 
 ### Contexte
