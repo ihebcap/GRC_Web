@@ -5,7 +5,7 @@ import { API_BASE } from './api';
 import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
-import { renderSharedCell, DEFAULT_COLUMNS, formatMoney } from './utils';
+import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate } from './utils';
 import { Settings, X } from 'lucide-react';
 
 interface LigneReleve {
@@ -959,6 +959,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             } else if (filter.type === 'text' && filter.value) {
                 if (key === 'montant' || key === 'solde') {
                     if (!matchAmount(val, filter.value)) return false;
+                } else if (key === 'date') {
+                    const displayVal = formatDate(r.date);
+                    if (!displayVal.toLowerCase().includes(filter.value.toLowerCase())) return false;
                 } else {
                     if (!(val || '').toString().toLowerCase().includes(filter.value.toLowerCase())) return false;
                 }
@@ -999,6 +1002,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         if (valB === null || valB === undefined) return -1;
         if (typeof valA === 'number' && typeof valB === 'number') {
             return grcSort.desc ? valB - valA : valA - valB;
+        }
+        if (grcSort.key === 'date') {
+            const timeA = new Date(valA).getTime();
+            const timeB = new Date(valB).getTime();
+            if (!isNaN(timeA) && !isNaN(timeB)) {
+                return grcSort.desc ? timeB - timeA : timeA - timeB;
+            }
         }
         return grcSort.desc ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
     // eslint-disable-next-line react-hooks/exhaustive-deps
