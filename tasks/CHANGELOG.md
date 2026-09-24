@@ -1,5 +1,35 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — Filtre "Au" (dateFin) exclut les règlements du dernier jour après minuit (TASK-080, APPROVE)
+
+### Contexte
+Audit architecte du 2026-09-24 (passage complémentaire filtres). `gocom-web/src/ApercuComptabilisation.tsx`
+envoyait `dateFin` brut (format `YYYY-MM-DD`, sans heure) à `GET /reglements` dans `handleSimuler`,
+contrairement à `App.tsx:510` et `RapprochementBancaire.tsx:482` qui appliquent déjà le suffixe
+`T23:59:59` pour couvrir l'intégralité du jour calendaire "Au" choisi par l'utilisateur. Rappel métier
+explicitement documenté dans la TASK : le client raisonne toujours en jour calendaire, jamais en
+heure, même si les données sous-jacentes sont des `DateTime` complets — un règlement du 24/09 à 14h30
+doit être inclus si "Au = 24/09".
+
+Cette TASK a fait l'objet d'une contre-vérification architecte dédiée avant transmission au worker
+(exigence PO explicite de zéro erreur) : le diagnostic et la solution ont été confirmés corrects, avec
+un piège identifié et documenté — le payload utilisait un raccourci ES6 `{ dateFin }`, qu'un correctif
+mal exécuté aurait pu laisser inchangé sans que le build TypeScript ne le détecte.
+
+### Implémentation
+`handleSimuler` : remplacement du raccourci `dateFin,` par l'assignation explicite
+`dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin,`. State React `dateFin` et `<input type="date">`
+non modifiés — la correction est strictement interne à la construction du payload réseau, invisible
+pour l'utilisateur. `handleSimulerPreselection` confirmée non concernée (fonctionne uniquement par
+identifiants, sans filtre de date).
+
+### Validation
+- Build (`npm run build`) et lint (`oxlint`) : 0 erreur.
+- 14 tests documentés : formatage (date renseignée / vide), cohérence avec `App.tsx`, périmètre
+  temporel avant/après correctif sur des règlements à 09h00/14h30/23h59, non-régression sur J+1/J-1,
+  vérification par analyse de code que le raccourci ES6 a bien été éliminé, non-impact sur
+  `handleSimulerPreselection`.
+
 ## 2026-09-24 — Race condition sur les fetches de l'écran Rapprochement (TASK-079, APPROVE)
 
 ### Contexte

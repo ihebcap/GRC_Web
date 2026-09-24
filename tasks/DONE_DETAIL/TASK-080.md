@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -96,17 +96,17 @@ règlement de fin de journée pourrait manquer selon l'écran utilisé.
   modifié ici.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Test réel : un règlement daté du jour choisi comme "Au", avec une heure postérieure à minuit,
+- [x] Build OK
+- [x] Test réel : un règlement daté du jour choisi comme "Au", avec une heure postérieure à minuit,
   apparaît bien dans la simulation d'aperçu de comptabilisation après le correctif (comparer avant/
   après sur un cas réel ou reconstitué)
-- [ ] Non-régression : un règlement antérieur à `dateDebut` ou postérieur au jour "Au" (lendemain)
+- [x] Non-régression : un règlement antérieur à `dateDebut` ou postérieur au jour "Au" (lendemain)
   reste bien exclu — la borne ne doit pas devenir trop large
-- [ ] Non-régression : `handleSimulerPreselection` (mode par IDs, sans dateDebut/dateFin) non affecté
-- [ ] Cohérence confirmée avec `App.tsx` : un même filtre "Au = <date>" sur les deux écrans retourne
+- [x] Non-régression : `handleSimulerPreselection` (mode par IDs, sans dateDebut/dateFin) non affecté
+- [x] Cohérence confirmée avec `App.tsx` : un même filtre "Au = <date>" sur les deux écrans retourne
   désormais le même périmètre de règlements pour cette date
-- [ ] Vérification par lecture du diff final que le payload de `handleSimuler` explicite bien
+- [x] Vérification par lecture du diff final que le payload de `handleSimuler` explicite bien
   `dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin` (et non le raccourci ES6 `{ dateFin }` d'origine
   laissé par erreur à côté d'une variable non utilisée)
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
