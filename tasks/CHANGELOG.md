@@ -1,5 +1,38 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — Filtre "Date" cassé sur la grille GRC de Rapprochement Bancaire (TASK-077, APPROVE)
+
+### Contexte
+Audit architecte du 2026-09-24, confirmé par 3 passages d'analyse distincts dont une vérification
+adversariale. La colonne "Date" de la grille "Règlements GRC" affiche `jj/mm/aaaa`
+(`renderSharedCell`/`formatDate`), mais son filtre comparait la saisie utilisateur contre la valeur
+ISO brute renvoyée par l'API (`getGrcCellValue`, aucune branche dédiée à `date`, fallback générique
+`return r[key]`) — le filtre ne matchait donc jamais en usage normal.
+
+### Point de vigilance identifié et respecté
+`getGrcCellValue` est aussi utilisée par le tri de colonne (`sortedReglements`). Un correctif naïf
+(faire retourner `formatDate(r.date)` par cette fonction) aurait fait basculer silencieusement le tri
+d'un ordre chronologique (qui fonctionnait par accident sur des chaînes ISO homogènes) vers un ordre
+alphabétique sur `jj/mm/aaaa`, incorrect chronologiquement.
+
+### Implémentation
+1. `filteredReglements` : branche dédiée `key === 'date'` comparant
+   `formatDate(r.date).toLowerCase().includes(filter.value.toLowerCase())`.
+2. `sortedReglements` : `getGrcCellValue` laissée intacte (retourne toujours l'ISO brut) ; ajout d'un
+   comparateur chronologique explicite par timestamp (`new Date(valA).getTime() -
+   new Date(valB).getTime()`) spécifiquement pour la colonne `date`.
+3. `grcFilterOptionsMap` (exclusion de `date` du calcul des options de filtre-liste) non modifié.
+
+### Validation
+- Build (`npm run build`) et lint (`oxlint`) : 0 erreur.
+- Tests documentés : date complète (`24/09/2026`), partielle jour/mois (`24/09`), partielle mois
+  (`/09/`), partielle année (`2025`) — tous retrouvent les lignes attendues.
+- Non-régression critique du tri vérifiée avec des dates dont l'ordre alphabétique diverge du
+  chronologique (`12/12/2025`, `05/01/2026`, `15/09/2026`, `24/09/2026`) : tri croissant et
+  décroissant tous deux corrects, pas de bascule en tri alphabétique.
+- Non-régression : filtres Montant, Solde, Mode toujours fonctionnels ; filtres combinés (Date +
+  autre filtre) toujours en ET logique.
+
 ## 2026-09-24 — Verrou "comptabilise" contournable en mode Comptabilisation (TASK-076, APPROVE)
 
 ### Contexte

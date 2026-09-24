@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -93,15 +93,15 @@ affichée à l'écran (`jj/mm/aaaa`), sans dégrader le tri chronologique de la 
   TASK pour re-questionner le choix de filterType, le documenter séparément.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Test réel : filtrer sur une date affichée (`jj/mm/aaaa` complet) retrouve bien la ligne
+- [x] Build OK
+- [x] Test réel : filtrer sur une date affichée (`jj/mm/aaaa` complet) retrouve bien la ligne
   correspondante
-- [ ] Test réel : filtrer sur une date partielle (`jj/mm`) retrouve bien les lignes du bon jour/mois
-- [ ] **Test de non-régression critique** : le tri (croissant et décroissant) de la colonne Date
+- [x] Test réel : filtrer sur une date partielle (`jj/mm`) retrouve bien les lignes du bon jour/mois
+- [x] **Test de non-régression critique** : le tri (croissant et décroissant) de la colonne Date
   reste chronologiquement correct après le correctif (pas de bascule en tri alphabétique) — vérifier
   avec au moins 2 dates dans des mois/années différents dont l'ordre alphabétique et chronologique
   divergent (ex. 05/01/2026 vs 12/12/2025)
-- [ ] Non-régression : filtres Montant, Solde, Mode, Caisse de la même grille toujours fonctionnels
-- [ ] Non-régression : filtres combinés (Date + un autre filtre) toujours en ET logique
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Non-régression : filtres Montant, Solde, Mode, Caisse de la même grille toujours fonctionnels
+- [x] Non-régression : filtres combinés (Date + un autre filtre) toujours en ET logique
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
