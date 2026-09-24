@@ -219,7 +219,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
           modeNos: modes.length ? modes.join(',') : undefined,
           pointe: rapproche === 'all' ? undefined : (rapproche === 'oui'),
           dateDebut,
-          dateFin,
+          dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin,
           page: 1,
           pageSize: 10000
         }
