@@ -5,7 +5,7 @@ import { API_BASE } from './api';
 import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
-import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate } from './utils';
+import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate, matchAmount } from './utils';
 import { Settings, X } from 'lucide-react';
 
 interface LigneReleve {
@@ -895,18 +895,6 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         // Obsolete
     };
 
-    const matchAmount = (val: number, filterText: string) => {
-        if (!filterText) return true;
-        const cleanFilter = filterText.trim().replace(',', '.');
-        const num = parseFloat(cleanFilter.replace(/[^0-9.-]/g, ''));
-        if (isNaN(num)) return val.toString().includes(filterText);
-        if (cleanFilter.startsWith('>=')) return val >= num;
-        if (cleanFilter.startsWith('<=')) return val <= num;
-        if (cleanFilter.startsWith('>')) return val > num;
-        if (cleanFilter.startsWith('<')) return val < num;
-        if (cleanFilter.startsWith('=')) return val === num;
-        return val.toString().includes(cleanFilter);
-    };
 
     const getGrcCellValue = (r: any, key: string) => {
         if (key === 'caisseCode') return caissesMap[r.caisseNo] ? caissesMap[r.caisseNo].code : String(r.caisseNo);

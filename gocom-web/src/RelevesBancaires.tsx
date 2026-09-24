@@ -4,6 +4,7 @@ import { API_BASE } from './api';
 import { Upload, CheckCircle, Clock, ArrowLeft, Trash2 } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
+import { matchAmount } from './utils';
 
 interface LigneEtatRapprochementDto {
     id: number;
@@ -27,19 +28,6 @@ interface LigneEtatRapprochementDto {
     reglementCaisseNo: number | null;
     reglementClient: string | null;
 }
-
-const matchAmount = (val: number, filterText: string) => {
-    if (!filterText) return true;
-    const cleanFilter = filterText.trim().replace(',', '.');
-    const num = parseFloat(cleanFilter.replace(/[^0-9.-]/g, ''));
-    if (isNaN(num)) return val.toString().includes(filterText);
-    if (cleanFilter.startsWith('>=')) return val >= num;
-    if (cleanFilter.startsWith('<=')) return val <= num;
-    if (cleanFilter.startsWith('>')) return val > num;
-    if (cleanFilter.startsWith('<')) return val < num;
-    if (cleanFilter.startsWith('=')) return val === num;
-    return val.toString().includes(cleanFilter);
-};
 
 const ReleveInterrogation: React.FC<{ releve: any; caissesMap: Record<number, any>; onBack: () => void }> = ({ releve, caissesMap, onBack }) => {
     const [lignes, setLignes] = useState<LigneEtatRapprochementDto[]>([]);

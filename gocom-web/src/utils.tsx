@@ -37,6 +37,54 @@ export const formatMoney = (amount: number) => {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'MAD' }).format(amount || 0);
 };
 
+export const matchAmount = (val: number | null | undefined, filterText: string): boolean => {
+  if (!filterText || !filterText.trim()) return true;
+
+  const trimmed = filterText.trim();
+  let op: '>=' | '<=' | '>' | '<' | '=' | null = null;
+  let raw = trimmed;
+
+  if (trimmed.startsWith('>=')) {
+    op = '>=';
+    raw = trimmed.slice(2);
+  } else if (trimmed.startsWith('<=')) {
+    op = '<=';
+    raw = trimmed.slice(2);
+  } else if (trimmed.startsWith('>')) {
+    op = '>';
+    raw = trimmed.slice(1);
+  } else if (trimmed.startsWith('<')) {
+    op = '<';
+    raw = trimmed.slice(1);
+  } else if (trimmed.startsWith('=')) {
+    op = '=';
+    raw = trimmed.slice(1);
+  }
+
+  // Nettoyer les espaces (y compris insécables), devises et symboles, virgule décimale
+  const cleaned = raw
+    .replace(/[\s\u00A0\u202F€$£]/g, '')
+    .replace(/EUR|MAD|DH|DHS/gi, '')
+    .replace(',', '.');
+
+  const numStr = cleaned.replace(/[^0-9.-]/g, '');
+  const num = parseFloat(numStr);
+
+  const numVal = typeof val === 'number' ? (isNaN(val) ? 0 : val) : (Number(val) || 0);
+
+  if (isNaN(num)) {
+    return numVal.toString().includes(trimmed);
+  }
+
+  if (op === '>=') return numVal >= num;
+  if (op === '<=') return numVal <= num;
+  if (op === '>') return numVal > num;
+  if (op === '<') return numVal < num;
+  if (op === '=') return Math.abs(numVal - num) < 0.005;
+
+  return Math.abs(numVal - num) < 0.005;
+};
+
 export const getAvailableColumns = (user: any) => [
   { key: 'no', label: 'N°' },
   { key: 'client', label: 'Client' },
