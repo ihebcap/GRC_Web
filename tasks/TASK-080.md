@@ -23,7 +23,12 @@ ci-dessous) — cette TASK ne fait qu'aligner un écran qui a été oublié lors
 - Ligne ~174 : `const [dateFin, setDateFin] = useState(() => new Date().toISOString().split('T')[0]);`
   — format `YYYY-MM-DD` pur, sans heure.
 - Ligne ~222 (`handleSimuler`), l'appel `axios.get` envoie `dateFin` **tel quel**, sans aucune
-  correction d'heure de fin de journée.
+  correction d'heure de fin de journée. **Point de vigilance pour l'implémentation** : le payload
+  utilise actuellement le raccourci ES6 `{ dateFin, ... }` (propriété abrégée, équivalent à
+  `{ dateFin: dateFin }`). Le correctif doit explicitement expliciter cette clé en
+  `dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin` — un copier-coller qui laisserait le raccourci
+  `{ dateFin }` inchangé à côté d'une variable locale mal nommée passerait le build TypeScript sans
+  erreur tout en ne corrigeant rien. Vérifier le diff final ligne par ligne sur ce point précis.
 
 Comparaison avec `gocom-web/src/App.tsx:510` :
 ```js
@@ -32,10 +37,16 @@ if (to) params.dateFin = to + 'T23:59:59'; // borne "Au" inclusive (fin de journ
 Cette correction existe déjà sur `App.tsx` (et sur `RapprochementBancaire.tsx`, lignes ~473/598) mais
 n'a jamais été répliquée sur `ApercuComptabilisation.tsx`.
 
-**Conséquence** : `dateFin` arrive au backend comme minuit (`00:00:00`) du jour choisi. Le repository
-sous-jacent (`ReglementClientRepository.GetAll`, hors périmètre de ce dépôt Git, DLL `Tresorerie.Dapper`)
-applique un `BETWEEN @DateDebut AND @DateFin` — tout enregistrement du jour "Au" avec une heure
-postérieure à minuit est donc exclu.
+**Conséquence (hypothèse raisonnée, non vérifiée directement dans ce dépôt)** : `dateFin` arrive au
+backend comme minuit (`00:00:00`) du jour choisi. Le repository sous-jacent
+(`ReglementClientRepository.GetAll`, DLL `Tresorerie.Dapper`, code source absent de ce dépôt Git et
+non trouvé dans les répertoires de travail additionnels) n'est pas directement auditable — on
+suppose, **par analogie avec le comportement déjà observé et corrigé sur `App.tsx`** (qui appelle le
+même endpoint `GET /api/reglements` avec le même paramètre `dateFin: DateTime?`), qu'une comparaison
+de type `BETWEEN`/`<=` exclut tout enregistrement du jour "Au" avec une heure postérieure à minuit.
+Cette hypothèse est cohérente (chaîne d'appel identique aux deux écrans) mais reste une déduction, pas
+une preuve directe — à garder en tête si le test réel (voir checklist) ne confirme pas le symptôme
+attendu.
 
 **Scénario concret** : un utilisateur choisit "Au = 24/09/2026" pour simuler la comptabilisation du
 jour. Un règlement encaissé le 24/09/2026 à 14h30 est **exclu silencieusement** de la simulation
@@ -78,6 +89,11 @@ règlement de fin de journée pourrait manquer selon l'écran utilisé.
 - Ne pas modifier le comportement de `dateDebut` (déjà correct, une borne de début à minuit est
   cohérente avec "à partir du jour choisi").
 - Ne pas modifier `App.tsx`/`RapprochementBancaire.tsx` (déjà corrects) dans cette TASK.
+- Le cas `dateFin === ''` (champ vidé manuellement par l'utilisateur, possible sur certains
+  navigateurs avec un `<input type="date">`) est **hors scope de cette TASK** : le ternaire proposé
+  gère ce cas sans erreur (retourne `''` inchangé, pas de suffixe orphelin), mais le comportement
+  réseau résultant (paramètre `dateFin` vide envoyé malgré tout) est préexistant et ne doit pas être
+  modifié ici.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 - [ ] Build OK
@@ -89,5 +105,8 @@ règlement de fin de journée pourrait manquer selon l'écran utilisé.
 - [ ] Non-régression : `handleSimulerPreselection` (mode par IDs, sans dateDebut/dateFin) non affecté
 - [ ] Cohérence confirmée avec `App.tsx` : un même filtre "Au = <date>" sur les deux écrans retourne
   désormais le même périmètre de règlements pour cette date
+- [ ] Vérification par lecture du diff final que le payload de `handleSimuler` explicite bien
+  `dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin` (et non le raccourci ES6 `{ dateFin }` d'origine
+  laissé par erreur à côté d'une variable non utilisée)
 - [ ] Aucune dette technique silencieuse
 - [ ] Cohérent avec l'architecture
