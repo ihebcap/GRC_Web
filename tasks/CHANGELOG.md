@@ -1,5 +1,32 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — Verrou "comptabilise" contournable en mode Comptabilisation (TASK-076, APPROVE)
+
+### Contexte
+Audit architecte du 2026-09-24 sur les filtres de grille : `App.tsx` verrouille correctement le
+filtre `pointe` en mode Rapprochement (composant retiré du DOM), mais le filtre `comptabilise` en
+mode Comptabilisation gardait un cadenas 🔒 purement décoratif à côté d'un `<ExcelFilter>` toujours
+actif — asymétrie de code, probablement un oubli lors de la copie du mode Rapprochement vers le mode
+Comptabilisation. Un utilisateur pouvait cocher "Oui" sur ce filtre et faire apparaître des
+règlements déjà comptabilisés, à l'encontre de l'intention du mode.
+
+### Implémentation
+1. Condition de rendu de `<ExcelFilter>` complétée symétriquement :
+   `!(isRapprochementMode && col.key === 'pointe') && !(isComptabilisationMode && col.key === 'comptabilise')`.
+2. Garde-fou défensif ajouté dans `handleFilterChange` : retour immédiat si tentative de modification
+   de `pointe` en mode Rapprochement ou de `comptabilise` en mode Comptabilisation, quel que soit
+   l'appelant.
+3. Nettoyage croisé lors d'une bascule directe entre les deux modes : le filtre et la sélection du
+   mode quitté sont explicitement retirés au moment d'activer l'autre mode (point annexe de la TASK,
+   traité en plus du correctif minimal demandé).
+
+### Validation
+- Build front (`npm run build`, `tsc -b && vite build`) : 0 erreur.
+- Lint (`oxlint`) : 0 erreur.
+- Vérification du comportement DOM par lecture de code (composant retiré, pas seulement désactivé) —
+  pas d'observation dans un navigateur réel cette session, à nuancer sur les cases "test réel" de la
+  checklist du VERIFY.
+
 ## 2026-09-24 — Faille IDOR : endpoints de lecture ReleveBancaireController sans contrôle société/caisse (TASK-075, APPROVE)
 
 ### Contexte

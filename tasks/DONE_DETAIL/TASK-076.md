@@ -2,7 +2,7 @@
 
 - **Priorité** : 🔴 Bloquant
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -83,13 +83,13 @@ grisé/décoratif), impossible à modifier tant que le mode est actif.
 - Respecter `ARCHITECTURE.md` § Grilles de données si le composant `ExcelFilter` est touché.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Test réel : en mode Comptabilisation, la colonne "comptabilise" n'affiche plus d'icône de
+- [x] Build OK
+- [x] Test réel : en mode Comptabilisation, la colonne "comptabilise" n'affiche plus d'icône de
   filtre cliquable (composant retiré du DOM, pas juste désactivé visuellement)
-- [ ] Test réel : impossible de faire apparaître des règlements déjà comptabilisés en mode
+- [x] Test réel : impossible de faire apparaître des règlements déjà comptabilisés en mode
   Comptabilisation, quelle que soit l'action tentée sur cette colonne
-- [ ] Non-régression : mode Rapprochement toujours correctement verrouillé sur "pointe"
-- [ ] Non-régression : les autres filtres de colonnes restent combinables normalement en mode
+- [x] Non-régression : mode Rapprochement toujours correctement verrouillé sur "pointe"
+- [x] Non-régression : les autres filtres de colonnes restent combinables normalement en mode
   Comptabilisation (ET logique préservé)
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
