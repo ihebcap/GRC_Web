@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -103,16 +103,16 @@ Bugs confirmés (testés) :
 - Respecter `ARCHITECTURE.md` § Grilles de données (ne pas inventer un nouveau composant de filtre).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Test réel : filtre montant avec symbole € dans la saisie (ex. `"1500€"`) retrouve la ligne
+- [x] Build OK
+- [x] Test réel : filtre montant avec symbole € dans la saisie (ex. `"1500€"`) retrouve la ligne
   correspondante, sur les 3 points d'appel (grille GRC Rapprochement, grille Relevé Excel
   Rapprochement, ReleveInterrogation)
-- [ ] Test réel : filtre `"500"` sur une colonne contenant à la fois 500 et -500 ne retourne QUE 500
+- [x] Test réel : filtre `"500"` sur une colonne contenant à la fois 500 et -500 ne retourne QUE 500
   (pas de faux positif sur le négatif)
-- [ ] Test réel : les opérateurs `>`, `<`, `>=`, `<=`, `=` fonctionnent toujours identiquement
+- [x] Test réel : les opérateurs `>`, `<`, `>=`, `<=`, `=` fonctionnent toujours identiquement
   qu'avant sur les 3 points d'appel
-- [ ] Test réel : format décimal virgule française (`"1500,50"`) toujours géré correctement
-- [ ] Non-régression : aucune duplication de code restante (grep `matchAmount` ne doit trouver
+- [x] Test réel : format décimal virgule française (`"1500,50"`) toujours géré correctement
+- [x] Non-régression : aucune duplication de code restante (grep `matchAmount` ne doit trouver
   qu'une seule définition, dans utils.tsx)
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture

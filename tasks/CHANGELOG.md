@@ -1,5 +1,36 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — `matchAmount` dupliqué 3x avec bugs (TASK-078, APPROVE)
+
+### Contexte
+Audit architecte du 2026-09-24. La fonction `matchAmount` (filtre montant en texte libre avec
+opérateurs `>`, `<`, `>=`, `<=`, `=`) était dupliquée à l'identique dans `RapprochementBancaire.tsx`
+(colonnes montant/solde de la grille GRC, colonne credit de la grille Relevé Excel) et dans
+`RelevesBancaires.tsx` (colonnes debit/credit de `ReleveInterrogation`), soit 3 points d'appel pour
+une seule et même fonction copiée-collée. Bugs confirmés : le symbole € dans la saisie faisait
+échouer le filtre, un montant négatif remontait par erreur sur une recherche positive (`"500"`
+matchait `-500` via `includes()` sur la représentation texte), et les séparateurs de milliers/espaces
+insécables n'étaient pas nettoyés.
+
+### Implémentation
+1. Fonction `matchAmount` centralisée et exportée dans `gocom-web/src/utils.tsx`.
+2. Nettoyage robuste de la saisie : espaces standards et insécables (` `, ` `), symboles
+   monétaires (`€`, `$`, `£`, `EUR`, `MAD`, `DH`, `DHS`), virgule décimale française convertie en
+   point.
+3. Comparaison numérique explicite avec tolérance de précision flottante (`Math.abs(numVal - num) <
+   0.005`) remplaçant le `includes()` textuel du fallback — élimine les faux positifs entre valeurs
+   positives et négatives tout en préservant la recherche négative explicite (`-500` matche `-500`).
+4. Suppression des 2 définitions locales dupliquées, les 3 points d'appel (`RapprochementBancaire.tsx`
+   × 2, `RelevesBancaires.tsx` × 1) migrés vers l'import depuis `./utils`.
+
+### Validation
+- Build (`npm run build`) et lint (`oxlint`) : 0 erreur.
+- 35 tests unitaires documentés couvrant : symbole €, opérateurs combinés avec devise, faux positifs
+  positif/négatif, sous-chaînes, tous les opérateurs (`>`, `<`, `>=`, `<=`, `=`), virgule décimale
+  française, séparateurs de milliers (espace standard et insécable), devises locales (MAD/DH), saisie
+  en cours (signe négatif seul).
+- Non-régression : `grep matchAmount` ne trouve plus qu'une seule définition, dans `utils.tsx`.
+
 ## 2026-09-24 — Filtre "Date" cassé sur la grille GRC de Rapprochement Bancaire (TASK-077, APPROVE)
 
 ### Contexte
