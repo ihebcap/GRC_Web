@@ -659,6 +659,8 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   };
 
   const handleFilterChange = (key: string, value: string) => {
+    if (isRapprochementMode && key === 'pointe') return;
+    if (isComptabilisationMode && key === 'comptabilise') return;
     setFilters(prev => {
       const newFilters = { ...prev };
       if (value === '' || value === 'all') {
@@ -891,7 +893,12 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                     setIsComptabilisationMode(!isComptabilisationMode);
                     if (!isComptabilisationMode) {
                       setIsRapprochementMode(false);
-                      setFilters(prev => ({...prev, comptabilise: 'non'}));
+                      setSelectedReglements({});
+                      setFilters(prev => {
+                        const f: Record<string, string> = {...prev, comptabilise: 'non'};
+                        delete f.pointe;
+                        return f;
+                      });
                       setSelectedComptabilisation({});
                     } else {
                       setFilters(prev => {
@@ -942,7 +949,12 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                     setIsRapprochementMode(!isRapprochementMode);
                     if (!isRapprochementMode) {
                       setIsComptabilisationMode(false);
-                      setFilters(prev => ({...prev, pointe: 'non'}));
+                      setSelectedComptabilisation({});
+                      setFilters(prev => {
+                        const f: Record<string, string> = {...prev, pointe: 'non'};
+                        delete f.comptabilise;
+                        return f;
+                      });
                       setSelectedReglements({});
                     } else {
                       setFilters(prev => {
@@ -1201,7 +1213,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         >
                           <div style={{display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap'}}>
                             {col.label} {sortCol === col.key ? (sortDesc ? '▼' : '▲') : ''}
-                            {col.key !== 'no' && !(isRapprochementMode && col.key === 'pointe') && (
+                            {col.key !== 'no' && !(isRapprochementMode && col.key === 'pointe') && !(isComptabilisationMode && col.key === 'comptabilise') && (
                               <ExcelFilter 
                                 columnKey={col.key}
                                 filterType={filterType}
