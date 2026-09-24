@@ -1,5 +1,34 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — Race condition sur les fetches de l'écran Rapprochement (TASK-079, APPROVE)
+
+### Contexte
+Audit architecte du 2026-09-24. `App.tsx` protège déjà son fetch principal de règlements contre les
+réponses réseau qui arrivent dans le désordre, via un compteur de séquence (`fetchSeqRef`).
+`RapprochementBancaire.tsx` n'avait aucune protection équivalente sur ses 3 fetches (règlements GRC,
+entêtes de relevé, lignes de relevé) : un changement rapide de banque pouvait faire écraser l'état
+affiché par la réponse d'une sélection antérieure arrivée en retard. Les indicateurs `loadingGrc`/
+`loadingReleve`, bien que déclarés et mis à jour, n'étaient jamais exploités dans le rendu — aucun
+signal visuel pendant un changement de banque/période/relevé.
+
+### Implémentation
+1. Trois compteurs de séquence dédiés (`fetchGrcSeqRef`, `fetchRelevesSeqRef`,
+   `fetchLignesReleveSeqRef`), sur le pattern déjà validé d'`App.tsx` : `seq = ++ref.current` au
+   lancement de chaque requête, rejet dans `.then`/`.catch` si `seq !== ref.current`, extinction du
+   loader dans `.finally` uniquement si la requête est toujours la plus récente.
+2. Invalidation explicite des lignes de relevé en vol lors d'un changement de banque
+   (`fetchLignesReleveSeqRef.current++`), pour couvrir la cascade banque → relevé → lignes.
+3. `loadingGrc`/`loadingReleve` intégrés au rendu JSX des deux grilles : badge flottant centré
+   "Mise à jour..." (`Loader2` animé) + dimming (`opacity: 0.6`, `pointerEvents: none`) pendant le
+   chargement. CSS ajouté : `position: relative` sur `.table-container`, `@keyframes spin` +
+   `.animate-spin` dans `index.css`.
+
+### Validation
+- Build (`npm run build`) et lint (`oxlint`) : 0 erreur, rejoués indépendamment par l'architecte.
+- 15 scénarios asynchrones documentés : inversion temporelle banque A/B, cascade entêtes de
+  relevé → lignes, changement rapide de relevé, désélection de banque — tous vérifient que seule la
+  dernière sélection est affichée et que le loader s'éteint au bon moment.
+
 ## 2026-09-24 — `matchAmount` dupliqué 3x avec bugs (TASK-078, APPROVE)
 
 ### Contexte

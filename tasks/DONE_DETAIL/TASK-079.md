@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -80,13 +80,13 @@ lettrage).
   écran de chargement plein page comme au premier montage d'App.tsx).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Test réel : changer rapidement de banque plusieurs fois de suite affiche bien les données de
+- [x] Build OK
+- [x] Test réel : changer rapidement de banque plusieurs fois de suite affiche bien les données de
   la DERNIÈRE banque sélectionnée, jamais une réponse antérieure obsolète (à tester avec un
   throttling réseau simulé si nécessaire pour provoquer le désordre de réponses)
-- [ ] Test réel : un indicateur visuel de chargement apparaît bien pendant le changement de
+- [x] Test réel : un indicateur visuel de chargement apparaît bien pendant le changement de
   banque/période/relevé sur les deux grilles
-- [ ] Non-régression : le comportement normal (un seul changement de sélection à la fois) reste
+- [x] Non-régression : le comportement normal (un seul changement de sélection à la fois) reste
   identique en fonctionnalité
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
