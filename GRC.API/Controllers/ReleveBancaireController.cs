@@ -48,22 +48,58 @@ namespace GRC.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetEntetes([FromQuery] int banqueId, [FromQuery] bool nonRapprochesSeulement = false)
         {
-            var entetes = await _releveRepository.GetEntetesByBanqueAsync(banqueId, nonRapprochesSeulement);
-            return Ok(entetes);
+            if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId))
+                return Unauthorized();
+
+            try
+            {
+                await _releveRepository.VerifierAutorisationBanqueAsync(banqueId, societeId);
+                var entetes = await _releveRepository.GetEntetesByBanqueAsync(banqueId, nonRapprochesSeulement);
+                return Ok(entetes);
+            }
+            catch (System.UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "GET ENTETES refusé (autorisation) : societeId={SocieteId}, banqueId={BanqueId}", societeId, banqueId);
+                return Forbid();
+            }
         }
 
         [HttpGet("{id}/lignes")]
         public async Task<IActionResult> GetLignes(int id)
         {
-            var lignes = await _releveRepository.GetAllLignesExcelAsync(id);
-            return Ok(lignes);
+            if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId))
+                return Unauthorized();
+
+            try
+            {
+                await _releveRepository.VerifierAutorisationReleveEnteteAsync(id, societeId);
+                var lignes = await _releveRepository.GetAllLignesExcelAsync(id);
+                return Ok(lignes);
+            }
+            catch (System.UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "GET LIGNES refusé (autorisation) : societeId={SocieteId}, enteteId={EnteteId}", societeId, id);
+                return Forbid();
+            }
         }
 
         [HttpGet("{id}/etat")]
         public async Task<IActionResult> GetEtatRapprochement(int id)
         {
-            var etat = await _releveRepository.GetEtatRapprochementAsync(id);
-            return Ok(etat);
+            if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId))
+                return Unauthorized();
+
+            try
+            {
+                await _releveRepository.VerifierAutorisationReleveEnteteAsync(id, societeId);
+                var etat = await _releveRepository.GetEtatRapprochementAsync(id);
+                return Ok(etat);
+            }
+            catch (System.UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "GET ETAT refusé (autorisation) : societeId={SocieteId}, enteteId={EnteteId}", societeId, id);
+                return Forbid();
+            }
         }
 
         [HttpPost("upload")]

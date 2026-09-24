@@ -219,6 +219,54 @@ namespace GRC.Infrastructure.Repositories
             return paires;
         }
 
+        // TASK-075 — Pré-contrôle d'autorisation banque (appartenance à la société du JWT).
+        public async Task VerifierAutorisationBanqueAsync(int banqueId, int societeId)
+        {
+            if (banqueId <= 0 || societeId <= 0)
+            {
+                _logger.LogWarning("AUTORISATION BANQUE refusée : paramètres invalides banqueId={BanqueId}, societeId={SocieteId}.", banqueId, societeId);
+                throw new UnauthorizedAccessException($"Paramètres d'accès invalides pour la banque n°{banqueId}.");
+            }
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                string sql = "SELECT COUNT(1) FROM [dbo].[vBanque] WHERE [No] = @BanqueId AND [SocieteNo] = @SocieteNo";
+                int count = await connection.ExecuteScalarAsync<int>(sql, new { BanqueId = banqueId, SocieteNo = societeId });
+                if (count == 0)
+                {
+                    _logger.LogWarning("AUTORISATION BANQUE refusée : banqueId={BanqueId} hors du périmètre société societeId={SocieteId}.", banqueId, societeId);
+                    throw new UnauthorizedAccessException($"Vous n'êtes pas autorisé à accéder aux relevés de la banque n°{banqueId}.");
+                }
+            }
+        }
+
+        // TASK-075 — Pré-contrôle d'autorisation relevé (résolution banque -> société du JWT).
+        public async Task VerifierAutorisationReleveEnteteAsync(int enteteId, int societeId)
+        {
+            if (enteteId <= 0 || societeId <= 0)
+            {
+                _logger.LogWarning("AUTORISATION RELEVÉ refusée : paramètres invalides enteteId={EnteteId}, societeId={SocieteId}.", enteteId, societeId);
+                throw new UnauthorizedAccessException($"Paramètres d'accès invalides pour le relevé n°{enteteId}.");
+            }
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                string sql = @"
+                    SELECT COUNT(1)
+                    FROM [dbo].[RAPP_ReleveBancaire_Entete] e
+                    INNER JOIN [dbo].[vBanque] b ON b.No = e.BanqueId
+                    WHERE e.Id = @EnteteId AND b.SocieteNo = @SocieteNo";
+                int count = await connection.ExecuteScalarAsync<int>(sql, new { EnteteId = enteteId, SocieteNo = societeId });
+                if (count == 0)
+                {
+                    _logger.LogWarning("AUTORISATION RELEVÉ refusée : enteteId={EnteteId} hors du périmètre société societeId={SocieteId}.", enteteId, societeId);
+                    throw new UnauthorizedAccessException($"Vous n'êtes pas autorisé à accéder au relevé n°{enteteId}.");
+                }
+            }
+        }
+
         // TASK-069 — Pré-contrôle d'autorisation caisse (HasEntityActionRestriction sur l'utilisateur JWT réel).
         private void VerifierAutorisationReglementCaisse(
             int userId,
