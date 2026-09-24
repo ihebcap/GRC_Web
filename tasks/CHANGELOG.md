@@ -1,5 +1,26 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-24 — Faille IDOR : endpoints de lecture ReleveBancaireController sans contrôle société/caisse (TASK-075, APPROVE)
+
+### Contexte
+Lors de l'audit sécurité des filtres du 2026-09-24, une faille IDOR critique a été découverte sur les 3 endpoints de lecture du contrôleur `ReleveBancaireController` (`GetEntetes`, `GetLignes`, `GetEtatRapprochement`). Contrairement aux endpoints d'écriture du même contrôleur (`reserve`, `validate`, `generer-reglement`, `supprimer`), les endpoints de lecture ne contrôlaient ni le claim `SocieteId` ni l'appartenance de la banque/du relevé, permettant à un utilisateur d'une société A de lire la liste des relevés, le détail des lignes bancaires et les règlements lettrés d'une société B.
+
+### Implémentation
+1. **Repository (`ReleveBancaireRepository.cs`)** :
+   - Ajout de `VerifierAutorisationBanqueAsync(int banqueId, int societeId)` : valide dans `vBanque` que la banque demandée appartient à la société (`SocieteNo`), lève `UnauthorizedAccessException` sinon.
+   - Ajout de `VerifierAutorisationReleveEnteteAsync(int enteteId, int societeId)` : résout la banque de l'en-tête `RAPP_ReleveBancaire_Entete` et valide son appartenance à la société via `vBanque`, lève `UnauthorizedAccessException` sinon.
+2. **Contrôleur (`ReleveBancaireController.cs`)** :
+   - `GetEntetes`, `GetLignes` et `GetEtatRapprochement` : extraction obligatoire de `SocieteId` depuis le token JWT (`401 Unauthorized` si absent/invalide).
+   - Appel des pré-contrôles d'autorisation repository avant toute lecture en base.
+   - Interception de `UnauthorizedAccessException` et renvoi immédiat de `403 Forbid()`.
+
+### Validation et tests réels
+- Test automatisé complet via `harness_task075` : **22 / 22 scénarios passés avec succès**.
+- Vérification du rejet 403 sur tentatives IDOR cross-société, identifiants inexistants et paramètres invalides.
+- Vérification du cas nominal 200 OK avec intégrité des lignes et des états de rapprochement sur le périmètre légitime.
+- Vérification du rejet 401 sur absence de claim `SocieteId`.
+- Build solution 0 erreur. Signalement annexe de `UploadExcel` documenté dans `VERIFY/TASK-075_verify.md`.
+
 ## 2026-09-17 — Bouton « Valider & Enregistrer » invisible (TASK-040, APPROVE avec réserve)
 
 ### Contexte
