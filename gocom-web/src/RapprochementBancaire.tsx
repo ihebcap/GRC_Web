@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { API_BASE } from './api';
-import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock } from 'lucide-react';
+import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2 } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
 import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate, matchAmount } from './utils';
@@ -281,6 +281,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const reglementsGrcRef = React.useRef<ReglementGrc[]>([]);
     const lignesReleveRef = React.useRef<LigneReleve[]>([]);
     const currentLettrageIndexRef = React.useRef(1);
+
+    // Séquencement des requêtes (TASK-079) : seule la réponse de la DERNIÈRE requête émise est appliquée,
+    // protégeant contre les réponses réseau qui arrivent dans le désordre (ex: changement rapide de banque ou de période).
+    const fetchGrcSeqRef = React.useRef(0);
+    const fetchRelevesSeqRef = React.useRef(0);
+    const fetchLignesReleveSeqRef = React.useRef(0);
+    const isFetchingRelevesRef = React.useRef(false);
     // Synchronisation synchrone pendant le render (valeurs toujours à jour avant callbacks)
     selectedGrcIdRef.current = selectedGrcId;
     selectedReleveLigneIdRef.current = selectedReleveLigneId;
@@ -460,8 +467,10 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     }, [user, caissesMap]);
 
     const fetchReglementsGrc = React.useCallback(() => {
+        const seq = ++fetchGrcSeqRef.current;
         if (!selectedBanqueId) {
             setReglementsGrc([]);
+            setLoadingGrc(false);
             return;
         }
 
@@ -473,6 +482,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             const dateParams = `${appliedDateDebut ? `&dateDebut=${appliedDateDebut}` : ''}${appliedDateFin ? `&dateFin=${appliedDateFin}T23:59:59` : ''}`;
             axios.get(`${API_BASE}/reglements?societeId=${user.societeId}&caisses=${caissesStr}&banqueNos=${selectedBanqueId}&page=1&pageSize=1000&pointe=false&eligibleRappBancaire=true${dateParams}`)
                 .then(res => {
+                    if (seq !== fetchGrcSeqRef.current) return;
                     setReglementsGrc(res.data.items.map((r: any) => ({
                         ...r,
                         mv_Id: r.no,
@@ -482,8 +492,15 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         dateReservation: r.dateReservation
                     })));
                 })
-                .catch(err => console.error(err))
-                .finally(() => setLoadingGrc(false));
+                .catch(err => {
+                    if (seq !== fetchGrcSeqRef.current) return;
+                    console.error(err);
+                })
+                .finally(() => {
+                    if (seq === fetchGrcSeqRef.current) setLoadingGrc(false);
+                });
+        } else {
+            setLoadingGrc(false);
         }
     }, [selectedBanqueId, appliedDateDebut, appliedDateFin]);
 
@@ -520,33 +537,59 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
     // Chargement des relevés bancaires — dépend uniquement de la banque (indépendant de la période)
     React.useEffect(() => {
+        const seq = ++fetchRelevesSeqRef.current;
+        // Invalider toute requête de lignes en vol de l'ancienne sélection
+        fetchLignesReleveSeqRef.current++;
+
         if (!selectedBanqueId) {
+            isFetchingRelevesRef.current = false;
             setReleves([]);
             setSelectedReleveEnteteId('');
+            setLignesReleve([]);
+            setLoadingReleve(false);
             return;
         }
 
+        isFetchingRelevesRef.current = true;
+        setSelectedReleveEnteteId('');
+        setLignesReleve([]);
+        setLoadingReleve(true);
+
         axios.get(`${API_BASE}/ReleveBancaire?banqueId=${selectedBanqueId}&nonRapprochesSeulement=true`)
             .then(res => {
+                if (seq !== fetchRelevesSeqRef.current) return;
+                isFetchingRelevesRef.current = false;
                 setReleves(res.data);
                 if (res.data && res.data.length > 0) {
                     setSelectedReleveEnteteId(res.data[0].id);
                 } else {
                     setSelectedReleveEnteteId('');
+                    setLignesReleve([]);
+                    setLoadingReleve(false);
                 }
             })
-            .catch(err => console.error(err));
+            .catch(err => {
+                if (seq !== fetchRelevesSeqRef.current) return;
+                isFetchingRelevesRef.current = false;
+                console.error(err);
+                setLoadingReleve(false);
+            });
     }, [selectedBanqueId]);
 
     React.useEffect(() => {
+        const seq = ++fetchLignesReleveSeqRef.current;
         if (!selectedReleveId) {
             setLignesReleve([]);
+            if (!isFetchingRelevesRef.current) {
+                setLoadingReleve(false);
+            }
             return;
         }
         
         setLoadingReleve(true);
         axios.get(`${API_BASE}/ReleveBancaire/${selectedReleveId}/lignes`)
             .then(res => {
+                if (seq !== fetchLignesReleveSeqRef.current) return;
                 setLignesReleve(res.data.map((l: any) => ({
                     id: l.id,
                     dateOperation: new Date(l.dateOperation).toLocaleDateString(),
@@ -563,8 +606,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                     dateReservation: l.dateReservation
                 })));
             })
-            .catch(err => console.error(err))
-            .finally(() => setLoadingReleve(false));
+            .catch(err => {
+                if (seq !== fetchLignesReleveSeqRef.current) return;
+                console.error(err);
+            })
+            .finally(() => {
+                if (seq === fetchLignesReleveSeqRef.current) setLoadingReleve(false);
+            });
 
     }, [selectedReleveId]);
 
@@ -1128,7 +1176,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         <span className="badge">Filtre: Encaissements (Crédit)</span>
                     </div>
                     <div className="table-container">
-                        {selectedBanqueId && releves.length === 0 ? (
+                        {loadingReleve && (
+                            <div style={{position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 10, backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-primary)', fontSize: '0.875rem', fontWeight: 600}}>
+                                <Loader2 className="animate-spin" size={16} />
+                                Mise à jour...
+                            </div>
+                        )}
+                        {selectedBanqueId && releves.length === 0 && !loadingReleve ? (
                             <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                                 <p style={{ fontSize: '1.125rem', marginBottom: '8px' }}>Aucun relevé importé pour cette banque.</p>
                                 {onNavigateToImport && (
@@ -1138,7 +1192,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                 )}
                             </div>
                         ) : (
-                        <table>
+                        <table style={{ opacity: loadingReleve ? 0.6 : 1, transition: 'opacity 0.2s', pointerEvents: loadingReleve ? 'none' : 'auto' }}>
                             <thead>
                                 <tr>
                                     <th style={{width: '40px'}}>Sel.</th>
@@ -1244,7 +1298,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         </div>
                     </div>
                     <div className="table-container">
-                        <table>
+                        {loadingGrc && (
+                            <div style={{position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 10, backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-primary)', fontSize: '0.875rem', fontWeight: 600}}>
+                                <Loader2 className="animate-spin" size={16} />
+                                Mise à jour...
+                            </div>
+                        )}
+                        <table style={{ opacity: loadingGrc ? 0.6 : 1, transition: 'opacity 0.2s', pointerEvents: loadingGrc ? 'none' : 'auto' }}>
                             <thead>
                                 <tr>
                                     <th style={{width: '40px'}}>Sel.</th>
