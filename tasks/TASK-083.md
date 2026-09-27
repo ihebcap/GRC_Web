@@ -56,29 +56,55 @@ fournie par le PO). Écran concerné : liste des règlements (`App.tsx`, grille 
 - `GRC.API/Controllers/ReglementController.cs:26-77` (`GetReglements`)
 - `GRC.Infrastructure/Services/ReglementService.cs:27-237` (`GetReglements`, filtrage en mémoire)
 - `gocom-web/src/App.tsx:330-349,618-632` (`fetchReglements`, les 4 `useEffect` déclencheurs, `fetchSeqRef`)
-- DLL `Tresorerie.Dapper.Repositories.ReglementClientRepository.GetAll` — à inspecter (signature,
-  capacité ou non à filtrer/paginer côté SQL) avant de décider de la stratégie de correction ; ne
-  pas supposer qu'elle supporte une pagination native.
+- DLL `Tresorerie.Dapper.Repositories.ReglementClientRepository.GetAll(societeNo, dateDebut, dateFin, caissesNo)`
+  — **vérifiée** (source `apbs-gr_winform/src/Tresorerie.Dapper/Repositories/ReglementClientRepository.cs:230-247`
+  + `ReglementClientRepository.Script.cs:9-135`) : exécute un vrai SQL Dapper sur `RT_MOUVEMENT`
+  avec `WHERE SO_Id=@SocieteNo AND CA_IdOut IN @CaissesNo AND MV_Date BETWEEN @DateDebut AND @DateFin`.
+  **Aucun `TOP`/`OFFSET-FETCH`** (pas de pagination SQL) et **aucun filtre serveur** sur
+  client/numéro/pièce/référence/libellé/montant/pointé/comptabilisé/remis/impayé/annulé/banque/mode
+  — ces critères n'existent pas dans cette requête. C'est la méthode la plus fine que la DLL propose
+  pour ce cas d'usage (liste large tous critères) ; pas de surcharge alternative qui ferait mieux
+  sans modifier la DLL elle-même.
+
+## Diagnostic DLL — tranché
+
+Vérification faite par lecture du code source réel de la DLL (pas de la version décompilée), donc
+fiable sans nécessiter de mesure d'exécution pour cette partie :
+
+- **Le filtre de dates est bien poussé en SQL** (`BETWEEN` dans le `WHERE`) — ce n'est pas le
+  problème. Le problème est la **largeur de la plage** envoyée par défaut par
+  `ReglementService.cs:40-41` (`2000-01-01` → `2030-01-01`) quand le front n'a pas de filtre date
+  actif : le `BETWEEN` SQL ramène alors tout l'historique du périmètre caisses en une seule requête,
+  avant même le filtrage LINQ.
+- **Pousser les autres filtres (client, montant, pointé, etc.) en SQL est impossible sans modifier
+  la DLL** — ils n'existent dans aucune requête de `ReglementClientRepository`. Modifier la DLL
+  métier étant hors périmètre (règle absolue du projet), cette option est écartée : **le seul levier
+  disponible côté back sans toucher à la DLL est de borner la fenêtre de dates par défaut.**
+- **Pas de pagination SQL possible non plus** sans modifier la DLL (pas de `TOP`/`OFFSET-FETCH`
+  dans la requête). Le `Skip/Take` en mémoire actuel restera nécessaire tant que la DLL n'est pas
+  modifiée — mais son coût devient acceptable une fois le jeu de base réduit par la fenêtre de dates.
 
 ## Étapes d'implémentation
 
-1. **Diagnostiquer d'abord, ne pas corriger à l'aveugle** : instrumenter (log temporaire ou
-   profiling) pour mesurer séparément (a) le temps de l'appel DLL `GetAll`, (b) le nombre de lignes
-   renvoyées par la DLL sans filtre date, (c) le temps du filtrage LINQ en mémoire, (d) la taille
-   réelle du payload JSON renvoyé après `Skip/Take`. Confirmer que les 8 Mo viennent bien de (b)/(c)
-   et pas d'un bug de sérialisation qui renverrait `allReglements` en entier au lieu de `items`.
-2. Une fois la cause confirmée, évaluer avec le PO l'option de correction : borner la fenêtre de
-   dates par défaut (ex. période glissante récente au lieu de 2000-2030) **et/ou** pousser le
-   filtrage vers la DLL/SQL si `ReglementClientRepository` le permet **et/ou** introduire un cache
-   court applicatif si la DLL ne peut pas être modifiée. Ne pas décider seul de la stratégie sans
-   validation PO — plusieurs approches possibles avec impacts différents sur le périmètre DLL
-   Trésorerie (règle "ne jamais recoder la logique métier des DLL" à respecter).
+1. **Borner la fenêtre de dates par défaut** dans `ReglementService.GetReglements`
+   ([ReglementService.cs:40-41](../GRC.Infrastructure/Services/ReglementService.cs#L40)) : remplacer
+   `debut = dateDebut ?? new DateTime(2000, 1, 1)` par une période glissante récente (ex. 3 mois,
+   valeur exacte à valider avec le PO selon l'usage réel de l'écran) quand `dateDebut` n'est pas
+   fourni par le front. Garder `dateFin ?? DateTime.Now` (ou une petite marge future) au lieu de
+   `2030-01-01`, sans utilité identifiée pour une borne future aussi lointaine.
+   **Vérifier avant tout** que rétrécir cette fenêtre par défaut ne casse pas un usage existant qui
+   compterait sur l'historique complet sans filtre (ex. recherche ponctuelle d'un vieux règlement) —
+   si un tel usage existe, prévoir un mécanisme explicite pour l'utilisateur de sortir de la fenêtre
+   par défaut (bouton "voir tout l'historique" ou équivalent), pas juste couper silencieusement l'accès aux anciennes données.
+2. Mesurer le volume réel de lignes/temps de réponse sur le jeu de données de prod avant/après ce
+   changement (le `Skip/Take` en mémoire reste en place, donc le volume de base doit vraiment
+   baisser pour que le correctif ait un effet).
 3. Côté front, fusionner les 4 `useEffect` de déclenchement de fetch en un seul point d'entrée
    (ex. `useEffect` unique sur un objet d'état combiné `{page, pageSize, sortCol, sortDesc,
    debouncedFilters}`) pour éliminer les requêtes en rafale — sans changer le comportement
    fonctionnel actuel (reset de page sur changement de filtre/tri/pageSize à préserver).
-4. Mesurer à nouveau après correction sur le jeu de données réel de prod (pas seulement en dev) —
-   le volume réel de règlements en base conditionne la validité du correctif.
+4. Revalider avec le PO si la fenêtre de dates par défaut choisie convient à l'usage réel de l'écran
+   (comptabilisation quotidienne vs recherche ponctuelle ancienne).
 
 ## Contraintes
 
@@ -93,20 +119,24 @@ fournie par le PO). Écran concerné : liste des règlements (`App.tsx`, grille 
 
 ## Risques / dépendances
 
-- La DLL `Tresorerie.Dapper.Repositories.ReglementClientRepository` peut ne pas exposer de filtre
-  SQL suffisant pour tout ce que fait actuellement le LINQ en mémoire (filtres composites sur
-  colonnes non indexées côté DLL) — une correction complète peut nécessiter un compromis (ex.
-  fenêtre de dates bornée + filtres fins toujours en mémoire mais sur un jeu réduit) plutôt qu'une
-  solution 100% poussée en SQL.
+- **Confirmé** (pas hypothétique) : `ReglementClientRepository` n'expose aucun filtre SQL pour
+  client/montant/pointé/comptabilisé/etc. — le filtrage fin restera en mémoire après correctif, sur
+  un jeu réduit par la fenêtre de dates. C'est un compromis accepté, pas une solution 100% poussée
+  en SQL ; la DLL elle-même n'est pas modifiée (règle absolue respectée).
+- **Réduire la fenêtre de dates par défaut peut changer un comportement utilisateur existant** : si
+  un usage actuel dépend de retrouver un règlement ancien sans poser de filtre date explicite, ce
+  correctif le casse silencieusement si aucun mécanisme de repli n'est prévu — à valider avec le PO
+  avant de livrer (cf. étape 1).
 - `GetDistinctReglements` ([ReglementService.cs:258+](../GRC.Infrastructure/Services/ReglementService.cs#L258))
   et `LettrerParPeriode` ([ReglementService.cs:479+](../GRC.Infrastructure/Services/ReglementService.cs#L479))
-  suivent le même pattern `GetAll` — à ne pas casser par effet de bord si la signature de `GetAll`
-  ou du repo est modifiée pour ce correctif ; vérifier tous les appelants avant de toucher à la DLL
-  wrapper.
+  suivent le même pattern `GetAll` mais avec leurs propres dates (souvent fournies explicitement par
+  l'appelant) — vérifier qu'ils ne sont pas affectés par le changement de la valeur par défaut de
+  `GetReglements` avant de livrer.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 - [ ] Build OK (back + front)
-- [ ] Diagnostic préalable documenté (temps DLL vs filtrage vs sérialisation, taille payload avant/après)
+- [ ] Fenêtre de dates par défaut réduite, valeur validée avec le PO
+- [ ] Mécanisme de repli prévu si un usage réel dépendait de l'historique complet sans filtre (ou confirmation PO qu'aucun usage de ce type n'existe)
 - [ ] Comportement vérifié end-to-end sur jeu de données réel (pas seulement dev) — temps de réponse mesuré avant/après
 - [ ] Aucune régression de scoping caisses/société (isAdmin et périmètre caisse identiques)
 - [ ] Aucun credential/secret en dur introduit
