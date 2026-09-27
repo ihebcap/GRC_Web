@@ -63,7 +63,7 @@ reg.Libelle = pair.Libelle;        // → devient MV_Libelle
 
 ## Étapes d'implémentation
 
-1. Vérifier que l'entité `reg` (type `Tresorerie.Dapper.Repositories.ReglementClientRepository.Get()`, DLL externe) expose bien un setter `Libelle` mappé sur `MV_Libelle` — par lecture de code/réflexion sur la DLL, ne pas supposer (même prudence que pour `ExtraitNum`/`PieceNumero`, déjà des propriétés confirmées existantes sur ce type).
+1. ~~Vérifier que l'entité `reg` expose un setter `Libelle` mappé sur `MV_Libelle`~~ — **confirmé** : `Tresorerie.Core.Models.ReglementClient.Libelle` (`public string Libelle { get; set; }`, source décompilée `Tresorerie.Core.Models\ReglementClient.cs:167`), setter public déjà disponible, aucun changement de DLL nécessaire.
 2. Ajouter `Libelle` à `ValidationPairDto` (backend) et au payload front (`RapprochementBancaire.tsx`), à côté de `CodeExcel`.
 3. Dans `SauvegarderValidationAsync`, ajouter `reg.Libelle = pair.Libelle;` juste après les lignes existantes 761-765, avec un repli explicite si `pair.Libelle` est vide/NULL (ne pas laisser `MV_Libelle` vide silencieusement — décider avec le PO du repli, ex. conserver le comportement existant `'Versement'` de la vue si `MV_Libelle` reste vide).
 4. Clarifier avec le PO le mécanisme de résolution automatique du n° de facture pour `EC_Reference` (versement) : existe-t-il un lettrage/affectation facture déjà disponible au moment voulu, ou la saisie manuelle actuelle (`mvReference`) reste-t-elle le mécanisme voulu et seule la vue de comptabilisation doit changer de source ?
