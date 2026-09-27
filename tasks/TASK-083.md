@@ -82,13 +82,11 @@ paramètres ne sont pas fournis.
    avec le pattern déjà utilisé côté front pour `dateFin`, cf. App.tsx:510). Seule la valeur par
    défaut change ; dès que `dateDebut`/`dateFin` sont fournis, ils priment sans changement de
    comportement.
-2. Vérifier qu'aucun autre appelant de `ReglementService` (`GetDistinctReglements`,
-   `LettrerParPeriode`, cf. Risques) ne compte implicitement sur l'ancienne fenêtre par défaut.
-3. Côté front, fusionner les 4 `useEffect` de déclenchement de fetch en un seul point d'entrée (ex.
+2. Côté front, fusionner les 4 `useEffect` de déclenchement de fetch en un seul point d'entrée (ex.
    `useEffect` unique sur un objet d'état combiné `{page, pageSize, sortCol, sortDesc,
    debouncedFilters}`) pour éliminer les requêtes en rafale — sans changer le comportement
    fonctionnel actuel (reset de page sur changement de filtre/tri/pageSize à préserver).
-4. Mesurer le temps de réponse et le volume de lignes avant/après sur le jeu de données réel de
+3. Mesurer le temps de réponse et le volume de lignes avant/après sur le jeu de données réel de
    prod (pas seulement en dev).
 
 ## Contraintes
@@ -103,17 +101,17 @@ paramètres ne sont pas fournis.
 
 - Le filtrage fin (client, montant, pointé, etc.) reste en mémoire après correctif, sur un jeu
   réduit par la fenêtre de dates — compromis accepté, la DLL n'étant pas modifiable.
-- `GetDistinctReglements` ([ReglementService.cs:258+](../GRC.Infrastructure/Services/ReglementService.cs#L258))
-  et `LettrerParPeriode` ([ReglementService.cs:479+](../GRC.Infrastructure/Services/ReglementService.cs#L479))
-  suivent le même pattern `GetAll` mais avec leurs propres dates, en général fournies explicitement
-  par l'appelant — vérifier qu'ils ne sont pas affectés par le changement de valeur par défaut de
-  `GetReglements` avant de livrer.
+- **Vérifié (aucun risque)** : `GetDistinctReglements` ([ReglementService.cs:255](../GRC.Infrastructure/Services/ReglementService.cs#L255))
+  a sa propre fenêtre par défaut (12 mois glissants, indépendante) et `LettrerParPeriode`
+  ([ReglementService.cs:486,494](../GRC.Infrastructure/Services/ReglementService.cs#L486)) reçoit
+  `dateMin`/`dateMax` obligatoirement en paramètre — aucun des deux ne dépend de la valeur par
+  défaut modifiée dans `GetReglements`.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 - [ ] Build OK (back + front)
 - [ ] Fenêtre de dates par défaut = 30 jours glissants, `dateFin` par défaut = fin de journée courante
 - [ ] Filtre "Date" front toujours fonctionnel pour élargir/réduire la période après coup (aucune régression)
-- [ ] `GetDistinctReglements`/`LettrerParPeriode` non affectés par le changement
+- [x] `GetDistinctReglements`/`LettrerParPeriode` non affectés par le changement (vérifié par l'architecte 2026-09-27 — fenêtres de dates indépendantes, cf. Risques)
 - [ ] Comportement vérifié end-to-end sur jeu de données réel (pas seulement dev) — temps de réponse mesuré avant/après
 - [ ] Aucune régression de scoping caisses/société (isAdmin et périmètre caisse identiques)
 - [ ] Aucun credential/secret en dur introduit
