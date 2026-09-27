@@ -764,10 +764,17 @@ namespace GRC.Infrastructure.Repositories
                     // On affecte le n° pièce pour tout règlement (plus de garde type 3)
                     reg.PieceNumero = pair.CodeExcel;
 
+                    // TASK-082 — Libellé d'écriture versement : libellé bancaire du relevé
+                    // Uniquement si non vide/NULL (ne pas écraser par une chaîne vide pour laisser le repli 'Versement' de la vue s'appliquer)
+                    if (!string.IsNullOrWhiteSpace(pair.Libelle))
+                    {
+                        reg.Libelle = pair.Libelle;
+                    }
+
                     repo.Update(reg);
                     _logger.LogInformation(
-                        "APPROBATION item OK : ligne={LigneReleveId}, mv={MvId}, IsPointe=true, MV_Piece={Piece}, DatePointage={DatePointage:yyyy-MM-dd}",
-                        pair.ReleveLigneId, reg.No, pair.CodeExcel, reg.DatePointage);
+                        "APPROBATION item OK : ligne={LigneReleveId}, mv={MvId}, IsPointe=true, MV_Piece={Piece}, MV_Libelle={Libelle}, DatePointage={DatePointage:yyyy-MM-dd}",
+                        pair.ReleveLigneId, reg.No, pair.CodeExcel, reg.Libelle, reg.DatePointage);
                     result.SuccessCount++;
                     successLigneIds.Add(pair.ReleveLigneId);
                 }
@@ -927,6 +934,7 @@ namespace GRC.Infrastructure.Repositories
         public int GrcReglementId { get; set; }
         public string? Lettrage { get; set; }
         public string? CodeExcel { get; set; }
+        public string? Libelle { get; set; }
         public DateTime? DateValeur { get; set; }
         public DateTime? DateOperation { get; set; }
     }

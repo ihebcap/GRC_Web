@@ -1,5 +1,38 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-27 — Libellé écriture comptable règlement versement = libellé bancaire du relevé (TASK-082, APPROVE)
+
+### Contexte
+Demande PO (2026-09-26) : pour les écritures de versement, `N° pièce` = code banque (déjà conforme via
+`RAPP_ReleveBancaire_Ligne.Code` → `MV_Piece`, TASK-031/034), `Référence` = n° de facture (déjà conforme
+via `MV_Reference`), `Libellé` = libellé bancaire du relevé — non conforme : rien n'alimentait `MV_Libelle`
+depuis `RAPP_ReleveBancaire_Ligne.Libelle`.
+
+### Solution
+Injection de `reg.Libelle = pair.Libelle` dans `ReleveBancaireRepository.SauvegarderValidationAsync`,
+au moment de la validation du rapprochement, symétrique à l'injection déjà existante de `Code` dans
+`MV_Piece` (TASK-031/034). Conditionnelle (`!string.IsNullOrWhiteSpace(pair.Libelle)`) pour ne jamais
+écraser `MV_Libelle` par une chaîne vide/NULL et laisser le repli `'Versement'` de la vue
+`vw_ReglementsAComptabiliser` (TASK-053) continuer de s'appliquer sans modification. `ValidationPairDto`
+et le payload front (`RapprochementBancaire.tsx`) étendus avec `Libelle`. Aucun changement de la vue SQL.
+
+### Discipline de preuve
+Premier VERIFY rejeté (2026-09-27) : la checklist cochait "vérifié end-to-end" sur la base d'un harnais
+simulant `reg.Libelle` en mémoire (objet mocké via `GetUninitializedObject`) et réimplémentant la logique
+de la vue SQL à la main en C#, sans jamais toucher la vraie base ni la vraie vue. Second VERIFY : test
+réel contre SQL Server `GR_GOCOM` (46 059 lignes `RT_MOUVEMENT`), exécutant le vrai
+`SauvegarderValidationAsync` et la vraie vue `vw_ReglementsAComptabiliser`, avec persistance vérifiée en
+base et restauration de l'état d'origine après test (22/22 tests). Ruling architecte : UPDATE SQL brut
+sur `RT_MOUVEMENT` toléré dans ce harnais, strictement pour le setup/teardown de l'état de test (hors du
+flux applicatif réel, qui passe exclusivement par la DLL via `SauvegarderValidationAsync`).
+
+### Fichiers modifiés
+- `GRC.Infrastructure/Repositories/ReleveBancaireRepository.cs` (`ValidationPairDto.Libelle`,
+  injection dans `SauvegarderValidationAsync`, log enrichi `MV_Libelle={Libelle}`).
+- `gocom-web/src/RapprochementBancaire.tsx` (`libelle: ligne.libelle` dans le payload de validation).
+
+---
+
 ## 2026-09-24 — Filtre "Au" (dateFin) exclut les règlements du dernier jour après minuit (TASK-080, APPROVE)
 
 ### Contexte

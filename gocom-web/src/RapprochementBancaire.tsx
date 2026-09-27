@@ -890,6 +890,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                     grcReglementId: grc.mv_Id,
                     lettrage: ligne.lettrage,
                     codeExcel: ligne.code || 'MANUAL',
+                    libelle: ligne.libelle,
                     dateValeur: ligne.dateValeurRaw
                 });
             }

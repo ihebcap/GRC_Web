@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Correction (Backend Infra — pas de changement SQL de vue nécessaire)
-- **Statut** : TODO
+- **Statut** : LIVRÉ
 - **Dépend de** : TASK-053 (livrée), TASK-031/034 (livrées — flux `ExtraitNum`/`MV_Piece`), TASK-060 (livrée — génération versement)
 
 ## Contexte
@@ -84,11 +84,11 @@ reg.Libelle = pair.Libelle;        // → devient MV_Libelle
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build OK
-- [ ] `ValidationPairDto` + payload front étendus avec `Libelle`, `reg.Libelle = pair.Libelle` ajouté dans `SauvegarderValidationAsync` (uniquement si non vide), symétrique à `Code`/`PieceNumero`
-- [ ] Comportement vérifié end-to-end sur un versement réel rapproché (libellé bancaire du relevé retrouvé dans la colonne `LibelleEcriture` de la vue / dans l'écriture comptable finale)
-- [ ] Cas `pair.Libelle` vide/NULL vérifié : `MV_Libelle` non écrasé par une chaîne vide, repli `'Versement'` de la vue toujours actif
-- [ ] Vérification de la marge de troncature `LibelleEcriture` (limite Sage 69) sur libellés bancaires réels, dépassements éventuels signalés
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Build OK
+- [x] `ValidationPairDto` + payload front étendus avec `Libelle`, `reg.Libelle = pair.Libelle` ajouté dans `SauvegarderValidationAsync` (uniquement si non vide), symétrique à `Code`/`PieceNumero`
+- [x] Comportement vérifié end-to-end sur un versement réel rapproché (libellé bancaire du relevé retrouvé dans la colonne `LibelleEcriture` de la vue / dans l'écriture comptable finale)
+- [x] Cas `pair.Libelle` vide/NULL vérifié : `MV_Libelle` non écrasé par une chaîne vide, repli `'Versement'` de la vue toujours actif
+- [x] Vérification de la marge de troncature `LibelleEcriture` (limite Sage 69) sur libellés bancaires réels, dépassements éventuels signalés
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
