@@ -1,6 +1,33 @@
 # CHANGELOG — Rapprochement Bancaire
 
-## 2026-09-27 — Libellé écriture comptable règlement versement = libellé bancaire du relevé (TASK-082, APPROVE)
+## 2026-09-27 — Écriture comptable règlement ESPÈCE : N° pièce + libellé = facture (TASK-081, APPROVE)
+
+### Contexte
+Demande PO (2026-09-26 / 2026-09-27) sur les écritures de règlement espèce (`MV_Type = 0`) :
+- N° de pièce : numéro de facture (au lieu du numéro de règlement sans 'RC').
+- Libellé : `'Règlement facture N°<num de facture>'` (au lieu de `'ESP <facture>'`).
+- Repli sans facture affectée : cas inexistant selon le PO ("tous les règlements espèce sont affectés sur des factures"), avec garde-fou défensif préservé.
+
+### Solution
+Modification de la vue SQL `dbo.vw_ReglementsAComptabiliser` ([`SQL_005_TASK-053_LibelleEcriture.sql`](file:///D:/_vibe/GRC_WEB/SQL_005_TASK-053_LibelleEcriture.sql)) :
+1. Colonne `MV_Piece` (branche `MV_Type = 0`) : `LEFT(ISNULL(fact.FactureNumero, replace(MV_Numero,'RC','')), 13)`.
+2. Colonne `LibelleEcriture` (branche `MV_Type = 0`) : `LEFT(LTRIM(RTRIM(N'Règlement facture N°' + ISNULL(fact.FactureNumero, replace(r.MV_Numero,'RC','')))), 69)`.
+Aucun changement C# requis : `ReglementService.cs` (`PieceAForcer` et `AppliquerChampsVue`) agit en passe-plat pur à partir de la vue.
+
+### Discipline de preuve & Audit en base réelle
+- Test réel contre SQL Server `GR_GOCOM` (46 059 mouvements `RT_MOUVEMENT`) via un harnais dédié ([`harness_task081`](file:///D:/_vibe/GRC_WEB/harness_task081/Program.cs)) exécutant 23 assertions réelles passées avec 100% de succès.
+- **Audit de la volumétrie espèce (22 421 lignes)** :
+  - Sur les 10 147 règlements espèce en attente de comptabilisation (`MV_Compta = 0`), **100% ont une facture affectée** (exactement 0 sans facture), confirmant pleinement l'hypothèse PO pour le flux actif.
+  - 23 lignes historiques de janvier 2026 (`MV_Compta = 1`) n'avaient pas d'affectation facture : le repli défensif fonctionne sans encombre.
+- **Marges Sage** : vérification sur l'intégralité des données en base. Longueur max réelle `MV_Piece` = 10 car. (limite Sage 13), `LibelleEcriture` = 30 car. (limite Sage 69). Zéro troncature destructrice.
+- **Non-régression** : branche hors espèce (`MV_Type != 0`) et intégration C# `ReglementComptaViewRepository` vérifiées conformes.
+
+### Fichiers modifiés
+- `SQL_005_TASK-053_LibelleEcriture.sql` (vue `vw_ReglementsAComptabiliser` mise à jour et rejouée en base).
+- `tasks/VERIFY/TASK-081_verify.md` (rapport de validation complet).
+- `harness_task081/` (harnais d'exécution de test automatisé).
+
+---
 
 ### Contexte
 Demande PO (2026-09-26) : pour les écritures de versement, `N° pièce` = code banque (déjà conforme via

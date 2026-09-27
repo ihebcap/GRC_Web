@@ -1,7 +1,7 @@
 -- =============================================================================
 -- SQL_005 — vw_ReglementsAComptabiliser : libellé écriture comptable
 -- Base : GR_GOCOM (DESKTOP-2VCUE93)
--- Contexte : spec PO 2026-07-15 (écriture compta, espèce / hors espèce)
+-- Contexte : spec PO 2026-07-15 (TASK-053) / 2026-09-27 (TASK-081)
 --
 -- Corrections apportées :
 --   1. LibelleEcritre était CASSÉE : 'ESP ' + MV_Reference, or MV_Reference est
@@ -21,6 +21,11 @@
 --      référence tronquée peut devenir ambiguë en compta. Assumé par le PO.
 --   6. ReferenceCompta espèce : repli sur MV_Reference quand MV_Info3 est vide
 --      (décision PO 2026-07-15). Détail et volumétrie sur la colonne elle-même.
+--   7. TASK-081 (décision PO 2026-09-27) :
+--      - MV_Piece (espèce) : FactureNumero au lieu de replace(MV_Numero,'RC','')
+--        avec repli défensif sur le n° de règlement si FactureNumero est NULL.
+--      - LibelleEcriture (espèce) : 'Règlement facture N°' + FactureNumero
+--        avec repli défensif sur 'Règlement facture N°' + n° de règlement si NULL.
 --
 -- Contrat préservé : 1 ligne par MV_ID (OUTER APPLY TOP 1, pas de jointure 1-N
 -- qui dupliquerait les lignes).
@@ -47,7 +52,8 @@ DocParPiece AS (
 SELECT  r.MV_ID,
         r.MV_Numero,
         -- Pièce (EC_Piece varchar(13)) :
-        --   espèce      -> n° de règlement sans 'RC' (8 car., toujours OK)
+        --   espèce      -> n° de facture (décision PO 2026-09-27 / TASK-081), TRONQUÉ à 13 (limite Sage),
+        --                  repli sur n° de règlement sans 'RC' si facture non affectée (garde-fou défensif)
         --   hors espèce -> code banque (MV_Piece), TRONQUÉ à 13 (décision PO 2026-07-15)
         -- La troncature coupe l'horodatage des MV_Piece longs (« B0022588-2026052208410... »),
         -- ce qui rend 211 lignes ambiguës entre elles — MAIS ces 211 lignes sont TOUTES
@@ -59,7 +65,7 @@ SELECT  r.MV_ID,
         -- MV_Type = 4 est traité EXACTEMENT comme 3 (décision PO) : le test passe donc de
         -- « MV_Type <> 3 » à « MV_Type = 0 ». Seuls 0, 3 et 4 existent (vérifié en base).
         case
-            when MV_Type = 0 then replace(MV_Numero,'RC','')
+            when MV_Type = 0 then LEFT(ISNULL(fact.FactureNumero, replace(MV_Numero,'RC','')), 13)
             when ISNULL(r.MV_Piece,'') = '' then replace(MV_Numero,'RC','')
             else LEFT(r.MV_Piece, 13)
         end as MV_Piece,
@@ -93,12 +99,13 @@ SELECT  r.MV_ID,
         -- champ « N° Facture » de l'écriture et pour le diagnostic
         ,fact.FactureNumero
         -- Libellé de l'écriture comptable, les deux modes :
-        --   espèce      : 'ESP <facture>' ; 'ESP' seul si aucune facture affectée
+        --   espèce      : 'Règlement facture N°<facture>' (décision PO 2026-09-27 / TASK-081) ;
+        --                 repli défensif sur n° de règlement si aucune facture affectée
         --   hors espèce : libellé saisi ; 'Versement' si vide/NULL
         -- tronqué à EC_Intitule varchar(69)
         ,LEFT(CASE
             WHEN r.MV_Type = 0
-                THEN LTRIM(RTRIM('ESP ' + ISNULL(fact.FactureNumero, '')))
+                THEN LTRIM(RTRIM(N'Règlement facture N°' + ISNULL(fact.FactureNumero, replace(r.MV_Numero,'RC',''))))
             ELSE
                 CASE
                     WHEN LTRIM(RTRIM(ISNULL(r.MV_Libelle, ''))) = '' THEN 'Versement'

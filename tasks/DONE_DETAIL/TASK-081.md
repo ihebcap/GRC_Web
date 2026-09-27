@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Correction (SQL — vue de comptabilisation)
-- **Statut** : TODO
+- **Statut** : LIVRÉ
 - **Dépend de** : TASK-053 (livrée) — modifie la même vue `vw_ReglementsAComptabiliser`
 
 ## Contexte
@@ -67,11 +67,11 @@ Le n° de facture est déjà disponible dans la vue via `fact.FactureNumero` (OU
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build OK (si impact C#, sinon rejeu direct de la vue SQL en base)
-- [ ] Vue SQL rejouée en base sur échantillon réel espèce, résultat conforme au nouveau format (`MV_Piece` = n° facture, `LibelleEcriture` = `'Règlement facture N°<facture>'`)
-- [ ] Comptage explicite des règlements espèce réels avec `FactureNumero IS NULL` documenté (0 attendu ; si > 0, décision PO documentée avant livraison)
-- [ ] Vérifié qu'aucun usage aval (lettrage/recherche Sage) ne dépend du format `MV_Piece` actuel (n° de règlement)
-- [ ] Vérification de la marge de troncature `MV_Piece` (limite Sage 13) / `LibelleEcriture` (limite Sage 69) sur le nouveau format, dépassements éventuels signalés
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Build OK (si impact C#, sinon rejeu direct de la vue SQL en base)
+- [x] Vue SQL rejouée en base sur échantillon réel espèce, résultat conforme au nouveau format (`MV_Piece` = n° facture, `LibelleEcriture` = `'Règlement facture N°<facture>'`)
+- [x] Comptage explicite des règlements espèce réels avec `FactureNumero IS NULL` documenté (0 attendu ; si > 0, décision PO documentée avant livraison)
+- [x] Vérifié qu'aucun usage aval (lettrage/recherche Sage) ne dépend du format `MV_Piece` actuel (n° de règlement)
+- [x] Vérification de la marge de troncature `MV_Piece` (limite Sage 13) / `LibelleEcriture` (limite Sage 69) sur le nouveau format, dépassements éventuels signalés
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
