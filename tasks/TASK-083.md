@@ -66,6 +66,17 @@ fournie par le PO). Écran concerné : liste des règlements (`App.tsx`, grille 
   pour ce cas d'usage (liste large tous critères) ; pas de surcharge alternative qui ferait mieux
   sans modifier la DLL elle-même.
 
+## Décision PO (2026-09-27)
+
+**Fenêtre de dates par défaut = 30 jours glissants** (au lieu de `2000-01-01`→`2030-01-01`),
+**modifiable par l'utilisateur après coup**. Le mécanisme de modification existe déjà côté front :
+le filtre colonne "Date" ([App.tsx:1168](../gocom-web/src/App.tsx#L1168), type `ExcelFilter` mode
+date) envoie déjà `dateDebut`/`dateFin` dès que l'utilisateur pose une valeur
+([App.tsx:506-511](../gocom-web/src/App.tsx#L506)) — donc **aucun nouveau composant front à créer**,
+seule la valeur par défaut côté back change quand ces paramètres ne sont pas fournis. Pas de bouton
+"voir tout l'historique" à ajouter : élargir manuellement le filtre date suffit à retrouver un
+règlement plus ancien.
+
 ## Diagnostic DLL — tranché
 
 Vérification faite par lecture du code source réel de la DLL (pas de la version décompilée), donc
@@ -86,25 +97,24 @@ fiable sans nécessiter de mesure d'exécution pour cette partie :
 
 ## Étapes d'implémentation
 
-1. **Borner la fenêtre de dates par défaut** dans `ReglementService.GetReglements`
-   ([ReglementService.cs:40-41](../GRC.Infrastructure/Services/ReglementService.cs#L40)) : remplacer
-   `debut = dateDebut ?? new DateTime(2000, 1, 1)` par une période glissante récente (ex. 3 mois,
-   valeur exacte à valider avec le PO selon l'usage réel de l'écran) quand `dateDebut` n'est pas
-   fourni par le front. Garder `dateFin ?? DateTime.Now` (ou une petite marge future) au lieu de
-   `2030-01-01`, sans utilité identifiée pour une borne future aussi lointaine.
-   **Vérifier avant tout** que rétrécir cette fenêtre par défaut ne casse pas un usage existant qui
-   compterait sur l'historique complet sans filtre (ex. recherche ponctuelle d'un vieux règlement) —
-   si un tel usage existe, prévoir un mécanisme explicite pour l'utilisateur de sortir de la fenêtre
-   par défaut (bouton "voir tout l'historique" ou équivalent), pas juste couper silencieusement l'accès aux anciennes données.
-2. Mesurer le volume réel de lignes/temps de réponse sur le jeu de données de prod avant/après ce
+1. **Borner la fenêtre de dates par défaut à 30 jours glissants** dans
+   `ReglementService.GetReglements` ([ReglementService.cs:40-41](../GRC.Infrastructure/Services/ReglementService.cs#L40)) :
+   remplacer `debut = dateDebut ?? new DateTime(2000, 1, 1)` par
+   `debut = dateDebut ?? DateTime.Now.Date.AddDays(-30)`, et `fin = dateFin ?? new DateTime(2030, 1, 1)`
+   par `fin = dateFin ?? DateTime.Now.Date.AddDays(1).AddSeconds(-1)` (borne de fin de journée
+   courante, cohérent avec le pattern déjà utilisé côté front pour `dateFin` — cf.
+   [App.tsx:510](../gocom-web/src/App.tsx#L510)). Uniquement la valeur par défaut change ; dès que
+   `dateDebut`/`dateFin` sont fournis (l'utilisateur a modifié le filtre "Date" existant), ils
+   priment sans changement de comportement.
+2. Vérifier qu'aucun autre appelant de `GetReglements` ne compte implicitement sur l'ancienne
+   fenêtre par défaut avant de livrer (cf. Risques/dépendances).
+3. Mesurer le volume réel de lignes/temps de réponse sur le jeu de données de prod avant/après ce
    changement (le `Skip/Take` en mémoire reste en place, donc le volume de base doit vraiment
    baisser pour que le correctif ait un effet).
-3. Côté front, fusionner les 4 `useEffect` de déclenchement de fetch en un seul point d'entrée
+4. Côté front, fusionner les 4 `useEffect` de déclenchement de fetch en un seul point d'entrée
    (ex. `useEffect` unique sur un objet d'état combiné `{page, pageSize, sortCol, sortDesc,
    debouncedFilters}`) pour éliminer les requêtes en rafale — sans changer le comportement
    fonctionnel actuel (reset de page sur changement de filtre/tri/pageSize à préserver).
-4. Revalider avec le PO si la fenêtre de dates par défaut choisie convient à l'usage réel de l'écran
-   (comptabilisation quotidienne vs recherche ponctuelle ancienne).
 
 ## Contraintes
 
@@ -123,10 +133,10 @@ fiable sans nécessiter de mesure d'exécution pour cette partie :
   client/montant/pointé/comptabilisé/etc. — le filtrage fin restera en mémoire après correctif, sur
   un jeu réduit par la fenêtre de dates. C'est un compromis accepté, pas une solution 100% poussée
   en SQL ; la DLL elle-même n'est pas modifiée (règle absolue respectée).
-- **Réduire la fenêtre de dates par défaut peut changer un comportement utilisateur existant** : si
-  un usage actuel dépend de retrouver un règlement ancien sans poser de filtre date explicite, ce
-  correctif le casse silencieusement si aucun mécanisme de repli n'est prévu — à valider avec le PO
-  avant de livrer (cf. étape 1).
+- **Tranché par le PO (2026-09-27)** : fenêtre par défaut = 30 jours glissants, modifiable via le
+  filtre "Date" déjà existant côté front. Un utilisateur qui veut retrouver un règlement plus ancien
+  élargit simplement ce filtre — pas de régression fonctionnelle attendue, le mécanisme de repli
+  demandé par l'architecte est déjà présent, pas à construire.
 - `GetDistinctReglements` ([ReglementService.cs:258+](../GRC.Infrastructure/Services/ReglementService.cs#L258))
   et `LettrerParPeriode` ([ReglementService.cs:479+](../GRC.Infrastructure/Services/ReglementService.cs#L479))
   suivent le même pattern `GetAll` mais avec leurs propres dates (souvent fournies explicitement par
@@ -135,8 +145,8 @@ fiable sans nécessiter de mesure d'exécution pour cette partie :
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 - [ ] Build OK (back + front)
-- [ ] Fenêtre de dates par défaut réduite, valeur validée avec le PO
-- [ ] Mécanisme de repli prévu si un usage réel dépendait de l'historique complet sans filtre (ou confirmation PO qu'aucun usage de ce type n'existe)
+- [ ] Fenêtre de dates par défaut = 30 jours glissants (décision PO 2026-09-27), `dateFin` par défaut = fin de journée courante
+- [ ] Filtre "Date" front toujours fonctionnel pour élargir/réduire la période après coup (aucune régression du composant existant)
 - [ ] Comportement vérifié end-to-end sur jeu de données réel (pas seulement dev) — temps de réponse mesuré avant/après
 - [ ] Aucune régression de scoping caisses/société (isAdmin et périmètre caisse identiques)
 - [ ] Aucun credential/secret en dur introduit
