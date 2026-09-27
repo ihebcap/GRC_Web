@@ -1,5 +1,40 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-27 — Empilement de requêtes concurrentes sur l'écran liste des règlements (TASK-084, APPROVE)
+
+### Contexte
+Constat PO sur trace réseau navigateur : en enchaînant plusieurs changements de filtre rapprochés
+sur l'écran liste des règlements, jusqu'à 4 requêtes `GET /api/reglements` concurrentes s'empilaient,
+avec des temps de réponse croissants (10,84s → 18,52s → 25,13s → 36,25s), signe de contention SQL
+provoquée par des requêtes obsolètes non annulées.
+
+### Diagnostic
+La garde `fetchSeqRef` (héritée de TASK-079/083) empêchait bien d'appliquer côté React la réponse
+d'une requête périmée, mais n'annulait jamais la requête HTTP sous-jacente : chaque changement de
+filtre rapproché laissait tourner en parallèle toutes les requêtes SQL correspondantes, qui se
+faisaient concurrence pour les mêmes ressources serveur.
+
+### Solution
+`AbortController` dédié dans `fetchReglements` (`App.tsx`) : toute requête en vol est annulée avant
+qu'une nouvelle ne parte, avec gestion silencieuse de l'annulation (`axios.isCancel`) pour ne pas
+polluer la console. Garde `fetchSeqRef` préservée intacte en défense en profondeur.
+
+### Limite actée
+`ReglementController.GetReglements` reste une action **synchrone** sans `CancellationToken` — cette
+correction stoppe l'attente/le traitement côté navigateur, mais n'interrompt pas l'exécution SQL déjà
+lancée côté serveur. Propagation d'un `CancellationToken` jusqu'à la DLL Trésorerie : hors périmètre,
+à ouvrir en TASK dédiée si le gain constaté ici s'avère insuffisant.
+
+### Preuve
+Harnais de test dédié committé (`gocom-web/e2e_task084.cjs`, Playwright/Chromium réel + serveur de
+simulation HTTP à latence artificielle 600ms) : 4 requêtes en rafale à 60ms d'intervalle → 3 annulées
+côté navigateur (`net::ERR_ABORTED`) et confirmées interrompues côté serveur simulé
+(`aborted_by_client=true`), 1 seule terminée (HTTP 200), 0 `console.error` parasite. **Rejoué et
+confirmé indépendamment par l'architecte** le 2026-09-27. Build front 0 erreur. Rapport
+`VERIFY/TASK-084_verify.md` (archivé, cf. `DONE_DETAIL/TASK-084.md`).
+
+---
+
 ## 2026-09-27 — Lenteur écran liste des règlements corrigée (TASK-083, APPROVE)
 
 ### Contexte

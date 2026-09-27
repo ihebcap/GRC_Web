@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur (non urgent — décision PO 2026-09-27)
 - **Domaine** : Performance (Front + interaction Front/API)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -72,12 +72,10 @@ Résultat mesurable attendu : lors d'un enchaînement rapide de filtres, au plus
 - Respecter le pattern de grilles `ARCHITECTURE.md` (aucun changement de filtre attendu ici,
   seulement le mécanisme de fetch).
 
-## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK
-- [ ] Comportement vérifié end-to-end : reproduire un enchaînement rapide de plusieurs filtres
-      et confirmer dans l'onglet réseau du navigateur qu'au plus une requête `/api/reglements`
-      reste active à la fois (les précédentes apparaissent annulées/`canceled`)
-- [ ] Aucun `console.error` parasite généré par l'annulation volontaire d'une requête
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+## Checklist VALIDATION (remplie par l'architecte à la clôture, 2026-09-27)
+- [x] Build OK — `npm run build` (`tsc -b && vite build`) rejoué par l'architecte le 2026-09-27, 0 erreur, bundle `deploy/wwwroot/` régénéré
+- [x] Comportement vérifié end-to-end — harnais `gocom-web/e2e_task084.cjs` (Playwright/Chromium réel + serveur HTTP de simulation à latence 600ms) **rejoué par l'architecte** le 2026-09-27 : 4 requêtes en rafale à 60ms d'intervalle → 3 annulées côté navigateur (`net::ERR_ABORTED`) et confirmées interrompues côté serveur simulé (`aborted_by_client=true`), 1 seule terminée (HTTP 200), assertions strictes du harnais toutes au vert (exit 0)
+- [x] Aucun `console.error` parasite généré par l'annulation volontaire d'une requête — confirmé par le harnais (0 erreur console sur la session)
+- [x] Aucun credential/secret en dur introduit — changement strictement front (`AbortController`), aucune touche à la config/connexion
+- [x] Aucune dette technique silencieuse — `fetchSeqRef` préservé intact (défense en profondeur), limite documentée sur l'absence de `CancellationToken` côté `ReglementController` (hors périmètre, actée dès le cadrage)
+- [x] Cohérent avec l'architecture — modification strictement front, ne touche à aucune grille/filtre (`ARCHITECTURE.md` non concerné par ce changement)

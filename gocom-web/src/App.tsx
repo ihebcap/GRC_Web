@@ -636,17 +636,36 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   // chargement initial) écrase la réponse d'une requête plus récente et plus rapide (ex. le
   // filtre "non comptabilisé" posé par le mode Comptabilisation) -> filtre allumé, liste non filtrée.
   const fetchSeqRef = useRef(0);
+  // TASK-084 — Annulation de la requête HTTP précédente encore en vol côté navigateur
+  // pour éviter l'empilement de requêtes concurrentes lors de changements de filtres rapprochés.
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const fetchReglements = async (currentPage: number, currentFilters: Record<string, string> = {}) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
       const params = buildParams(currentPage, pageSize, currentFilters);
-      const res = await axios.get(`${API_BASE}/reglements`, { params });
+      const res = await axios.get(`${API_BASE}/reglements`, { params, signal: controller.signal });
       if (seq !== fetchSeqRef.current) return; // réponse périmée : une requête plus récente fait foi
       setReglements(res.data.items);
       setTotal(res.data.totalItems);
     } catch (err) {
+      if (axios.isCancel(err)) {
+        // Annulation volontaire d'une requête précédente : ignorer silencieusement sans polluer la console
+        return;
+      }
       if (seq !== fetchSeqRef.current) return;
       console.error('Failed to fetch reglements', err);
     } finally {

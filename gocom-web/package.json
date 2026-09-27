@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:e2e-084": "node e2e_task084.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
