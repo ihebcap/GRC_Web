@@ -46,7 +46,8 @@ Le n° de facture est déjà disponible dans la vue via `fact.FactureNumero` (OU
 ## Fichiers concernés
 
 - `SQL_005_TASK-053_LibelleEcriture.sql` — `ALTER VIEW vw_ReglementsAComptabiliser`, branche `MV_Type = 0` : colonne `MV_Piece` (l.61-65), colonne `LibelleEcriture` (l.99-101).
-- Aucun changement C# attendu : `PieceAForcer` ([ReglementService.cs:568-569](../GRC.Infrastructure/Services/ReglementService.cs#L568-L569)) et `AppliquerChampsVue` ([ReglementService.cs:619-631](../GRC.Infrastructure/Services/ReglementService.cs#L619-L631)) sont un passe-plat pur — à confirmer en relisant ces deux méthodes avant de coder, pas à supposer.
+- Aucun changement C# attendu : `PieceAForcer` ([ReglementService.cs:568-569](../GRC.Infrastructure/Services/ReglementService.cs#L568-L569)) et `AppliquerChampsVue` ([ReglementService.cs:619-631](../GRC.Infrastructure/Services/ReglementService.cs#L619-L631)) sont un passe-plat pur.
+- **Vérifié (relecture 2026-09-27)** : `ErpComptaPieceDecorator.Invoke` ([ErpComptaPieceDecorator.cs:51-56](../GRC.Infrastructure/Tresorerie/ErpComptaPieceDecorator.cs#L51-L56)) renvoie `ComptaPieceContext.ForcedPiece` tel quel à `GetNextNumero`, sans validation de format ni contrainte de longueur côté C# — la seule contrainte réelle est la troncature Sage `varchar(13)` à l'insertion `F_ECRITUREC` (déjà couverte § Étapes d'implémentation, point 6). Un n° de facture au lieu d'un n° de règlement ne pose donc pas de problème technique à ce niveau.
 
 ## Étapes d'implémentation
 
