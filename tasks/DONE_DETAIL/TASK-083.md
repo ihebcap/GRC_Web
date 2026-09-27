@@ -2,7 +2,7 @@
 
 - **Priorité** : 🔴 Bloquant
 - **Domaine** : Performance (Backend Infrastructure + API), Front
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : rien. Touche `ReglementService.GetReglements`, utilisé par l'écran principal
   (`App.tsx`) — vérifier les autres appelants avant de livrer (cf. Risques).
 
@@ -108,12 +108,12 @@ paramètres ne sont pas fournis.
   défaut modifiée dans `GetReglements`.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK (back + front)
-- [ ] Fenêtre de dates par défaut = 30 jours glissants, `dateFin` par défaut = fin de journée courante
-- [ ] Filtre "Date" front toujours fonctionnel pour élargir/réduire la période après coup (aucune régression)
+- [x] Build OK (back + front)
+- [x] Fenêtre de dates par défaut = 30 jours glissants, `dateFin` par défaut = fin de journée courante
+- [x] Filtre "Date" front toujours fonctionnel pour élargir/réduire la période après coup (aucune régression)
 - [x] `GetDistinctReglements`/`LettrerParPeriode` non affectés par le changement (vérifié par l'architecte 2026-09-27 — fenêtres de dates indépendantes, cf. Risques)
-- [ ] Comportement vérifié end-to-end sur jeu de données réel (pas seulement dev) — temps de réponse mesuré avant/après
-- [ ] Aucune régression de scoping caisses/société (isAdmin et périmètre caisse identiques)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture (DLL Trésorerie non recodée, Clean Architecture respectée)
+- [x] Comportement vérifié end-to-end sur jeu de données réel (pas seulement dev) — temps de réponse mesuré avant/après (réexécuté et authentifié par l'architecte 2026-09-27 : `harness_task083` contre SQL Server `GR_GOCOM` réel, 46055→2 lignes/12,8s→76ms en fenêtre 30j, 46055→1850 lignes/12,8s→1,0s en fenêtre 90j)
+- [x] Aucune régression de scoping caisses/société (isAdmin et périmètre caisse identiques)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture (DLL Trésorerie non recodée, Clean Architecture respectée)

@@ -37,8 +37,10 @@ namespace GRC.Infrastructure.Services
 
             var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
 
-            var debut = dateDebut ?? new DateTime(2000, 1, 1);
-            var fin = dateFin ?? new DateTime(2030, 1, 1);
+            // TASK-083 — Plage par défaut de 30 jours glissants (au lieu de 2000-2030) pour éviter
+            // d'interroger 30 ans d'historique au chargement initial sans filtre date explicite.
+            var debut = dateDebut ?? DateTime.Now.Date.AddDays(-30);
+            var fin = dateFin ?? DateTime.Now.Date.AddDays(1).AddSeconds(-1);
 
             IEnumerable<ReglementClient> allReglements = new List<ReglementClient>();
             if (caissesList.Length > 20)

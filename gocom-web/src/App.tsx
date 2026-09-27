@@ -329,24 +329,40 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   }, [filters]);
 
   useEffect(() => {
-    setPage(1); // reset to page 1 on filter change
-    fetchReglements(1, debouncedFilters);
-  }, [debouncedFilters]);
-
-  useEffect(() => {
-    fetchReglements(page, debouncedFilters);
-  }, [page]);
-  
-  useEffect(() => {
     localStorage.setItem('gocom_page_size', pageSize.toString());
-    setPage(1);
-    fetchReglements(1, debouncedFilters);
   }, [pageSize]);
 
+  // TASK-083 — Unification des 4 useEffect de fetch en un point d'entrée unique.
+  // Évite les 4 requêtes concurrentes au chargement initial et lors des changements d'état.
+  const prevFetchParamsRef = useRef({
+    debouncedFilters,
+    pageSize,
+    sortCol,
+    sortDesc,
+  });
+
   useEffect(() => {
-    setPage(1);
-    fetchReglements(1, debouncedFilters);
-  }, [sortCol, sortDesc]);
+    const prev = prevFetchParamsRef.current;
+    const filtersChanged = prev.debouncedFilters !== debouncedFilters;
+    const pageSizeChanged = prev.pageSize !== pageSize;
+    const sortChanged = prev.sortCol !== sortCol || prev.sortDesc !== sortDesc;
+
+    prevFetchParamsRef.current = {
+      debouncedFilters,
+      pageSize,
+      sortCol,
+      sortDesc,
+    };
+
+    if (filtersChanged || pageSizeChanged || sortChanged) {
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+
+    fetchReglements(page, debouncedFilters);
+  }, [page, pageSize, sortCol, sortDesc, debouncedFilters]);
 
   const handleExport = async () => {
     try {

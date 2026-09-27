@@ -1,5 +1,55 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-27 — Lenteur écran liste des règlements corrigée (TASK-083, APPROVE)
+
+### Contexte
+Constat PO sur trace réseau navigateur : `GET /api/reglements` prenait 14 à 38s par requête pour
+~8 Mo de réponse, répété 4 fois en rafale au chargement de l'écran principal (`App.tsx`).
+
+### Diagnostic
+Vérification du code source réel de la DLL Trésorerie (`ReglementClientRepository.GetAll`,
+`apbs-gr_winform/src/Tresorerie.Dapper/Repositories/`) : le filtre de dates est bien traduit en SQL
+(`WHERE ... MV_Date BETWEEN @DateDebut AND @DateFin`), mais `ReglementService.GetReglements`
+envoyait par défaut `2000-01-01`→`2030-01-01` en l'absence de filtre utilisateur, ramenant tout
+l'historique du périmètre caisses. Aucune pagination SQL (`TOP`/`OFFSET-FETCH`) ni filtre serveur
+sur les autres critères (client, montant, pointé, etc.) n'existe dans la DLL — impossible à ajouter
+sans la modifier (hors périmètre, règle absolue du projet). Seul levier disponible : borner la
+fenêtre de dates par défaut. Côté front, 4 `useEffect` indépendants déclenchaient chacun un fetch,
+d'où les 4 requêtes en rafale observées.
+
+### Solution
+- Backend (`GRC.Infrastructure/Services/ReglementService.cs:40-43`) : fenêtre par défaut ramenée à
+  **30 jours glissants** (`DateTime.Now.Date.AddDays(-30)` → fin de journée courante), décision PO
+  2026-09-27. Filtre utilisateur explicite toujours prioritaire.
+- Front (`gocom-web/src/App.tsx:330-365`) : fusion des 4 `useEffect` de fetch en un point d'entrée
+  unique avec mémoisation des paramètres précédents (`prevFetchParamsRef`) — une seule requête émise
+  par changement d'état, comportement fonctionnel préservé (reset page 1 sur filtre/tri/pageSize).
+- Aucun nouveau composant front : le filtre colonne "Date" existant (`ExcelFilter` mode date,
+  `App.tsx:1168`) permet déjà à l'utilisateur d'élargir/réduire la période après coup.
+
+### Discipline de preuve
+- Harnais dédié (`harness_task083/Program.cs`) exécuté contre SQL Server `GR_GOCOM` réel (société
+  GOCOM, 213 caisses, 46 059 mouvements `RT_MOUVEMENT`) : 46055 lignes/12,8s (fenêtre 2000-2030) →
+  2 lignes/76ms (fenêtre 30j par défaut) → 1850 lignes/1,0s (fenêtre 90j, filtre utilisateur élargi,
+  cas le plus représentatif d'un usage réel). Mesures **réexécutées et authentifiées indépendamment
+  par l'architecte** (résultats du même ordre de grandeur, écarts normaux de variance machine).
+- Build back (`dotnet build GRC.slnx`) et front (`npx tsc --noEmit`) 0 erreur, revérifiés par
+  l'architecte.
+- `GetDistinctReglements` (fenêtre 12 mois indépendante) et `LettrerParPeriode` (dates obligatoires
+  en paramètre) confirmés non affectés par le changement de valeur par défaut.
+- **Premier VERIFY rejeté** : auto-clôture par l'implémenteur (statut DONE + checklist cochée sans
+  review tierce préalable, en violation de la règle de séparation implémentation/clôture), VERIFY
+  déposé au mauvais emplacement, case "comportement vérifié end-to-end" cochée sans aucune preuve de
+  mesure de performance. Corrections apportées et second VERIFY conforme.
+
+### Fichiers modifiés
+- `GRC.Infrastructure/Services/ReglementService.cs`
+- `gocom-web/src/App.tsx`
+
+Rapport complet : `VERIFY/TASK-083_verify.md`.
+
+---
+
 ## 2026-09-27 — Écriture comptable règlement ESPÈCE : N° pièce + libellé = facture (TASK-081, APPROVE)
 
 ### Contexte
