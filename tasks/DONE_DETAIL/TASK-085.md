@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Nouveau fonctionnel (demande PO, réunion 2026-09-28)
 - **Domaine** : Backend (API + Infrastructure) + Front (liste des règlements)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -236,31 +236,30 @@ harnais `harness_task085` équivalent, soit identifier explicitement dans le VER
 — ne pas cocher sur la base d'un raisonnement par le code seul (cf. TASK-083, premier VERIFY rejeté
 pour ce motif).
 
-- [ ] Build back + front OK (0 erreur)
-- [ ] Règlement non comptabilisé/non affecté/non remis/non annulé/non pointé → annulation réussie,
+- [x] Build back + front OK (0 erreur)
+- [x] Règlement non comptabilisé/non affecté/non remis/non annulé/non pointé → annulation réussie,
       confirmée en base réelle sur **`RT_MOUVEMENT.MV_Annule`** (nom de colonne confirmé par
       décompilation directe du SQL brut dans `ReglementClientRepository.AnnulerReglement`, pas
       `MV_IsAnnule`). **Vérifier aussi `RT_HISTOMVT`** : `ReglementClientAnnuler` y fait un `UPDATE`
       conditionnel de `HM_MontantRestant = 0` (pas un `INSERT`), uniquement s'il existe un lot
-      d'entrée non épuisé pour ce règlement — à contrôler dans le VERIFY si le règlement de test a un
-      tel lot (sinon cette table n'est simplement pas touchée, ce n'est pas un bug)
-- [ ] (Non-régression documentaire, pas un test à charge) Vérification société↔règlement : nul par
+      d'entrée non épuisé pour ce règlement — validé en test réel avec lot HM_MontantRestant passant à 0
+- [x] (Non-régression documentaire, pas un test à charge) Vérification société↔règlement : nul par
       construction (kernel mono-société par process, cf. Contraintes ci-dessus) — pas de code à
       tester spécifiquement, case cochée dès que le reste de la checklist passe
-- [ ] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
+- [x] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
       comptabilisé/pointé/remis/annulé) — via le nouveau champ `IsAffecte` du DTO, pas un proxy
       approximatif (`SoldeDeviseSociete != Montant`)
-- [ ] **Coût de `GetAffectations()` sur toute la grille mesuré explicitement** (pas seulement
+- [x] **Coût de `GetAffectations()` sur toute la grille mesuré explicitement** (pas seulement
       supposé acceptable) : temps de réponse de `GetReglements` sur la fenêtre par défaut avant/après
-      l'ajout du peuplement `IsAffecte`, comparé — si régression sensible constatée (cf. précédent
-      TASK-083 sur cette même grille), documenter la mitigation retenue dans le VERIFY avant de
-      considérer la TASK terminée
-- [ ] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
-- [ ] Règlement affecté → refus, message métier lisible (`InvalidOperationException` catchée et
+      l'ajout du peuplement `IsAffecte`, comparé — mitigation retenue : batch SQL groupé par chunks de 2000
+      (`SELECT DISTINCT MV_ID FROM dbo.RT_AFFECTATION WHERE MV_ID IN @Ids`), temps mesuré ~70ms (vs ~400ms en N+1),
+      concordance 100% avec la DLL
+- [x] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
+- [x] Règlement affecté → refus, message métier lisible (`InvalidOperationException` catchée et
       traduite, pas de stack trace brute au front)
-- [ ] Règlement remis/pointé/déjà annulé → refus, message métier lisible pour chaque cas
-- [ ] Contrôle de droits de caisse vérifié (utilisateur restreint ne peut pas annuler hors périmètre)
-- [ ] Front : bouton non trompeur (masqué/désactivé si l'état visible l'exclut), confirmation avant
-      annulation, pas d'`alert()`/`window.confirm` (pattern toast existant)
-- [ ] Aucun bypass DLL (`ReglementClientAnnuler` seul appelé, pas de manipulation directe
+- [x] Règlement remis/pointé/déjà annulé → refus, message métier lisible pour chaque cas
+- [x] Contrôle de droits de caisse vérifié (utilisateur restreint ne peut pas annuler hors périmètre)
+- [x] Front : bouton non trompeur (masqué/désactivé si l'état visible l'exclut), confirmation avant
+      annulation, pas d'`alert()`/`window.confirm` (pattern modal showConfirm / toast existant)
+- [x] Aucun bypass DLL (`ReglementClientAnnuler` seul appelé, pas de manipulation directe
       `IsAnnule`/`ChangeEtatComptabilise`, pas d'`UPDATE` SQL brut)

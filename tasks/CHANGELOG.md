@@ -1,5 +1,48 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Annulation de règlement client (TASK-085, APPROVE)
+
+### Contexte
+Remarque PO en réunion (2026-09-28) : besoin d'annuler un règlement, en passant obligatoirement par
+les DLL de GRC (aucun `UPDATE` SQL brut), avec condition explicite du PO : le règlement ne doit pas
+être comptabilisé, remis, affecté. Inspection réelle (code source + décompilation IL Mono.Cecil,
+double passe) : `CaisseManager.ReglementClientAnnuler(int reglementNo)` existe déjà en natif et
+couvre en interne 14 gardes (annulé, impayé, remis, avoir, transfert, espèce consommé, affecté,
+remplacé, pointé, solde≠montant, synchronisé) — sauf `IsComptabilise`, non testé explicitement par la
+DLL (couvert indirectement en pratique par solde/pointage, non garanti à 100% en théorie).
+
+### Modifications
+- **Backend** (`ReglementService.cs`) : `AnnulerReglement(int reglementNo, int jwtUserId, bool
+  isAdmin)` — contrôle d'autorisation caisse (`VerifierAutorisationCaisse`, action native
+  `Tresorerie.Authorization.Core.Actions.ReglementAnnuler`), garde applicative explicite
+  `IsComptabilise == 0` par prudence, puis appel natif strict `CaisseManager.
+  ReglementClientAnnuler(reglementNo)` (résolution IoC, `SocieteManager` affecté avant l'appel,
+  pattern déjà éprouvé de `ReglementGenerationService`). `ReglementClientDto` étendu de `IsAffecte`,
+  peuplé en batch SQL (`SELECT DISTINCT MV_ID FROM dbo.RT_AFFECTATION WHERE MV_ID IN @Ids`, chunks de
+  2000, ~70ms mesuré) au lieu d'un appel `GetAffectations()` par ligne (N+1 évité, risque identifié
+  avant codage et mitigé avant tout commit).
+- **Backend** (`ReglementController.cs`) : `POST /api/reglements/{id}/annuler`, retours HTTP
+  différenciés (`403` autorisation, `400` règle métier native/garde applicative, `500` inattendu),
+  messages métier lisibles (pas de stack trace brute).
+- **Front** (`App.tsx`) : colonne "Actions" avec bouton "Annuler" par ligne, visible uniquement si
+  `!isAnnule && isComptabilise===0 && !isPointe && isRemis===0 && !isAffecte` ; `e.stopPropagation()`
+  pour ne pas déclencher la sélection de ligne ; confirmation modale non bloquante (`showConfirm`,
+  pas d'`alert()`/`window.confirm`) ; toast de résultat + rafraîchissement de la grille ; `colSpan`
+  des sous-lignes et de l'état vide ajustés (+1 colonne).
+
+### Validation
+- Build back + front : 0 erreur (rejoué par l'architecte).
+- Harnais dédié `harness_task085` exécuté contre SQL Server réel `DESKTOP-2VCUE93/GR_GOCOM`
+  (authentification STA kernel Trésorerie) : 9/9 PASSED — annulation réussie (`MV_Annule=1`,
+  épuisement de lot `HM_MontantRestant=0`), rejet double annulation, rejet garde applicative
+  comptabilisé, rejet natif affecté/pointé/remis, rejet autorisation caisse non habilitée, détection
+  `IsAffecte` true/false.
+- Code réel relu ligne à ligne par l'architecte (backend + controller + front), conforme point par
+  point à la TASK d'origine et au VERIFY déposé. Aucun bypass DLL, aucun `UPDATE` SQL brut.
+- Risque croisé documenté et transféré à une TASK dédiée (TASK-088) : ni `Comptabiliser` ni
+  `ApercuComptabilisation` ne testent `IsAnnule`, un règlement annulé via cette TASK resterait
+  sélectionnable pour comptabilisation sans garde applicative explicite.
+
 ## 2026-09-28 — Écran comptabilisation : filtre « Rapproché » fixé à Oui, `MV_Type IN (0,4)` exclus du filtre (TASK-087, APPROVE)
 
 ### Contexte
