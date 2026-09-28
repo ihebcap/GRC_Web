@@ -64,7 +64,9 @@ sur setters privés, hors du chemin métier prévu par l'éditeur) — à l'inst
 actée pour l'`UPDATE` SQL direct sur `EC_SoldeDevise` en TASK-059. Ne pas la banaliser à d'autres
 champs/cas au-delà de ce qui est décrit ici sans nouvel arbitrage PO.
 
-### Montant — 3 tables impactées, pas seulement `RT_MOUVEMENT`
+### Montant — 4 tables potentiellement impactées, pas seulement `RT_MOUVEMENT`
+(corrigé de "3 tables" à "4 tables" le 2026-09-28 — `RT_HISTOMVT` oubliée à la première passe,
+signalée par le PO, confirmée par inspection IL, voir section "Mise à jour post-création" plus bas)
 
 Le PO a soupçonné à raison qu'une table annexe à `RT_MOUVEMENT` était concernée. Confirmé par
 inspection IL (SQL brut décompilé des repositories réels `Tresorerie.Dapper`/`Tresorerie.DAL`) :
@@ -88,6 +90,11 @@ inspection IL (SQL brut décompilé des repositories réels `Tresorerie.Dapper`/
 nécessaire seulement si affecté ; **hors périmètre par construction** grâce à la garde commune
 (non affecté). Ne pas implémenter ce recalcul dans cette TASK — le documenter comme non applicable
 tant que la garde tient.
+
+**`RT_HISTOMVT`** (lots de caisse — table des mouvements d'entrée/sortie par mode de règlement) —
+**4ème table confirmée nécessaire**, colonnes `HM_Montant`/`HM_MontantRestant` : voir détail complet
+dans la section "Mise à jour post-création" plus bas (couverte automatiquement par
+`CaisseManager.ReglementUpdate`, aucune action manuelle requise si on utilise cette voie DLL).
 
 ### ⚠️ Mise à jour post-création (2026-09-28, revue architecte) — voie DLL native trouvée pour
 Date/Montant/Banque/Référence, **`UpdateMontant` seule ne suffit pas, ne pas s'y limiter**
@@ -127,9 +134,17 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
      `DateModification`/`ModificateurNo`/`AffaireNumero`/`RibClient`/`Info1..4`/`Reference`/
      `CollaborateurNo`/`IsCertifier`/`DateValiditer`/`MontantPlafond`/`ReglementNature` ;
   8. si devise/cours changés → `ChangeDevise` ;
-  9. si montant modifié (étape 4) → met à jour le `Lot` associé à l'historique (montant/montant
-     restant) ;
-  10. **persiste tout l'objet** via `ReglementClientRepository.Update(reg)` — un seul appel Dapper
+  9. **si montant modifié (étape 4) → touche aussi `RT_HISTOMVT`** (table confirmée par IL, PO avait
+     raison de la soupçonner en plus des 3 déjà documentées) : `GetHistoriques().Single()` — un
+     règlement non affecté a **exactement une ligne d'historique liée** (garde déjà vue dans
+     `UpdateMontant` : `GetHistoriques().Count()==1` sinon exception "réglement transféré") — récupère
+     son `Lot` (qui **est** l'entité `HistoriqueMvt` elle-même, pas un objet séparé : la propriété
+     `HistoriqueMvt.Lot` de type `Lot` expose `Montant`/`MontantRestant`), positionne
+     `Lot.Montant = montantDevise` et `Lot.MontantRestant = montantDevise`, puis persiste via
+     `IHistoriqueMvtRepository.Update(historiqueMvt)` — mapping Dapper ORM complet
+     (`HistoriqueMvtMapping` → table `RT_HISTOMVT`, colonnes réelles `HM_Montant`/`HM_MontantRestant`
+     confirmées par IL, aucun SQL brut nécessaire, couvert automatiquement par cet appel) ;
+  10. **persiste le règlement** via `ReglementClientRepository.Update(reg)` — un seul appel Dapper
       `DapperExtensions.Update<MouvementDto>(...)` qui mappe **l'objet entier** (donc
       `MV_Montant`/`MV_Solde`/`MV_SoldeReplace`/`MV_MtDevise`/`MV_SoldeDevise` inclus
       automatiquement, **aucun SQL brut/dérogatoire nécessaire pour ces colonnes**) ;
@@ -138,10 +153,20 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
   12. notifie.
 
   **`MV_Etat` reste non recalculé par cette voie** (ni par `UpdateMontant`, ni par
-  `ReglementClientRepository.Update`) — seul `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)`
-  le fait (`UPDATE [RT_MOUVEMENT] SET [MV_Solde]=@Solde,[MV_Etat]=@Etat`), confirmé par IL. **À
+  `ReglementClientRepository.Update`, ni par la mise à jour de `RT_HISTOMVT`) — seul
+  `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` le fait
+  (`UPDATE [RT_MOUVEMENT] SET [MV_Solde]=@Solde,[MV_Etat]=@Etat`), confirmé par IL. **À
   appeler explicitement après `ReglementUpdate` si le montant a changé** — rien dans `ReglementUpdate`
   ne l'appelle automatiquement.
+
+  **Table `RT_HISTOMVT` — 4ème table impactée par le Montant, confirmée par IL** (colonnes réelles :
+  `HM_Id`, `HM_Montant`, `HM_MontantRestant`, `HM_Epuise`, `HM_Sens`, `MV_Id`, `MR_Id`, `CA_Id`,
+  `DE_Id`, `HM_OpE`, `HM_OpS`, `MV_Domaine`) : c'est la table des "lots" de caisse (entrées/sorties
+  de trésorerie par mode de règlement), utilisée notamment pour le calcul du solde de caisse
+  (`VerifySoldeCaisseRepository`) et l'écran coffre (`ReglementCoffreRepository`). **Couverte
+  automatiquement par `ReglementUpdate` via l'étape 9 ci-dessus** — aucune action supplémentaire
+  requise côté GRC_WEB tant que l'appel passe par `ReglementUpdate` (pas par `UpdateMontant` seule
+  suivie d'une persistance manuelle du règlement, qui laisserait `RT_HISTOMVT` désynchronisée).
 
 - **Conséquence sur le risque "Montant bloqué en attente d'arbitrage PO sur UPDATE SQL direct"
   (section Risques / Contraintes ci-dessous) : très probablement caduc.** `ReglementUpdate` couvre
@@ -297,6 +322,10 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       modification (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`, `MV_SoldeDevise`)
       **et** `MV_Etat` recalculé via l'appel explicite à
       `VerifySoldeManager.UpdateSoldeReglementClient` après `ReglementUpdate`
+- [ ] Modification Montant → `RT_HISTOMVT` (`HM_Montant`, `HM_MontantRestant` de la ligne
+      d'historique liée) cohérent en base réelle après modification — vérifié explicitement (table
+      signalée par le PO, confirmée par inspection IL, distincte de `RT_MOUVEMENT`/`RT_AFFECTATION`/
+      `RT_ECHEANCE`)
 - [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects,
       dans la même transaction que l'écriture DLL (test d'échec partiel : si l'écriture DLL échoue,
       aucune ligne d'historique orpheline)
