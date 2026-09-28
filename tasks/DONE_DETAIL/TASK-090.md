@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Nouveau fonctionnel (demande PO, 2026-09-28)
 - **Domaine** : Front (`RapprochementBancaire.tsx`)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : TASK-086 (endpoint de modification de règlement, déjà livré et en `DONE_DETAIL/`)
 
 ## Contexte
@@ -125,22 +125,22 @@ montants différents :
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build front OK (0 erreur)
-- [ ] Sélection d'un règlement et d'une ligne de relevé de montants différents → modale de
+- [x] Build front OK (0 erreur)
+- [x] Sélection d'un règlement et d'une ligne de relevé de montants différents → modale de
       confirmation propose la mise à jour du montant (pas seulement un forçage silencieux)
-- [ ] Confirmation → montant du règlement mis à jour en base réelle avec la valeur exacte de la
+- [x] Confirmation → montant du règlement mis à jour en base réelle avec la valeur exacte de la
       ligne de relevé (`credit`), testé réellement (pas seulement par lecture de code)
-- [ ] **Payload envoyé au serveur ne contient que `montant`** (pas `reference`/`date`/`banqueNo` à
+- [x] **Payload envoyé au serveur ne contient que `montant`** (pas `reference`/`date`/`banqueNo` à
       vide ou nul) — testé explicitement sur un règlement ayant une Référence non vide avant l'appel :
       la Référence reste inchangée après la mise à jour du montant (pas écrasée par une chaîne vide)
-- [ ] Après mise à jour réussie → rapprochement (réservation/lettrage) effectué automatiquement,
+- [x] Après mise à jour réussie → rapprochement (réservation/lettrage) effectué automatiquement,
       sans nouvelle action utilisateur
-- [ ] Ligne d'historique de modification créée pour ce règlement (comportement natif de l'endpoint
+- [x] Ligne d'historique de modification créée pour ce règlement (comportement natif de l'endpoint
       TASK-086, à confirmer non régressé)
-- [ ] Échec de la mise à jour (règlement devenu non modifiable entre-temps) → message métier clair,
+- [x] Échec de la mise à jour (règlement devenu non modifiable entre-temps) → message métier clair,
       rapprochement NON effectué dans ce cas, testé réellement avec un cas d'échec provoqué
-- [ ] Affichage de la grille GRC rafraîchi avec le nouveau montant après mise à jour réussie
-- [ ] Aucune régression sur le reste de l'écran de rapprochement (sélection, dé-rapprochement,
+- [x] Affichage de la grille GRC rafraîchi avec le nouveau montant après mise à jour réussie
+- [x] Aucune régression sur le reste de l'écran de rapprochement (sélection, dé-rapprochement,
       auto-rapprochement)
-- [ ] Aucun nouveau endpoint créé, aucune duplication de la logique de garde déjà dans
+- [x] Aucun nouveau endpoint créé, aucune duplication de la logique de garde déjà dans
       `ReglementService.ModifierReglement`

@@ -1,5 +1,48 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Correction du montant du règlement depuis l'écran de rapprochement (TASK-090, APPROVE après 1 REJECT)
+
+### Contexte
+Sur l'écran de rapprochement bancaire, quand un règlement et une ligne de relevé sélectionnés avaient
+des montants différents, l'écran proposait un bouton « Forcer » qui se contentait de réserver/lettrer
+la paire sans jamais toucher au montant du règlement (`RT_MOUVEMENT.MV_Montant` inchangé) — l'écart
+persistait silencieusement en base après le forçage. Demande PO (2026-09-28) : remplacer ce mécanisme
+par une mise à jour réelle du montant du règlement avec celui de la ligne de relevé, en réutilisant
+l'endpoint de modification déjà livré par TASK-086, avant de procéder au rapprochement normalement.
+
+### Modifications
+- **Front** (`RapprochementBancaire.tsx`) :
+  - Nouvelle fonction `handleUpdateMontantAndLettrer` : relit la ligne de relevé fraîche au moment du
+    clic (`lignesReleveRef.current.find(...)`, pas une valeur capturée à l'ouverture de la modale),
+    appelle `PUT /api/reglements/{id}` avec **strictement** `{ montant }` — aucune autre clé du DTO
+    (`reference`/`date`/`banqueNo`) n'est envoyée, pour éviter d'écraser silencieusement une donnée
+    existante (`ModifierReglement` teste `dto.Reference != null`, pas `IsNullOrEmpty` : une chaîne
+    vide y est interprétée comme une vraie valeur à appliquer).
+  - Rafraîchissement immédiat du state local `reglementsGrc` (montant affiché mis à jour sans
+    rechargement de la grille).
+  - Enchaînement automatique avec `executeManualLettrage` en cas de succès ; en cas d'échec (règlement
+    devenu comptabilisé/affecté/annulé entre-temps), affichage du message métier remonté par
+    l'endpoint, sans enchaîner le rapprochement.
+  - Bouton « Forcer » et son texte de confirmation entièrement remplacés par « Mettre à jour le
+    montant et rapprocher » (décision PO : pas d'option de forçage sans correction conservée).
+- Aucun changement backend : l'endpoint `PUT /api/reglements/{id}` (TASK-086) supportait déjà un
+  payload ne portant que le montant.
+
+### Validation
+- **1er VERIFY rejeté** : les items de checklist concernant le comportement front (affichage de la
+  modale, rafraîchissement de la grille) étaient cochés sur la seule base d'une lecture de code, sans
+  aucun test exécuté — contraire à la discipline de preuve (`CLAUDE.md`).
+- **2e VERIFY conforme** :
+  - Test E2E Playwright/Chromium réel (`gocom-web/e2e_task090.cjs`) sur le bundle de production :
+    navigation, sélection d'un règlement (500 MAD) et d'une ligne de relevé (750 MAD), interception
+    réseau confirmant le payload `PUT` strict `{"montant":750}`, 2 captures d'écran vérifiées
+    (bannière de confirmation, puis montant mis à jour à 750 MAD avec lettrage `K` apposé).
+  - Harnais backend réel `harness_task090` contre SQL Server `GR_GOCOM` (24/24 PASSED) : payload
+    montant seul appliqué correctement, référence existante non écrasée, historique de modification
+    créé, enchaînement réservation/lettrage réel via `ReserverLigneAsync`, gardes métier vérifiées sur
+    règlement comptabilisé et affecté (rejet avant tout rapprochement).
+  - Build back + front 0 erreur.
+
 ## 2026-09-28 — Filtres Du/Au (date) et plage Min/Max (montant), génération règlement espèce (TASK-089, APPROVE après 1 REJECT)
 
 ### Contexte
