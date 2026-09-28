@@ -217,9 +217,16 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 ## Étapes d'implémentation
 
 1. **Garde commune, vérifiée AVANT toute modification, quel que soit le champ** :
-   `IsComptabilise == EtatComptabilise.NonComptabilise`, `GetAffectations().Any() == false`,
-   `IsAnnule == false`. Centraliser ce contrôle dans une seule méthode/garde réutilisée par
-   TASK-085 si possible (éviter la duplication de logique entre annulation et modification).
+   `IsComptabilise == global::Tresorerie.Core.Enum.EtatComptabilite.NonComptabilise` (type exact —
+   **pas** `EtatComptabilise`, nom à ne pas confondre, cf. usage réel existant dans
+   `ReleveBancaireRepository.cs:740`), `GetAffectations().Any() == false`, `IsAnnule == false`.
+   Centraliser ce contrôle dans une seule méthode/garde réutilisée par TASK-085 si possible (éviter
+   la duplication de logique entre annulation et modification).
+   **Cette garde applicative ne couvre pas tous les cas** : `CaisseManager.ReglementUpdate` a ses
+   propres gardes internes supplémentaires (remis, remplacé/remplaçant, règlement d'avoir, lié à un
+   remboursement fournisseur — voir point 3bis ci-dessous) qui ne sont pas dupliquées côté
+   applicatif ; elles remonteront comme exceptions natives à catcher, pas comme un refus silencieux
+   avant l'appel DLL.
 2. **Table d'historique** (`GRC_ReglementModificationHistorique` ou nom similaire, à définir) :
    colonnes `Id`, `ReglementNo`, `UserId`, `DateModification`, et les valeurs avant/après — 1 ligne
    par appel de modification (pas 1 ligne par champ), stockage large (colonnes nullable par champ
@@ -253,14 +260,35 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
      règlement non affecté et sans lever d'exception sur les champs hors périmètre repris tels
      quels — aucun test réel fait à ce stade, seulement une lecture IL. Si un blocage apparaît,
      remonter à l'architecte avant d'envisager un bypass SQL (ne pas décider seul).
+3bis. **Gestion des exceptions natives de `ReglementUpdate` / `ChangeDate` / `UpdateMontant`**
+   (point absent de la version initiale de la TASK, ajouté après revue croisée avec TASK-085) :
+   la garde commune applicative (étape 1) ne couvre que comptabilisé/affecté/annulé. `ReglementUpdate`
+   lève en plus nativement (confirmé par IL, cf. section "Mise à jour post-création") sur : règlement
+   lié à un remboursement fournisseur, règlement d'avoir (`IsReglementAvoir`), règlement remis
+   (`IsRemis`, si montant modifié), règlement déjà remplacé ou remplaçant d'un autre
+   (`GetRemplacements()`/`GetMesRemplacants()`, si montant modifié), règlement pointé (`IsPointe`,
+   si montant ou date modifié), mode chèque/traite sans `piece` renseignée, banque en sommeil,
+   référence obligatoire manquante ou non unique selon le mode, dépassement du délai moyen de
+   paiement si `Societe.DelaiPaiementClient` actif et échéance modifiée. Ces exceptions sont un
+   mélange d'`ApplicationException`/`InvalidOperationException`/`ArgumentException` — **prévoir un
+   `catch` couvrant ces types**, traduire en message métier lisible (pas de stack trace technique
+   au front), sur le modèle de la gestion d'exceptions de TASK-085 (étape 4 de cette TASK sœur).
 4. **Écrire la ligne d'historique dans la même transaction** que la modification DLL — pas d'
    historisation orpheline si l'écriture DLL échoue, pas de modification silencieuse si
    l'historisation échoue.
 5. **Front** : formulaire de modification avec les 5 champs pré-remplis, sélecteur client
    réutilisant la recherche existante (pas un nouveau composant, cf. `ARCHITECTURE.md` — pattern à
    respecter aussi pour la liste déroulante banque si une grille de sélection est utilisée).
-6. **Message d'erreur explicite** si la garde commune échoue (comptabilisé/affecté/annulé),
-   sur le modèle du panneau de messages TASK-055 — pas un rejet muet.
+6. **Message d'erreur explicite** si la garde commune échoue (comptabilisé/affecté/annulé) **ou si
+   une garde native de `ReglementUpdate` échoue** (cf. étape 3bis), sur le modèle du panneau de
+   messages TASK-055 — pas un rejet muet, pas de stack trace brute.
+7. **Contrôle de droits de caisse** sur le nouvel endpoint, pattern `HasEntityActionRestriction`
+   (TASK-069/085). Action à utiliser (vérifiée par réflexion réelle sur
+   `libs\Tresorerie\Tresorerie.Authorization.Core.dll`, classe existante confirmée) :
+   `new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid` — **ne pas réutiliser
+   `ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer` par erreur de copier-collé du
+   pattern TASK-069/085** (piège déjà nommé explicitement dans TASK-085 pour son action
+   `ReglementAnnuler`, même risque ici avec `ReglementModifier`).
 
 ## Contraintes
 
@@ -329,6 +357,13 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects,
       dans la même transaction que l'écriture DLL (test d'échec partiel : si l'écriture DLL échoue,
       aucune ligne d'historique orpheline)
-- [ ] Contrôle de droits de caisse vérifié
+- [ ] Gestion des exceptions natives de `ReglementUpdate` hors garde commune (remis, remplacé/
+      remplaçant, avoir, lié à un remboursement fournisseur, chèque/traite sans pièce, banque en
+      sommeil, référence obligatoire/non unique, délai moyen de paiement dépassé) : chaque cas
+      catché et traduit en message métier lisible, pas de stack trace brute au front — testé sur
+      au moins 2 cas réels en base
+- [ ] Contrôle de droits de caisse vérifié, avec l'action `ReglementModifier`
+      (`Tresorerie.Authorization.Core.Actions.ReglementModifier`) — pas une autre action
+      copiée-collée par erreur (`ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer`)
 - [ ] Aucun `UPDATE` SQL brut non documenté/non dérogé par le PO
 - [ ] Cohérent avec ARCHITECTURE.md si un composant de sélection/liste est introduit
