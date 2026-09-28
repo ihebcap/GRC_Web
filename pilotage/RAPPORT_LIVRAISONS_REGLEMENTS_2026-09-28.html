@@ -252,13 +252,13 @@
 <div class="wrap">
   <header>
     <p class="eyebrow">Espace Gestion — Trésorerie</p>
-    <h1>Règlements clients — 5 livraisons</h1>
-    <p class="lede">Annulation, modification et sécurisation des règlements, ainsi que deux corrections de filtres. Demandes formulées en réunion du 28 septembre 2026, toutes livrées et validées.</p>
+    <h1>Règlements clients — 6 livraisons</h1>
+    <p class="lede">Annulation, modification et sécurisation des règlements, correction du rapprochement bancaire, ainsi que deux corrections de filtres. Demandes formulées en réunion du 28 septembre 2026, toutes livrées et validées.</p>
   </header>
 
   <div class="summary-bar">
-    <div class="summary-pill"><span class="n">5</span><span class="l">demandes livrées</span></div>
-    <div class="summary-pill"><span class="n">5</span><span class="l">sur 5 validées</span></div>
+    <div class="summary-pill"><span class="n">6</span><span class="l">demandes livrées</span></div>
+    <div class="summary-pill"><span class="n">6</span><span class="l">sur 6 validées</span></div>
   </div>
 
   <div class="task-list">
@@ -389,6 +389,33 @@
             <li>Colonnes <strong>Date facture</strong> et <strong>Date échéance</strong> : filtre « Du … au … ».</li>
             <li>Colonnes <strong>Montant</strong> et <strong>Solde</strong> : filtre « Minimum / Maximum ».</li>
           </ul>
+        </div>
+      </div>
+    </article>
+
+    <!-- 6 -->
+    <article class="task">
+      <div class="task-head">
+        <div class="titlewrap">
+          <span class="num">6</span>
+          <h2>Correction du montant depuis le rapprochement bancaire</h2>
+        </div>
+        <span class="status">Livré</span>
+      </div>
+      <div class="task-body">
+        <p class="desc">Sur l'écran de rapprochement bancaire, quand un règlement et une ligne de relevé sélectionnés n'avaient pas le même montant, l'écran proposait de « forcer » le rapprochement sans jamais corriger le montant du règlement — l'écart restait alors présent en base de façon permanente. Ce mécanisme est remplacé par une correction réelle du montant.</p>
+
+        <div class="field">
+          <p class="flabel">Ce qui change à l'écran</p>
+          <ul>
+            <li>En cas d'écart de montant entre un règlement et une ligne de relevé, l'écran propose désormais de <strong>mettre à jour le montant du règlement</strong> avec celui de la ligne de relevé sélectionnée.</li>
+            <li>Une fois la mise à jour validée, le rapprochement s'effectue automatiquement dans la foulée, sans action supplémentaire.</li>
+            <li>Si le règlement n'est plus modifiable au moment de la validation (par exemple déjà comptabilisé entre-temps), un message clair l'indique et le rapprochement n'est pas effectué.</li>
+          </ul>
+        </div>
+
+        <div class="note-box">
+          <span><strong>Non-régression confirmée :</strong> la correction du montant n'affecte aucune autre donnée du règlement (référence, date, banque) — vérifié explicitement avant livraison.</span>
         </div>
       </div>
     </article>
