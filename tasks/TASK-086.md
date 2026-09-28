@@ -74,9 +74,11 @@ inspection IL (SQL brut décompilé des repositories réels `Tresorerie.Dapper`/
 **`RT_MOUVEMENT`** (le règlement lui-même) — colonnes confirmées par le mapping réel :
 - `MV_Montant`, `MV_Solde`, `MV_SoldeReplace` (nom réel — **pas** `MV_SoldeRemplace`), `MV_MtDevise`,
   `MV_SoldeDevise`.
-- **`MV_Etat`** (soldé/non soldé) — recalculé par `VerifySoldeManager.UpdateSoldeReglementClient` en
-  même temps que `MV_Solde` (`UPDATE [RT_MOUVEMENT] SET [MV_Solde]=@Solde,[MV_Etat]=@Etat`) — à ne
-  pas oublier, ce n'est pas qu'un recalcul de solde numérique.
+- **`MV_Etat`** (soldé/non soldé) — ⚠️ **affirmation initiale ci-dessous corrigée par le correctif
+  critique de la section "Mise à jour post-création" plus bas : ne PAS appeler
+  `VerifySoldeManager.UpdateSoldeReglementClient`, `ReglementUpdate` seul recalcule déjà `MV_Etat`
+  correctement pour un règlement non affecté (propriété calculée, incluse dans l'UPDATE ORM). Ce
+  paragraphe est laissé tel quel pour tracer le raisonnement initial, ne pas le suivre tel quel.**
 
 **`RT_AFFECTATION`** (lien facture ↔ règlement) — **confirmé nécessaire** :
 - `AF_Montant`/`AF_MtDevise` de la ou des lignes liées (`WHERE MV_Id = reglementNo`) doivent être
@@ -125,7 +127,21 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
      banque change elle vérifie qu'elle n'est pas "en sommeil" (`InformationsBanque.EnSommeil`) ;
   3. si `ModeReglement.IsReferenceReglementClientObligatoire` : référence obligatoire ; si
      `ControllerUniciteReferenceReglementClient` : référence unique (`ReglementClientIsReferenceUnique`) ;
-  4. si `montantDevise != Montant` actuel → appelle `UpdateMontant` (gardes ci-dessus incluses) ;
+  4. si `montantDevise != Montant` actuel → appelle `UpdateMontant` (gardes ci-dessus incluses).
+     **⚠️ Piège de nommage confirmé par IL : le paramètre `montantDevise` de `ReglementUpdate` est
+     comparé à `ReglementClient.Montant` (devise d'origine du règlement), PAS à
+     `MontantDeviseSociete`** (montant converti en devise société) malgré ce que son nom suggère.
+     Or **c'est `MontantDeviseSociete` que la grille `App.tsx` affiche au PO sous le libellé
+     « Montant »** (`gocom-web/src/App.tsx:617`, `montant: r.montantDeviseSociete`). Pour un
+     règlement en devise société (cas très majoritaire, voire unique en pratique — aucune gestion
+     de devise étrangère trouvée dans `ReglementService.cs` actuel), `Montant == MontantDeviseSociete`
+     et le piège est invisible. Pour un règlement en devise étrangère (`DeviseNo != DeviseSociete`),
+     le formulaire doit soumettre `Montant` (devise d'origine), pas la valeur affichée dans la grille
+     — **à trancher explicitement au dev** : soit le formulaire affiche/édite `Montant` (devise
+     d'origine) et non `MontantDeviseSociete`, soit reconvertir avant l'appel via `DeviseCours`. Ne
+     pas supposer que la valeur du formulaire peut être passée telle quelle si le projet gère
+     effectivement des règlements multi-devises — vérifier au dev si ce cas existe en pratique sur
+     ce déploiement avant de trancher ;
   5. si `echeance != DateEcheance` actuel et `Societe.DelaiPaiementClient` actif → bloque (délai moyen
      de paiement) ;
   6. si `date != Date` actuel → appelle `ChangeDate` (gardes : annulé, comptabilisé, remis, affecté,
@@ -333,6 +349,16 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    `ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer` par erreur de copier-collé du
    pattern TASK-069/085** (piège déjà nommé explicitement dans TASK-085 pour son action
    `ReglementAnnuler`, même risque ici avec `ReglementModifier`).
+   **Cette action `ReglementModifier` est déjà utilisée dans le code existant** —
+   `ReglementService.RapprocherManuel` (`ReglementService.cs:755`) l'emploie déjà via
+   `VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid, cacheCaisses)` : réutiliser
+   ce même helper privé et ce même pattern d'appel (cache par caisse pour éviter les résolutions
+   répétées), ne pas en réinventer un nouveau. Ce helper couvre aussi nativement le scoping société
+   (`_kernel.GroupeService.SocieteManager.Societe.GetCaisse(caisseNo)` retourne `null` — donc refuse
+   — si la caisse n'appartient pas à la société déjà résolue par le kernel pour l'utilisateur
+   courant) : pas besoin d'ajouter une vérification société manuelle séparée si ce helper est
+   réutilisé tel quel, seulement s'assurer que le règlement est chargé et son `CaisseOrigine` passé
+   à `VerifierAutorisationCaisse` avant toute lecture/écriture.
 8. **Consultation de l'historique** (cf. section Fichiers concernés) : nouvel endpoint de lecture
    seule renvoyant les lignes de `GRC_ReglementModificationHistorique` pour un `reglementNo`, triées
    date décroissante ; action par ligne dans la grille (bouton/icône « Historique », distinct du
@@ -356,13 +382,16 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
   **plus être nécessaire** ; s'il s'avère malgré tout requis au moment du dev (comportement DLL
   inattendu constaté en base réelle), **signaler et attendre arbitrage PO explicite avant de coder
   ce chemin**, ne pas décider unilatéralement.
-- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Vérifier
-  explicitement que le règlement appartient à la société de l'utilisateur connecté**, pas seulement
-  à une caisse autorisée — un règlement d'une société différente ne doit jamais être accessible
-  même via une caisse au nom similaire (IDOR, cf. précédent déjà traité TASK-075 sur un autre
-  endpoint de ce projet). Confirmer au dev que `VerifierAutorisationCaisse`/le pattern TASK-069
-  couvre nativement cette vérification société↔règlement ; si ce n'est pas le cas, l'ajouter
-  explicitement avant tout accès en lecture ou écriture au règlement.
+- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Le helper
+  `VerifierAutorisationCaisse` existant (`ReglementService.cs:692`) couvre nativement le scoping
+  société** — confirmé par lecture de code (pas seulement supposé) : `societe.GetCaisse(caisseNo)`
+  interroge la société déjà résolue par `_kernel.GroupeService.SocieteManager.Societe` pour
+  l'utilisateur courant, et renvoie `null` (donc `UnauthorizedAccessException`) si la caisse
+  n'appartient pas à cette société — un règlement d'une société différente n'est donc jamais
+  accessible via ce chemin, même via une caisse au nom similaire (IDOR, cf. précédent TASK-075 sur
+  un autre endpoint). **Condition nécessaire** : appeler ce helper avec `reg.CaisseOrigine` du
+  règlement réellement chargé, avant toute lecture ou écriture — ne pas le contourner ni le
+  réimplémenter, l'usage existant dans `RapprocherManuel` (cf. étape 7) est le modèle à suivre.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 - Si un écran de sélection/liste est introduit pour choisir la banque ou le client dans le
   formulaire de modification : respecter `ARCHITECTURE.md` § Grilles de données (pas de nouveau
@@ -403,6 +432,10 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       annulé → refus ; message métier clair pour chaque cas
 - [ ] Modification Date/Montant/Banque/Référence → un seul appel `CaisseManager.ReglementUpdate`,
       testé en base réelle, confirmé fonctionnel pour un règlement non affecté
+- [ ] Champ Montant : confirmé quel montant le formulaire édite réellement (`Montant` devise
+      d'origine vs `MontantDeviseSociete` affiché dans la grille) — cohérent après modification pour
+      au moins un règlement en devise société ; si des règlements en devise étrangère existent en
+      pratique sur ce déploiement, testé aussi sur ce cas et écart documenté dans le VERIFY
 - [ ] Non-régression des champs hors périmètre PO (libellé, pièce, tiré, échéance, affaire, RIB,
       infos libres, collaborateur, certification, validité, plafond, devise/cours) : valeurs
       relues depuis l'entité existante et inchangées après modification — vérifié en base réelle
