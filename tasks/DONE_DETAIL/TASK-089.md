@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Correction (Front)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte

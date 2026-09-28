@@ -1,5 +1,55 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Filtres Du/Au (date) et plage Min/Max (montant), génération règlement espèce (TASK-089, APPROVE après 1 REJECT)
+
+### Contexte
+Remarque PO (2026-09-28, capture d'écran de l'écran « Factures ouvertes » — génération de
+règlement espèce) : le filtre sur `DATE FACTURE`/`DATE ÉCHÉANCE` affichait une checklist Excel
+(mode `list`) avec une valeur par ligne — sur 3319 factures ouvertes, inexploitable pour trouver
+une période. Le PO a demandé le même filtre « Du .... Au .... » que sur la grille de la liste des
+règlements. Revue étendue demandée par le PO sur tous les écrans à grille : la même anomalie a été
+trouvée sur `montant`/`solde` du même écran (incohérent avec le pattern déjà correct d'`App.tsx`).
+
+### Modifications
+- **Front** (`ReglementGenerationEspece.tsx`, `ALL_COLUMNS`) :
+  ```diff
+  -  { key: 'dateFacture',  filterType: 'list' },
+  -  { key: 'dateEcheance', filterType: 'list' },
+  -  { key: 'montant',      filterType: 'list', isAmount: true },
+  -  { key: 'solde',        filterType: 'list', isAmount: true },
+  +  { key: 'dateFacture',  filterType: 'date' },
+  +  { key: 'dateEcheance', filterType: 'date' },
+  +  { key: 'montant',      filterType: 'number', isAmount: true },
+  +  { key: 'solde',        filterType: 'number', isAmount: true },
+  ```
+  Correction de config pure : la logique de filtrage par plage (`filteredFactures`, bornes
+  encodées `"min~max"` dans `filter.value`, décodées par `split('~')`) et le rendu des sélecteurs
+  « Du/Au » / « Min/Max » du composant partagé `ExcelFilter.tsx` existaient déjà — aucun nouveau
+  composant, aucun nouveau mécanisme. Aucun autre fichier modifié.
+- Colonnes non demandées (`clientCode`, `factureNumero`, `representant`, `commentaire`, `info1-4`)
+  laissées inchangées en `filterType: 'list'`.
+
+### Revue étendue (demandée par le PO)
+4 écrans à grille passés en revue (`App.tsx`, `RapprochementBancaire.tsx`, `RelevesBancaires.tsx`,
+`ReglementGenerationEspece.tsx`). Seule anomalie trouvée : `montant`/`solde` ci-dessus. Cas
+particulier vérifié et écarté : `Débit`/`Crédit` de `RelevesBancaires.tsx` sont en
+`filterType: 'text'` + `matchAmount` (TASK-078) — choix délibéré de matching de valeur, pas une
+anomalie de cardinalité.
+
+### Validation
+- Build front `npm run build` : exit 0, 130 modules, 3.35s.
+- **1er VERIFY REJETÉ** : la section « Vérification par lecture de code » citait un extrait de
+  `filteredFactures` utilisant une API `filter.min`/`filter.max` qui n'existe pas dans le fichier
+  réel (le code effectif encode les bornes dans une seule string `filter.value` au format
+  `"min~max"`) ; le fragment JSX cité pour `ExcelFilter.tsx` était également une reformulation
+  inventée du vrai ternaire. Citations fabriquées présentées comme preuve — contraire à la
+  discipline de preuve (`CLAUDE.md` § Discipline de preuve).
+- **2e VERIFY conforme** : toutes les citations (`filteredFactures` l.171-195 ;
+  `ExcelFilter.tsx` — `applyRange` l.42-47, synchronisation à l'ouverture l.35-40, ternaire du
+  sélecteur date l.149-158, bouton Effacer l.167, `isActive` l.88) vérifiées caractère près par
+  l'architecte contre le code réel. Écart `list`→`date`/`number` documenté en référence à
+  TASK-063 et `ARCHITECTURE.md` § Grilles de données.
+
 ## 2026-09-28 — Garde `IsAnnule` dans `VerifierComptabilisable` (TASK-088, APPROVE)
 
 ### Contexte
