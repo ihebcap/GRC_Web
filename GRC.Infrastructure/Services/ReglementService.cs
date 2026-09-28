@@ -24,7 +24,7 @@ namespace GRC.Infrastructure.Services
             _logger = logger;
         }
 
-        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
+        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut = null, DateTime? dateFin = null, string? clientFilter = null, string? numeroFilter = null, string? pieceFilter = null, string? refFilter = null, string? libelleFilter = null, string? montantFilter = null, string? extraitFilter = null, string? isPointe = null, string? isComptabilise = null, string? isRemis = null, string? isImpaye = null, string? isAnnule = null, string? caisseNosFilter = null, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
         {
             if (isAdmin)
             {
@@ -187,6 +187,7 @@ namespace GRC.Infrastructure.Services
 
             var reglementIds = allReglements.Select(r => r.No).ToList();
             var reservations = new Dictionary<int, (string? Lettrage, int? UserId, string? UserName, DateTime? Date)>();
+            var affectesSet = new HashSet<int>();
             
             if (reglementIds.Any())
             {
@@ -196,6 +197,7 @@ namespace GRC.Infrastructure.Services
                     
                     // 1. Charger les réservations pour les règlements
                     string sqlRes = "SELECT MV_ID, Lettrage, ReservePar_UserId, DateReservation FROM dbo.RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids";
+                    string sqlAffectations = "SELECT DISTINCT MV_ID FROM dbo.RT_AFFECTATION WHERE MV_ID IN @Ids";
                     var userIds = new HashSet<int>();
                     
                     foreach (var chunk in reglementIds.Chunk(2000))
@@ -211,6 +213,13 @@ namespace GRC.Infrastructure.Services
                                     userIds.Add((int)row.ReservePar_UserId);
                                 }
                             }
+                        }
+
+                        // TASK-085 — Détection batch des affectations (100% conforme à r.GetAffectations().Any(), évite le N+1 sur toute la grille)
+                        var affList = Dapper.SqlMapper.Query<int>(connection, sqlAffectations, new { Ids = chunk });
+                        foreach (var mvId in affList)
+                        {
+                            affectesSet.Add(mvId);
                         }
                     }
                     
@@ -240,7 +249,9 @@ namespace GRC.Infrastructure.Services
 
             return allReglements.Select(r => {
                 var hasRes = reservations.TryGetValue(r.No, out var res);
-                return ReglementMapper.Map(r, hasRes ? res.Lettrage : null, hasRes ? res.UserId : null, hasRes ? res.UserName : null, hasRes ? res.Date : null);
+                var dto = ReglementMapper.Map(r, hasRes ? res.Lettrage : null, hasRes ? res.UserId : null, hasRes ? res.UserName : null, hasRes ? res.Date : null);
+                dto.IsAffecte = affectesSet.Contains(r.No);
+                return dto;
             }).ToList();
         }
 
@@ -746,6 +757,47 @@ namespace GRC.Infrastructure.Services
             }
         }
 
+        // TASK-085 — Annulation de règlement via l'appel natif CaisseManager.ReglementClientAnnuler.
+        // Pré-contrôles : autorisation caisse (ReglementAnnuler) + garde applicative IsComptabilise.
+        // Aucun bypass DLL ni UPDATE SQL direct.
+        public void AnnulerReglement(int reglementNo, int jwtUserId, bool isAdmin)
+        {
+            var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
+            connProvider.ConnectionString = _dbFactory.GetConnectionString();
+            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+
+            var reg = repo.Get(reglementNo);
+            if (reg == null)
+            {
+                _logger.LogWarning("ANNULATION RÈGLEMENT introuvable : reglementNo={ReglementNo}", reglementNo);
+                throw new ApplicationException($"Impossible de charger le règlement [{reglementNo}].");
+            }
+
+            // TASK-085 (Étape 2) — Pré-contrôle d'autorisation caisse sur l'action ReglementAnnuler
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementAnnuler().Guid;
+                VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid);
+            }
+
+            // TASK-085 (Étape 1) — Garde applicative explicite avant l'appel DLL :
+            // ReglementClientAnnuler ne teste pas explicitement IsComptabilise (couvert indirectement
+            // par le solde et le pointage en pratique, mais non garanti à 100 % en théorie).
+            // Ajout d'un test explicite par prudence applicative côté GRC_WEB.
+            if (reg.IsComptabilise != 0)
+            {
+                _logger.LogWarning("ANNULATION RÈGLEMENT refusée (comptabilisé) : reglementNo={ReglementNo}, isComptabilise={IsComptabilise}", reglementNo, reg.IsComptabilise);
+                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est déjà comptabilisé et ne peut pas être annulé.");
+            }
+
+            // TASK-085 (Étape 3) — Résolution et appel natif DLL de CaisseManager.ReglementClientAnnuler
+            var caisseManager = _kernel.Resolve<global::Tresorerie.Core.Services.CaisseManager>();
+            caisseManager.SocieteManager = _kernel.GroupeService.SocieteManager;
+            caisseManager.ReglementClientAnnuler(reglementNo);
+
+            _logger.LogInformation("ANNULATION RÈGLEMENT succès DLL : reglementNo={ReglementNo}, userId={UserId}", reglementNo, jwtUserId);
+        }
+
         public object RapprocherManuel(List<RapprochementManuelDto> items, int jwtUserId, bool isAdmin)
         {
             var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
@@ -995,6 +1047,7 @@ namespace GRC.Infrastructure.Services
         public int IsRemis { get; set; }
         public int IsImpaye { get; set; }
         public bool IsAnnule { get; set; }
+        public bool IsAffecte { get; set; }
         
         public int CaisseNo { get; set; }
         public int? BanqueNo { get; set; }

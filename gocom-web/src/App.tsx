@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote } from 'lucide-react';
+import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import './index.css';
 import LicenceBlockedScreen from './LicenceBlockedScreen';
@@ -44,6 +44,7 @@ interface Reglement {
   isImpaye: number;
   impayeDate: string | null;
   isAnnule: boolean;
+  isAffecte?: boolean;
   pieceNumero: string | null;
   extraitNum: string | null;
   numero: string | null;
@@ -631,6 +632,20 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
     fetchReglements(page, debouncedFilters);
   };
 
+  // TASK-085 — Annulation de règlement : confirmation utilisateur non bloquante, appel API, rafraîchissement.
+  const handleAnnulerReglement = (reg: Reglement) => {
+    showConfirm(`Voulez-vous vraiment annuler le règlement [${reg.numero || reg.no}] d'un montant de ${formatMoney(reg.montantDeviseSociete)} ? Cette opération est irréversible.`, async () => {
+      try {
+        await axios.post(`${API_BASE}/reglements/${reg.no}/annuler`);
+        showToast(`Règlement [${reg.numero || reg.no}] annulé avec succès.`, 'success');
+        fetchReglements(page, debouncedFilters);
+      } catch (err: any) {
+        const msg = err.response?.data?.message || err.response?.data?.title || err.response?.data || 'Erreur lors de l\'annulation du règlement.';
+        showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
+      }
+    });
+  };
+
   // Séquencement des requêtes : seule la réponse de la DERNIÈRE requête émise est appliquée.
   // Sans cette garde, une requête lente partie AVANT (ex. la liste complète non filtrée du
   // chargement initial) écrase la réponse d'une requête plus récente et plus rapide (ex. le
@@ -747,6 +762,22 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
           {selectedColumns.map(key => (
             <td key={key}>{renderSharedCell(key, reg, caissesMap, modesMap, banquesMap)}</td>
           ))}
+          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAnnulerReglement(reg);
+                }}
+                className="btn btn-ghost-danger"
+                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
+                title="Annuler le règlement"
+              >
+                <XCircle size={14} color="#ef4444" />
+                <span>Annuler</span>
+              </button>
+            )}
+          </td>
         </tr>
         );
         
@@ -755,7 +786,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
               <React.Fragment key={reg.no}>
                 {rowUI}
                 <tr style={{backgroundColor: 'rgba(34, 197, 94, 0.05)'}}>
-                  <td colSpan={selectedColumns.length} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
+                  <td colSpan={selectedColumns.length + 1} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
                     <div style={{display: 'inline-flex', gap: '1.5rem', alignItems: 'center'}}>
                         <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
                             <span style={{fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)'}}>N° Extrait pour cette ligne:</span>
@@ -790,7 +821,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
       })}
       {reglements.length === 0 && !loading && (
         <tr>
-          <td colSpan={selectedColumns.length} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
+          <td colSpan={selectedColumns.length + 1} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
         </tr>
       )}
     </tbody>
@@ -1268,6 +1299,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         </th>
                       );
                     })}
+                    <th style={{ width: '80px', minWidth: '80px', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 {tableBodyMemo}

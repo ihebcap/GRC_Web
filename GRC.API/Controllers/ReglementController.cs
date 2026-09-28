@@ -282,6 +282,47 @@ namespace GRC.API.Controllers
                 }
             }
         }
+
+        // TASK-085 — Annulation de règlement (demande PO réunion 2026-09-28) :
+        // Appel natif CaisseManager.ReglementClientAnnuler, garde applicative IsComptabilise,
+        // contrôle de droits de caisse (action ReglementAnnuler).
+        [HttpPost("{id}/annuler")]
+        public IActionResult AnnulerReglement(int id)
+        {
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
+            using (_logger.BeginScope("Annulation règlement id={ReglementId} userId={UserId}", id, userId))
+            {
+                _logger.LogInformation("ANNULATION RÈGLEMENT entrée : reglementId={ReglementId}, userId={UserId}", id, userId);
+                try
+                {
+                    _reglementService.AnnulerReglement(id, userId, isAdmin);
+                    _logger.LogInformation("ANNULATION RÈGLEMENT sortie OK : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return Ok(new { success = true, message = $"Règlement {id} annulé avec succès." });
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "ANNULATION RÈGLEMENT refusée (autorisation) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return StatusCode(403, new { message = ex.Message });
+                }
+                catch (System.ApplicationException ex)
+                {
+                    _logger.LogWarning(ex, "ANNULATION RÈGLEMENT rejetée (règle métier native) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return BadRequest(new { message = ex.Message });
+                }
+                catch (System.InvalidOperationException ex)
+                {
+                    _logger.LogWarning(ex, "ANNULATION RÈGLEMENT rejetée (opération invalide) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return BadRequest(new { message = ex.Message });
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "ANNULATION RÈGLEMENT échec inattendu : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return Problem(ex.Message);
+                }
+            }
+        }
     }
 
     // TASK-051 — Payload du lettrage par période : deux dates uniquement, pas de sélection de lignes.
