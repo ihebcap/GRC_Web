@@ -34,9 +34,9 @@ virement/chèque/traite.
 ## Objectif
 
 Sur l'écran de comptabilisation :
-1. Le filtre « Rapproché » est **fixé à Oui par défaut et non modifiable** par l'utilisateur (verrou,
-   pas de simple valeur par défaut qui resterait changeable — à confirmer avec le PO si un doute
-   subsiste sur ce point pendant le dev, cf. Risques).
+1. Le filtre « Rapproché » est **verrouillé sur Oui — décision PO actée (2026-09-28)** : le
+   `<select>` disparaît de l'UI ou est affiché désactivé/grisé, toujours figé sur Oui. L'utilisateur
+   ne peut plus le repasser sur "Tous" ou "Non", même ponctuellement.
 2. Les règlements **espèce** (`MV_Type == 0`) restent **toujours inclus**, indépendamment de leur
    état de rapprochement (qui n'a pas de sens pour ce mode) — jamais exclus par ce filtre.
 
@@ -48,10 +48,11 @@ Sur l'écran de comptabilisation :
 
 ## Étapes d'implémentation
 
-1. **Front** : verrouiller le filtre à `'oui'` — soit retirer le `<select>` (si le PO veut qu'il
-   disparaisse de l'UI), soit le désactiver visuellement en affichant la valeur figée (à trancher
-   selon préférence PO, cf. Risques ci-dessous). Ne pas se contenter de changer la valeur par défaut
-   si le PO veut un verrou réellement non contournable par l'utilisateur.
+1. **Front** : verrouiller le filtre à `'oui'` — retirer le `<select>` de l'UI, ou le conserver visible
+   mais désactivé (`disabled`) avec la valeur figée sur "Oui" (au choix d'implémentation, l'un ou
+   l'autre convient — la seule exigence est qu'aucune interaction utilisateur ne puisse changer la
+   valeur transmise au backend). Ne pas se contenter de changer la valeur par défaut de `useState` :
+   ça resterait modifiable par l'utilisateur, ce qui ne répond pas à la décision PO.
 2. **Backend** : dans `ReglementService.GetReglements` (ou méthode équivalente portant le filtre
    `IsPointe`), transformer la clause pour que les espèces soient **toujours incluses** quel que
    soit `pointeVal`, en réutilisant la convention déjà en place `MV_Type == 0` /
@@ -74,11 +75,6 @@ Sur l'écran de comptabilisation :
 
 ## Risques / dépendances
 
-- **Ambiguïté à lever avec le PO avant/pendant le dev** : "fixé à Oui obligatoirement" peut signifier
-  soit un verrou dur (select retiré/désactivé), soit une valeur par défaut simplement pré-sélectionnée
-  mais que l'utilisateur pourrait encore changer. Vérifier l'intention exacte avant de coder le
-  front — un simple changement de valeur par défaut serait trivial mais ne répondrait pas
-  nécessairement à "obligatoirement" si le PO veut un vrai verrou.
 - Vérifier qu'aucun autre appelant de l'endpoint `GetReglements` (liste des règlements, App.tsx) ne
   soit affecté par le changement de logique backend — le changement de comportement doit être
   scopé à l'usage réel du paramètre `pointe` par `ApercuComptabilisation.tsx` uniquement, sans casser
@@ -88,8 +84,8 @@ Sur l'écran de comptabilisation :
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
 - [ ] Build back + front OK (0 erreur)
-- [ ] Filtre « Rapproché » verrouillé sur Oui (comportement exact confirmé avec le PO — verrou dur
-      vs valeur par défaut, cf. Risques)
+- [ ] Filtre « Rapproché » verrouillé sur Oui (aucune interaction utilisateur possible pour le
+      changer — select retiré ou désactivé)
 - [ ] Règlements espèce toujours inclus dans les résultats, quel que soit leur état `IsPointe`
 - [ ] Règlements non-espèce non rapprochés bien exclus (comportement Oui strict préservé pour les
       autres modes)
