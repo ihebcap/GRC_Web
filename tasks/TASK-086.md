@@ -336,12 +336,33 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
      `tire`, `echeance`, `affaireNumero`, `ribClient`, `infoLibre1..4`, `collaborateurNo`,
      `isCertifier`, `dateValidite`, `montantPlafond`, `reglementNature`, `deviseNo`, `coursDevise`,
      `piece`) — ne jamais passer de valeur par défaut/vide qui écraserait une donnée existante.
-   - `date`/`montantDevise`/`banqueNo`/`banqueClient`/`reference` : valeurs nouvelles issues du
-     formulaire de modification.
+   - `date`/`montantDevise`/`banqueNo`/`reference` : valeurs nouvelles issues du formulaire de
+     modification.
+   - **⚠️ Précision PO (confirmée après transmission de la TASK, à ne pas laisser ambiguë pour
+     l'implémenteur)** : le champ « Banque » demandé par le PO est **`banqueNo` uniquement**, pas
+     `banqueClient` — ce dernier n'est **pas** un champ édité par l'utilisateur dans le formulaire de
+     modification, malgré sa présence dans la signature de `ReglementUpdate` juste à côté de
+     `banqueNo`. `banqueClient` doit être relu depuis l'entité existante et repassé **tel quel**, au
+     même titre que les paramètres hors périmètre PO listés ci-dessus (`libelle`/`piece`/etc.) — ne
+     pas l'exposer dans le formulaire front, ne pas le faire varier depuis une saisie utilisateur.
+     `banqueNo` n'a de sens métier réel que pour un règlement de mode Virement (`Type==3`, cf. piège
+     ci-dessous) — pour les autres modes, le formulaire peut désactiver/masquer le champ Banque si le
+     mode du règlement ne le rend pas pertinent (au choix d'implémentation, à documenter dans le
+     VERIFY si un choix est fait sur ce point).
+     **Front — sélection par liste déroulante, pas de saisie libre** (précision PO) : `banqueNo`
+     doit être choisi dans une liste des banques existantes, pas un champ texte/numérique libre.
+     **Pattern déjà existant à réutiliser tel quel, ne pas en recréer un nouveau** :
+     `RapprochementBancaire.tsx` charge déjà `GET /api/reference/banques?societeId=...`
+     (`RapprochementBancaire.tsx:351`) dans un state `banques: Banque[]` et l'expose via un
+     `<select>` natif (`RapprochementBancaire.tsx:1126-1130`, option `<option value="">Banque…</option>`
+     puis `banques.map(...)`) — même endpoint, même structure de données, à consommer à l'identique
+     dans le formulaire de modification (cohérent avec `ARCHITECTURE.md` § réutilisation des
+     composants existants, même principe déjà appliqué au sélecteur Client de cette TASK).
    - **Piège identifié** : `ReglementUpdate` a ses propres gardes par mode de règlement
      (`piece` non vide obligatoire si chèque/traite ; `banqueClient` vide/rempli selon le type de
      mode) qui n'ont rien à voir avec les 5 champs demandés par le PO — les respecter en relisant
-     l'entité, sous peine d'exception métier sur un champ non touché par l'utilisateur.
+     l'entité (y compris pour `banqueClient`, jamais modifié par cette TASK), sous peine d'exception
+     métier sur un champ non touché par l'utilisateur.
    - **Ne PAS appeler `VerifySoldeManager.UpdateSoldeReglementClient` après l'appel** — `MV_Etat`
      est déjà recalculé correctement par `ReglementUpdate` lui-même pour un règlement non affecté
      (propriété calculée, incluse dans l'`UPDATE` ORM). Un appel supplémentaire lèverait une
@@ -554,6 +575,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       relues depuis l'entité existante et inchangées après modification — vérifié en base réelle
       sur au moins un règlement de chaque mode (chèque/traite/virement) pour couvrir les gardes
       spécifiques de `ReglementUpdate` (pièce/banqueClient obligatoires ou interdits selon le mode)
+- [ ] **Champ Banque = `banqueNo` uniquement** : `banqueClient` n'est jamais exposé au formulaire ni
+      modifié par cette TASK (relu tel quel depuis l'entité existante) — testé explicitement sur un
+      règlement Virement (`Type==3`) dont `banqueNo` est modifié : `banqueClient` existant (non vide,
+      obligatoire pour ce mode) reste intact et ne déclenche pas de rejet `ReglementUpdate`
+- [ ] **Champ Banque affiché en liste déroulante** (réutilisant `GET /api/reference/banques`, pattern
+      `RapprochementBancaire.tsx`), pas un champ de saisie libre — vérifié visuellement
 - [ ] Modification Client → contournement réflexion documenté comme dérogation dans le VERIFY,
       testé en base réelle, `RT_AFFECTATION` non concernée confirmée (règlement non affecté)
 - [ ] Modification Montant → les 5 colonnes `RT_MOUVEMENT` cohérentes en base réelle après
