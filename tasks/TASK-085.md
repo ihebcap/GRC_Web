@@ -72,8 +72,12 @@ apparaît en test réel (VERIFY), vérifier `IsLettrer` sur le jeu de règlement
 ## Objectif
 
 Un endpoint et une action UI permettant d'annuler un règlement non comptabilisé, non remis, non
-affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans aucun bypass ni
-`UPDATE` SQL direct.
+affecté, non annulé, non pointé, non impayé, non règlement d'avoir — appelant
+`CaisseManager.ReglementClientAnnuler` sans aucun bypass ni `UPDATE` SQL direct. **Impayé et avoir**
+sont des gardes 100 % natives de la DLL (pas de garde applicative GRC_WEB à coder dessus, cf. Étapes
+d'implémentation) — non testées spécifiquement dans la Checklist VALIDATION ci-dessous car rares en
+usage réel et déjà couvertes par les autres tests de non-régression du bloc de gardes natives ; ne
+pas les retester séparément sauf doute constaté en VERIFY.
 
 ## Fichiers concernés
 
@@ -104,6 +108,19 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
    réimplémenter la logique de garde (ne pas manipuler `IsAnnule`/`ChangeEtatComptabilise` à la main,
    cf. rapport d'inspection : ce serait un contournement dangereux et incomplet, il manquerait la
    transaction, l'épuisement de lot, et la notification).
+   **Résolution de `CaisseManager`** : pattern déjà utilisé et éprouvé dans
+   `GRC.Infrastructure/Services/ReglementGenerationService.cs` (lignes 168/386, code livré en
+   production) — réutiliser tel quel :
+   ```csharp
+   var caisseManager = _kernel.Resolve<global::Tresorerie.Core.Services.CaisseManager>();
+   caisseManager.SocieteManager = _kernel.GroupeService.SocieteManager;
+   caisseManager.ReglementClientAnnuler(reglementNo);
+   ```
+   (`CaisseManager` est bindé `ToSelf().InSingletonScope()` dans
+   `TresorerieCoreDapperReplacementModule.cs:164` — résolution IoC standard, pas de `new` manuel.
+   Le set de `SocieteManager` avant l'appel est requis par le même pattern, ne pas l'omettre : son
+   absence provoque une `NullReferenceException` immédiate et explicite au premier appel, donc sans
+   risque de bypass silencieux, mais évite un aller-retour VERIFY inutile.)
 4. **Gestion des deux familles d'exceptions** : `ReglementClientAnnuler` lève tantôt
    `ApplicationException` (déjà annulé, impayé, remis, avoir, transfert en cours, espèce consommé,
    pointé, synchronisé ERP), tantôt `InvalidOperationException` (affecté, remplacé) — **prévoir un
@@ -118,6 +135,19 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
    ne reçoit actuellement que `showToast` en prop, pas `showConfirm` — si la confirmation doit
    s'afficher depuis ce composant plutôt que la liste des règlements dans `App.tsx`, prévoir de
    propager `showConfirm` en prop supplémentaire).
+   **Précédent exact à répliquer** : `gocom-web/src/RelevesBancaires.tsx:404,423-434` contient déjà ce
+   patron — `<td>` conditionnel en fin de ligne avec un bouton d'action visible seulement si une
+   condition métier est vraie, et surtout `e.stopPropagation()` dans le `onClick` du bouton pour ne
+   pas remonter au `onClick` du `<tr>` parent (qui gère la sélection de ligne dans `App.tsx:716-746`)
+   — **`e.stopPropagation()` est obligatoire sur le bouton « Annuler »**, sinon un clic déclenche à la
+   fois l'annulation et un toggle de sélection indésirable. Emplacement d'intégration réel dans
+   `App.tsx` : la grille de règlements utilise `DEFAULT_COLUMNS`/`getAvailableColumns`/
+   `renderSharedCell` (`utils.tsx`), pas le modèle `ALL_COLUMNS`/`ColumnDef` d'`ARCHITECTURE.md`
+   (propre à `ReglementGenerationEspece.tsx`) — la colonne Actions doit être un `<td>` fixe ajouté en
+   dur après la boucle `selectedColumns.map(...)` (`tableBodyMemo`, lignes ~747-749), **hors** du
+   système de colonnes configurables/masquables par l'utilisateur (elle ne doit jamais pouvoir être
+   retirée, sinon l'utilisateur perd l'accès à l'annulation), avec le `<th>` correspondant ajouté hors
+   boucle dans le `<thead>`.
 6. **Rafraîchir la grille** après annulation réussie (le règlement annulé doit soit disparaître du
    filtre courant, soit afficher visuellement son état annulé selon le filtre actif).
 
@@ -127,11 +157,16 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
   contournement — l'appel natif `ReglementClientAnnuler` fait tout le travail et est la seule voie
   autorisée. Utiliser `ReglementClientDelete` est interdit ici (sémantique différente, suppression
   physique).
-- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Vérifier
-  explicitement que le règlement appartient à la société de l'utilisateur connecté**, pas seulement
-  à une caisse autorisée (IDOR société, cf. précédent déjà traité TASK-075 sur un autre endpoint de
-  ce projet) — confirmer au dev que `VerifierAutorisationCaisse` couvre nativement cette
-  vérification société↔règlement, sinon l'ajouter explicitement.
+- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Tranché par
+  inspection (pas de contrôle supplémentaire requis)** : le kernel Ninject `TresorerieNinjectKernel`
+  est authentifié sur une **société unique** au démarrage du process
+  (`TresorerieGroupInitializerService.StartAsync`, un seul `Tresorerie:SocieteNoGR` lu depuis la
+  config une seule fois), pas par requête — `_kernel.GroupeService.SocieteManager.Societe` renvoie
+  donc toujours la même société quel que soit l'utilisateur JWT. Un règlement d'une autre société ne
+  peut structurellement pas être chargé via ce kernel dans ce process : le risque IDOR société
+  (type TASK-075) est nul par construction de déploiement (un déploiement GRC_WEB = une société), pas
+  par un contrôle applicatif à coder. `VerifierAutorisationCaisse`/`HasEntityActionRestriction` n'ont
+  donc pas besoin de couvrir la société — elle n'est jamais un paramètre variable de la requête.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 - Aucun `UPDATE` SQL brut sur une table pilotée par la DLL.
 
@@ -143,6 +178,12 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
 - Si le PO souhaite un jour annuler un règlement affecté (retirer l'affectation avant annulation),
   c'est hors périmètre de cette TASK — la DLL bloque ce cas nativement (`GetAffectations().Any()`)
   et aucune méthode de désaffectation n'a été identifiée dans ce rapport.
+- **Risque croisé découvert pendant l'analyse de TASK-085, hors périmètre de cette TASK, traité en
+  TASK-088** : ni `ReglementService.Comptabiliser` ni `ApercuComptabilisation` ne testent `IsAnnule`
+  (seulement `IsComptabilise`). Un règlement annulé par TASK-085 reste par construction
+  `isComptabilise===0`, donc resterait sélectionnable pour comptabilisation dans l'écran de
+  comptabilisation. L'appel DLL échouerait probablement en aval, mais ce n'est pas une garde
+  applicative explicite — voir TASK-088 pour le traitement.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
@@ -164,9 +205,9 @@ pour ce motif).
       conditionnel de `HM_MontantRestant = 0` (pas un `INSERT`), uniquement s'il existe un lot
       d'entrée non épuisé pour ce règlement — à contrôler dans le VERIFY si le règlement de test a un
       tel lot (sinon cette table n'est simplement pas touchée, ce n'est pas un bug)
-- [ ] Vérification société↔règlement confirmée (un règlement d'une société différente de
-      l'utilisateur connecté n'est jamais accessible, même via une caisse au nom similaire — IDOR,
-      cf. TASK-075)
+- [ ] (Non-régression documentaire, pas un test à charge) Vérification société↔règlement : nul par
+      construction (kernel mono-société par process, cf. Contraintes ci-dessus) — pas de code à
+      tester spécifiquement, case cochée dès que le reste de la checklist passe
 - [ ] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
       comptabilisé/pointé/remis/annulé)
 - [ ] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
