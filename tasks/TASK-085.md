@@ -74,7 +74,12 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
    DLL les fait déjà et les fait mieux (transaction, notification).
 2. **Contrôle de droits de caisse** sur le nouvel endpoint, pattern `HasEntityActionRestriction`
    identique aux autres actions d'écriture (TASK-069) — un utilisateur restreint à une caisse ne doit
-   pas pouvoir annuler un règlement hors périmètre.
+   pas pouvoir annuler un règlement hors périmètre. Action à utiliser dans `VerifierAutorisationCaisse`
+   (vérifiée par réflexion réelle sur `libs\Tresorerie\Tresorerie.Authorization.Core.dll`, classe
+   existante et confirmée) :
+   `new global::Tresorerie.Authorization.Core.Actions.ReglementAnnuler().Guid`
+   — ne pas réutiliser `ReglementComptabiliser`/`ReglementModifier`/`ReglementSupprimer` par erreur de
+   copier-collé du pattern TASK-069/086.
 3. **Appel `CaisseManager.ReglementClientAnnuler(reglementNo)`** — aucun code applicatif ne doit
    réimplémenter la logique de garde (ne pas manipuler `IsAnnule`/`ChangeEtatComptabilise` à la main,
    cf. rapport d'inspection : ce serait un contournement dangereux et incomplet, il manquerait la
