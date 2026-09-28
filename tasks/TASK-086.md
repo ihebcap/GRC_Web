@@ -342,9 +342,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
      l'implémenteur)** : le champ « Banque » demandé par le PO est **`banqueNo` uniquement**, pas
      `banqueClient` — ce dernier n'est **pas** un champ édité par l'utilisateur dans le formulaire de
      modification, malgré sa présence dans la signature de `ReglementUpdate` juste à côté de
-     `banqueNo`. `banqueClient` doit être relu depuis l'entité existante et repassé **tel quel**, au
-     même titre que les paramètres hors périmètre PO listés ci-dessus (`libelle`/`piece`/etc.) — ne
-     pas l'exposer dans le formulaire front, ne pas le faire varier depuis une saisie utilisateur.
+     `banqueNo`. **`banqueClient` doit être totalement absent/masqué du formulaire** (pas affiché en
+     lecture seule, pas un champ désactivé visible — simplement aucun champ pour lui à l'écran), pour
+     éviter tout risque de confusion ou de conflit avec `banqueNo` chez l'utilisateur — décision PO
+     explicite pour lever toute ambiguïté visuelle entre les deux paramètres. Il est relu depuis
+     l'entité existante et repassé **tel quel** à `ReglementUpdate`, au même titre que les paramètres
+     hors périmètre PO listés ci-dessus (`libelle`/`piece`/etc.), entièrement en coulisses côté backend.
      `banqueNo` n'a de sens métier réel que pour un règlement de mode Virement (`Type==3`, cf. piège
      ci-dessous) — pour les autres modes, le formulaire peut désactiver/masquer le champ Banque si le
      mode du règlement ne le rend pas pertinent (au choix d'implémentation, à documenter dans le
@@ -575,10 +578,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       relues depuis l'entité existante et inchangées après modification — vérifié en base réelle
       sur au moins un règlement de chaque mode (chèque/traite/virement) pour couvrir les gardes
       spécifiques de `ReglementUpdate` (pièce/banqueClient obligatoires ou interdits selon le mode)
-- [ ] **Champ Banque = `banqueNo` uniquement** : `banqueClient` n'est jamais exposé au formulaire ni
-      modifié par cette TASK (relu tel quel depuis l'entité existante) — testé explicitement sur un
-      règlement Virement (`Type==3`) dont `banqueNo` est modifié : `banqueClient` existant (non vide,
-      obligatoire pour ce mode) reste intact et ne déclenche pas de rejet `ReglementUpdate`
+- [ ] **Champ Banque = `banqueNo` uniquement** : `banqueClient` totalement absent/masqué du
+      formulaire (aucun champ visible pour lui, même en lecture seule — décision PO explicite pour
+      éviter toute confusion avec `banqueNo`), jamais modifié par cette TASK (relu tel quel depuis
+      l'entité existante) — testé explicitement sur un règlement Virement (`Type==3`) dont `banqueNo`
+      est modifié : `banqueClient` existant (non vide, obligatoire pour ce mode) reste intact et ne
+      déclenche pas de rejet `ReglementUpdate`
 - [ ] **Champ Banque affiché en liste déroulante** (réutilisant `GET /api/reference/banques`, pattern
       `RapprochementBancaire.tsx`), pas un champ de saisie libre — vérifié visuellement
 - [ ] Modification Client → contournement réflexion documenté comme dérogation dans le VERIFY,
