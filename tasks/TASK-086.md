@@ -152,12 +152,24 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
       par construction) ;
   12. notifie.
 
-  **`MV_Etat` reste non recalculé par cette voie** (ni par `UpdateMontant`, ni par
-  `ReglementClientRepository.Update`, ni par la mise à jour de `RT_HISTOMVT`) — seul
-  `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` le fait
-  (`UPDATE [RT_MOUVEMENT] SET [MV_Solde]=@Solde,[MV_Etat]=@Etat`), confirmé par IL. **À
-  appeler explicitement après `ReglementUpdate` si le montant a changé** — rien dans `ReglementUpdate`
-  ne l'appelle automatiquement.
+  **⚠️ CORRECTIF CRITIQUE (2026-09-28, contre-vérification indépendante) — `MV_Etat` EST déjà
+  recalculé correctement par cette voie, NE PAS appeler `VerifySoldeManager.UpdateSoldeReglementClient`
+  en plus.** Affirmation précédente erronée, corrigée après contre-inspection indépendante (source +
+  IL croisés) : `ReglementClient.Etat` est en réalité une **propriété calculée en mémoire, sans
+  setter** (`Etat => Solde==0 && SoldeDeviseSociete==0 ? Solde : PartiellementSolde`), mappée
+  **sans** `.ReadOnly()` dans `MouvementMapping` — donc incluse dans l'`UPDATE` SQL généré par
+  `DapperExtensions.Update<MouvementDto>` à l'étape 10. Au moment de cet appel, `UpdateMontant` a
+  déjà positionné `Solde = montant` en mémoire (étape 4) : pour un règlement **non affecté** (garde
+  commune de cette TASK), `Solde` devient égal au nouveau `Montant`, donc `Etat` calculé vaut
+  correctement "Soldé" — `ReglementUpdate` seul suffit, sans appel supplémentaire.
+  **Ne PAS suivre l'ancienne recommandation d'appeler `VerifySoldeManager.UpdateSoldeReglementClient`
+  après coup** : cette méthode commence par `if (reglement.IsValide) throw new
+  ArgumentException("Le solde du reglement est valide!")`, où `IsValide` est vrai précisément
+  quand `Solde == Montant - TotalMontantAffectation` — donc **systématiquement vrai** pour un
+  règlement non affecté juste modifié par `ReglementUpdate`. Appeler cette méthode dans ce
+  périmètre lèverait une exception bloquante à coup sûr, dans l'exact scénario que cette TASK doit
+  couvrir. Si le périmètre s'étend un jour aux règlements affectés (hors périmètre actuel), ce point
+  sera à réévaluer alors (`TotalMontantAffectation` ne serait plus 0) — pas avant.
 
   **Table `RT_HISTOMVT` — 4ème table impactée par le Montant, confirmée par IL** (colonnes réelles :
   `HM_Id`, `HM_Montant`, `HM_MontantRestant`, `HM_Epuise`, `HM_Sens`, `MV_Id`, `MR_Id`, `CA_Id`,
@@ -185,9 +197,11 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
   mais que le mode de règlement en cours exige `piece` non vide (chèque/traite) ou `banqueClient`
   vide/rempli selon le type, il faut relire ces valeurs sur l'entité existante et les repasser
   telles quelles à `ReglementUpdate`, sous peine d'exception métier sur un champ que
-  l'utilisateur n'a pas touché. Documenter ce mapping dans le VERIFY.
-  Puis appeler `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` explicitement si le
-  montant a été modifié, pour que `MV_Etat` reste cohérent.
+  l'utilisateur n'a pas touché. **Piège symétrique confirmé pour le mode Virement (`Type==3`)** :
+  `banqueClient` doit au contraire être **non vide** (obligatoire), en plus de `banqueNo` — ne pas
+  le laisser vide comme pour chèque/traite où c'est l'inverse. Documenter ce mapping dans le VERIFY.
+  **NE PAS appeler `VerifySoldeManager.UpdateSoldeReglementClient` après coup** — cf. correctif
+  critique ci-dessus, cet appel lèverait une exception bloquante sur un règlement non affecté.
   **Vérifier au dev** que `ReglementUpdate` fonctionne bien pour un règlement non affecté (les
   gardes lues en IL n'excluent pas ce cas, mais aucun test réel n'a encore été fait) — si un
   comportement inattendu apparaît, revenir à l'architecte avant de bypasser en SQL brut.
@@ -213,6 +227,23 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - `gocom-web/src/App.tsx` (ou composant liste des règlements) — bouton/modal « Modifier » par ligne,
   formulaire des 5 champs, dont un sélecteur client réutilisant la recherche client existante
   (`TiersErpHelper`/cache, pattern déjà en place pour la génération de règlement, TASK-064).
+  **Action par ligne, pas un bouton en haut de page** (cohérence avec TASK-085 « Annuler », qui
+  tranche déjà ce point pour le même écran — un bouton en haut nécessiterait une présélection de
+  ligne, mécanisme absent aujourd'hui de cette grille). Icône (crayon) ou libellé texte au choix de
+  l'implémenteur, à harmoniser visuellement avec le bouton « Annuler » de TASK-085 s'il est livré en
+  premier (même zone d'actions par ligne, pas deux styles différents côte à côte).
+- **Consultation de l'historique** (point absent de la version initiale de la TASK, la table
+  d'historique n'a de sens que si elle est consultable) — nouveau modal/panneau « Historique des
+  modifications » ouvert depuis la grille (action par ligne, à côté de « Modifier »), affichant les
+  lignes de `GRC_ReglementModificationHistorique` pour le règlement sélectionné, triées
+  date décroissante : date, utilisateur, champ(s) modifié(s), valeur avant → après. Aucun pattern de
+  consultation d'historique n'existe encore ailleurs dans `gocom-web` — s'appuyer sur le pattern
+  modal déjà en place (`RapprochementBancaire.tsx`, panneau de messages TASK-055) plutôt
+  qu'introduire un nouveau système d'affichage. Nouvel endpoint de lecture, ex.
+  `[HttpGet("{id}/historique")]`, même contrôle de droits que la consultation du règlement
+  (`ReglementConsulterHistorique` existe côté `Tresorerie.Authorization.Core.Actions` — à
+  vérifier si réutilisable tel quel ou si un droit GRC dédié est préférable, trancher au dev sans
+  bloquer si ambigu, documenter le choix dans le VERIFY).
 
 ## Étapes d'implémentation
 
@@ -232,7 +263,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    par appel de modification (pas 1 ligne par champ), stockage large (colonnes nullable par champ
    `AncienMontant`/`NouveauMontant`, `AncienneDate`/`NouvelleDate`, etc., ou JSON — au choix
    d'implémentation, la contrainte est la granularité "1 ligne par modification", pas le format
-   exact de stockage).
+   exact de stockage). Table d'audit : **conservation illimitée, aucune purge prévue** (choix
+   explicite, pas un oubli).
+   **Aucune ligne créée si aucun champ n'a réellement changé** : si l'utilisateur ouvre le
+   formulaire et valide sans modification (ou modifie puis revient à la valeur initiale), ne pas
+   appeler `ReglementUpdate` ni créer de ligne d'historique — comparer les valeurs soumises aux
+   valeurs actuelles de l'entité avant tout traitement, sur les 5 champs.
 3. **Écriture des champs, par voie DLL** — **voie recommandée après inspection IL de l'architecte**
    (cf. section "Mise à jour post-création" ci-dessus) : un seul appel
    `CaisseManager.ReglementUpdate(reglementNo, date, montantDevise, libelle, piece, banqueClient,
@@ -250,9 +286,11 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
      (`piece` non vide obligatoire si chèque/traite ; `banqueClient` vide/rempli selon le type de
      mode) qui n'ont rien à voir avec les 5 champs demandés par le PO — les respecter en relisant
      l'entité, sous peine d'exception métier sur un champ non touché par l'utilisateur.
-   - Après l'appel, **si le montant a été modifié**, appeler explicitement
-     `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` pour recalculer `MV_Etat` — non
-     fait automatiquement par `ReglementUpdate`.
+   - **Ne PAS appeler `VerifySoldeManager.UpdateSoldeReglementClient` après l'appel** — `MV_Etat`
+     est déjà recalculé correctement par `ReglementUpdate` lui-même pour un règlement non affecté
+     (propriété calculée, incluse dans l'`UPDATE` ORM). Un appel supplémentaire lèverait une
+     `ArgumentException("Le solde du reglement est valide!")` dans ce périmètre précis — cf.
+     correctif critique ci-dessus.
    - Client → contournement réflexion sur les 3 setters privés (`ClientNo`/`ClientCode`/
      `ClientIntitule`), isolé et commenté comme dérogation DLL actée par le PO — `ReglementUpdate`
      ne couvre pas ce champ, appel séparé nécessaire.
@@ -279,6 +317,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 5. **Front** : formulaire de modification avec les 5 champs pré-remplis, sélecteur client
    réutilisant la recherche existante (pas un nouveau composant, cf. `ARCHITECTURE.md` — pattern à
    respecter aussi pour la liste déroulante banque si une grille de sélection est utilisée).
+   **Garde front avant même l'ouverture du formulaire** : le bouton/action « Modifier » doit être
+   désactivé ou masqué si le règlement affiché dans la grille est visiblement comptabilisé, affecté
+   ou annulé (si ces indicateurs sont déjà exposés par la grille existante — sinon l'acter comme
+   limite connue plutôt que trou silencieux, et documenter ce choix dans le VERIFY). Objectif :
+   éviter qu'un utilisateur remplisse tout le formulaire pour découvrir le refus seulement à la
+   soumission.
 6. **Message d'erreur explicite** si la garde commune échoue (comptabilisé/affecté/annulé) **ou si
    une garde native de `ReglementUpdate` échoue** (cf. étape 3bis), sur le modèle du panneau de
    messages TASK-055 — pas un rejet muet, pas de stack trace brute.
@@ -289,6 +333,13 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    `ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer` par erreur de copier-collé du
    pattern TASK-069/085** (piège déjà nommé explicitement dans TASK-085 pour son action
    `ReglementAnnuler`, même risque ici avec `ReglementModifier`).
+8. **Consultation de l'historique** (cf. section Fichiers concernés) : nouvel endpoint de lecture
+   seule renvoyant les lignes de `GRC_ReglementModificationHistorique` pour un `reglementNo`, triées
+   date décroissante ; action par ligne dans la grille (bouton/icône « Historique », distinct du
+   bouton « Modifier ») ouvrant un modal/panneau listant date/utilisateur/champ/avant/après. Ne pas
+   conditionner cette consultation à la garde commune (comptabilisé/affecté/annulé) — l'historique
+   doit rester consultable même sur un règlement qui n'est plus modifiable aujourd'hui, c'est
+   justement l'objet de la traçabilité demandée par le PO.
 
 ## Contraintes
 
@@ -297,19 +348,32 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - Le contournement réflexion sur le champ Client est **une dérogation DLL actée par le PO**, limitée
   strictement au contexte où la garde commune est respectée (non affecté en particulier) — ne pas
   l'étendre à un règlement affecté sans nouvel arbitrage PO explicite et documenté.
-- Aucun `UPDATE` SQL brut sur `RT_MOUVEMENT`/`RT_AFFECTATION`/`RT_ECHEANCE` en dehors de ce que la
-  DLL expose. **Voie DLL confirmée par inspection IL** pour Date/Montant/Banque/Référence :
-  `CaisseManager.ReglementUpdate` (persistance ORM complète, pas de SQL brut nécessaire) + appel
-  explicite `VerifySoldeManager.UpdateSoldeReglementClient` si montant modifié (pour `MV_Etat`) —
-  voir section "Mise à jour post-création" ci-dessus. Un bypass SQL sur le Montant ne devrait donc
+- Aucun `UPDATE` SQL brut sur `RT_MOUVEMENT`/`RT_AFFECTATION`/`RT_ECHEANCE`/`RT_HISTOMVT` en dehors
+  de ce que la DLL expose. **Voie DLL confirmée par inspection IL** pour Date/Montant/Banque/
+  Référence : `CaisseManager.ReglementUpdate` seul, persistance ORM complète (`MV_Etat` inclus,
+  **ne pas appeler `VerifySoldeManager.UpdateSoldeReglementClient` en plus** — cf. correctif
+  critique en section "Mise à jour post-création"). Un bypass SQL sur le Montant ne devrait donc
   **plus être nécessaire** ; s'il s'avère malgré tout requis au moment du dev (comportement DLL
   inattendu constaté en base réelle), **signaler et attendre arbitrage PO explicite avant de coder
   ce chemin**, ne pas décider unilatéralement.
-- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069).
+- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Vérifier
+  explicitement que le règlement appartient à la société de l'utilisateur connecté**, pas seulement
+  à une caisse autorisée — un règlement d'une société différente ne doit jamais être accessible
+  même via une caisse au nom similaire (IDOR, cf. précédent déjà traité TASK-075 sur un autre
+  endpoint de ce projet). Confirmer au dev que `VerifierAutorisationCaisse`/le pattern TASK-069
+  couvre nativement cette vérification société↔règlement ; si ce n'est pas le cas, l'ajouter
+  explicitement avant tout accès en lecture ou écriture au règlement.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 - Si un écran de sélection/liste est introduit pour choisir la banque ou le client dans le
   formulaire de modification : respecter `ARCHITECTURE.md` § Grilles de données (pas de nouveau
   composant de filtre inventé).
+- **Contournement réflexion Client — revalidation dans la même transaction** : la garde commune
+  (non comptabilisé/non affecté/non annulé) doit être revérifiée **immédiatement avant** l'écriture
+  par réflexion sur les setters privés, dans la même portée transactionnelle que l'écriture — pas
+  seulement en amont du formulaire. Contrairement à Date/Montant/Banque/Référence (revalidés
+  nativement par la DLL au moment même de l'écriture via `ReglementUpdate`), le champ Client n'a
+  aucun filet de sécurité natif : rien ne rattrape un règlement devenu affecté entre la vérification
+  initiale et l'écriture si cette revalidation n'est pas refaite juste avant.
 
 ## Risques / dépendances
 
@@ -348,8 +412,9 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       testé en base réelle, `RT_AFFECTATION` non concernée confirmée (règlement non affecté)
 - [ ] Modification Montant → les 5 colonnes `RT_MOUVEMENT` cohérentes en base réelle après
       modification (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`, `MV_SoldeDevise`)
-      **et** `MV_Etat` recalculé via l'appel explicite à
-      `VerifySoldeManager.UpdateSoldeReglementClient` après `ReglementUpdate`
+      **et** `MV_Etat` recalculé correctement par `ReglementUpdate` seul (aucun appel à
+      `VerifySoldeManager.UpdateSoldeReglementClient` — vérifier qu'il n'a PAS été ajouté par erreur,
+      il lèverait une exception bloquante sur un règlement non affecté)
 - [ ] Modification Montant → `RT_HISTOMVT` (`HM_Montant`, `HM_MontantRestant` de la ligne
       d'historique liée) cohérent en base réelle après modification — vérifié explicitement (table
       signalée par le PO, confirmée par inspection IL, distincte de `RT_MOUVEMENT`/`RT_AFFECTATION`/
@@ -365,5 +430,18 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - [ ] Contrôle de droits de caisse vérifié, avec l'action `ReglementModifier`
       (`Tresorerie.Authorization.Core.Actions.ReglementModifier`) — pas une autre action
       copiée-collée par erreur (`ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer`)
+- [ ] Vérification société↔règlement confirmée (un règlement d'une société différente de
+      l'utilisateur connecté n'est jamais accessible, même via une caisse au nom similaire — IDOR,
+      cf. TASK-075)
+- [ ] Aucune ligne d'historique créée quand le formulaire est validé sans modification réelle
+      (testé explicitement : ouvrir puis valider sans changer, ou changer puis revenir à la valeur
+      initiale)
+- [ ] Contournement réflexion Client : garde commune revérifiée immédiatement avant l'écriture,
+      dans la même transaction (pas seulement en amont du formulaire)
+- [ ] Consultation de l'historique : action par ligne dédiée dans la grille (distincte de
+      « Modifier »), affiche bien date/utilisateur/champ/avant/après pour le règlement sélectionné,
+      reste accessible même sur un règlement comptabilisé/affecté/annulé (non conditionnée à la
+      garde commune) — testé en base réelle avec au moins 2 modifications successives du même
+      règlement
 - [ ] Aucun `UPDATE` SQL brut non documenté/non dérogé par le PO
 - [ ] Cohérent avec ARCHITECTURE.md si un composant de sélection/liste est introduit
