@@ -168,11 +168,15 @@ Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.Reglem
       par construction) ;
   12. notifie.
 
-  **⚠️ CORRECTIF CRITIQUE (2026-09-28, contre-vérification indépendante) — `MV_Etat` EST déjà
-  recalculé correctement par cette voie, NE PAS appeler `VerifySoldeManager.UpdateSoldeReglementClient`
-  en plus.** Affirmation précédente erronée, corrigée après contre-inspection indépendante (source +
-  IL croisés) : `ReglementClient.Etat` est en réalité une **propriété calculée en mémoire, sans
-  setter** (`Etat => Solde==0 && SoldeDeviseSociete==0 ? Solde : PartiellementSolde`), mappée
+  **⚠️ CORRECTIF CRITIQUE (2026-09-28, contre-vérification indépendante, re-confirmé par IL brute
+  au dernier passage) — `MV_Etat` EST déjà recalculé correctement par cette voie, NE PAS appeler
+  `VerifySoldeManager.UpdateSoldeReglementClient` en plus.** Affirmation précédente erronée,
+  corrigée après contre-inspection indépendante (source + IL croisés) : `ReglementClient.Etat` est
+  en réalité une **propriété calculée en mémoire, sans setter**, de type
+  `Tresorerie.Core.Enum.EtatMouvement` (`PartiellementSolde = 0`, `Solde = 1`) — équivalente en
+  pseudo-code à `Etat => (Solde == 0 && SoldeDeviseSociete == 0) ? EtatMouvement.Solde :
+  EtatMouvement.PartiellementSolde` (IL brute vérifiée : deux comparaisons `Decimal.Equals(0)`
+  suivies d'un retour booléen inliné par le compilateur comme valeur d'enum). Mappée
   **sans** `.ReadOnly()` dans `MouvementMapping` — donc incluse dans l'`UPDATE` SQL généré par
   `DapperExtensions.Update<MouvementDto>` à l'étape 10. Au moment de cet appel, `UpdateMontant` a
   déjà positionné `Solde = montant` en mémoire (étape 4) : pour un règlement **non affecté** (garde
@@ -378,6 +382,34 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    - Dans tous les cas : pas d'historisation orpheline si l'écriture DLL échoue, pas de modification
      silencieuse si l'historisation échoue — l'objectif fonctionnel reste inchangé, seul le moyen
      technique de l'atteindre est à clarifier.
+4bis. **⚠️ TROU IDENTIFIÉ (dernier passage) — cas non traité : Client modifié EN MÊME TEMPS qu'un
+   des 4 autres champs, dans le même appel utilisateur.** Ce cas est probable en pratique (rien
+   n'empêche le PO de changer le client ET le montant d'un même règlement en une seule fois) et
+   n'est traité nulle part dans la TASK jusqu'ici. Le problème : ce sont **deux écritures
+   techniquement indépendantes** — `ReglementUpdate` (DLL, transactionnelle, commit immédiat en
+   interne) pour Date/Montant/Banque/Référence, et la réflexion sur les 3 setters privés (pas de
+   transaction DLL, pas de garde native) pour Client. Si `ReglementUpdate` réussit et que l'écriture
+   Client échoue ensuite (ou l'inverse si l'ordre est inversé), **le règlement se retrouve modifié
+   partiellement** alors qu'une seule ligne d'historique était censée représenter "la" modification
+   globale. **À trancher explicitement, ne pas improviser au dev** :
+   - Ordre d'exécution : `ReglementUpdate` d'abord (les 4 champs), puis réflexion Client ensuite
+     (sur l'entité rechargée après le premier commit) — c'est l'ordre le plus sûr car
+     `ReglementUpdate` a ses propres gardes robustes qui doivent s'appliquer en premier ; si la
+     partie Client échoue après, au moins les 4 champs DLL sont déjà appliqués et validés par la DLL.
+   - **Mais alors le règlement reste modifié partiellement en base si l'écriture Client échoue**,
+     ce qui n'est plus "tout ou rien" du point de vue utilisateur/PO. Deux options : (a) accepter
+     cette limite et le documenter clairement au PO (modification partielle possible en cas d'échec
+     sur le Client seul, cas rare puisque la réflexion sur 3 setters simples a peu de raisons
+     d'échouer une fois la garde commune revalidée) ; (b) implémenter une compensation applicative
+     (si l'écriture Client échoue après un `ReglementUpdate` réussi, retenter automatiquement ou
+     annuler l'opération complète en réappelant `ReglementUpdate` avec les valeurs d'origine — plus
+     complexe, risque d'ajouter de la fragilité pour un cas rare). **Recommandation de l'architecte** :
+     option (a), documentée explicitement dans le VERIFY et signalée au PO comme limite connue —
+     ne pas sur-ingénierer une compensation pour un cas d'échec improbable (setters simples, pas de
+     garde métier susceptible de bloquer après revalidation).
+   - Dans les deux cas, la ligne d'historique doit refléter fidèlement ce qui a **réellement été
+     appliqué** en base (pas ce qui était demandé) — si seule la partie DLL a réussi, l'historique
+     ne doit enregistrer que ces changements-là, pas le changement de Client resté en échec.
 5. **Front** : formulaire de modification avec les 5 champs pré-remplis, sélecteur client
    réutilisant la recherche existante (pas un nouveau composant, cf. `ARCHITECTURE.md` — pattern à
    respecter aussi pour la liste déroulante banque si une grille de sélection est utilisée).
@@ -527,6 +559,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       sommeil, référence obligatoire/non unique, délai moyen de paiement dépassé) : chaque cas
       catché et traduit en message métier lisible, pas de stack trace brute au front — testé sur
       au moins 2 cas réels en base
+- [ ] Modification simultanée Client + un autre champ (ex. Client + Montant en un seul appel) :
+      testé explicitement en base réelle, ordre d'exécution confirmé (`ReglementUpdate` puis
+      réflexion Client), comportement documenté en cas d'échec partiel (au moins l'un des deux
+      réussit et l'autre échoue) — solution retenue (accepter la modification partielle documentée,
+      ou compensation) tracée dans le VERIFY, ligne d'historique reflète ce qui a réellement été
+      appliqué en base, pas ce qui était demandé
 - [ ] Contrôle de droits de caisse vérifié, avec l'action `ReglementModifier`
       (`Tresorerie.Authorization.Core.Actions.ReglementModifier`) — pas une autre action
       copiée-collée par erreur (`ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer`)
