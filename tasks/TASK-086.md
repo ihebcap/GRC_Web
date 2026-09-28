@@ -339,9 +339,45 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    mélange d'`ApplicationException`/`InvalidOperationException`/`ArgumentException` — **prévoir un
    `catch` couvrant ces types**, traduire en message métier lisible (pas de stack trace technique
    au front), sur le modèle de la gestion d'exceptions de TASK-085 (étape 4 de cette TASK sœur).
-4. **Écrire la ligne d'historique dans la même transaction** que la modification DLL — pas d'
-   historisation orpheline si l'écriture DLL échoue, pas de modification silencieuse si
-   l'historisation échoue.
+4. **⚠️ RÉVISION SÉVÈRE (dernier passage architecte) — « même transaction que la modification DLL »
+   est une exigence techniquement plus délicate qu'elle n'en a l'air, à trancher explicitement au
+   dev, PAS à supposer résolue par un simple `using (var scope = new TransactionScope())` englobant.**
+   Faits vérifiés par IL, qui changent la donne :
+   - `CaisseManager.ReglementUpdate` ouvre **déjà son propre `System.Transactions.TransactionScope`
+     en interne** (confirmé IL, section "Mise à jour post-création").
+   - `ReglementClientRepository.Get`/`.Update` (utilisés en interne par `ReglementUpdate`) **ouvrent
+     chacun leur propre `SqlConnection` neuve** (`new SqlConnection(ConnectionString)`, confirmé IL) —
+     pas de connexion partagée/injectée.
+   - **Aucune TASK précédente de ce projet n'a jamais combiné un appel DLL avec `TransactionScope`
+     interne et une écriture GRC additionnelle dans une même transaction** — tous les patterns
+     transactionnels existants (`ReleveBancaireRepository.cs:36,343,451,576,823`) utilisent
+     `connection.BeginTransaction()` classique sur **une seule connexion ADO.NET locale**, jamais
+     `TransactionScope`. C'est un cas structurellement nouveau pour ce projet.
+   - **Risque concret** : si l'implémenteur englobe l'appel à `ReglementUpdate` dans son propre
+     `TransactionScope` ambiant et insère la ligne d'historique via une connexion Dapper séparée
+     participant au même scope ambiant, **.NET promeut automatiquement la transaction en
+     transaction distribuée (MSDTC)** dès que 2 connexions SQL différentes y participent — même
+     vers la même base. MSDTC n'est **mentionné nulle part comme configuré/actif** sur ce
+     déploiement LAN fermé (seule trace dans le projet : un commentaire dans
+     `ReglementService.cs:340` évoquant la "pression MSDTC" pour la comptabilisation Sage cross-DB,
+     traitée en le rendant séquentiel — pas en configurant MSDTC). Si MSDTC est désactivé/non
+     configuré sur le serveur SQL cible, l'appel lèvera une exception au runtime, potentiellement
+     **seulement en environnement réel**, pas forcément détectable en dev si le poste dev a MSDTC
+     actif par défaut (souvent le cas sur un poste Windows local) alors que le serveur de prod ne
+     l'a pas.
+   - **Ne pas trancher seul au dev** : avant d'implémenter, vérifier explicitement (1) si MSDTC est
+     actif sur le serveur SQL cible du déploiement, et (2) si oui, tester réellement en base que la
+     combinaison fonctionne bout en bout en environnement représentatif — pas seulement sur le poste
+     dev. **Alternative à considérer si MSDTC pose problème** : accepter une atomicité plus faible —
+     écrire l'historique **juste après** un `ReglementUpdate` réussi, hors transaction commune, avec
+     compensation applicative si l'insert historique échoue (log + alerte, pas de rollback DLL
+     possible de toute façon a posteriori) ; ou écrire l'historique **avant** l'appel DLL avec un
+     état "en cours" puis le confirmer/annuler après — **choix d'architecture à valider par le PO**,
+     ne pas décider unilatéralement, cf. règle absolue "ne jamais improviser un contexte manquant"
+     de `CLAUDE.md`. Documenter la solution retenue et sa justification dans le VERIFY.
+   - Dans tous les cas : pas d'historisation orpheline si l'écriture DLL échoue, pas de modification
+     silencieuse si l'historisation échoue — l'objectif fonctionnel reste inchangé, seul le moyen
+     technique de l'atteindre est à clarifier.
 5. **Front** : formulaire de modification avec les 5 champs pré-remplis, sélecteur client
    réutilisant la recherche existante (pas un nouveau composant, cf. `ARCHITECTURE.md` — pattern à
    respecter aussi pour la liste déroulante banque si une grille de sélection est utilisée).
@@ -415,6 +451,15 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
   nativement par la DLL au moment même de l'écriture via `ReglementUpdate`), le champ Client n'a
   aucun filet de sécurité natif : rien ne rattrape un règlement devenu affecté entre la vérification
   initiale et l'écriture si cette revalidation n'est pas refaite juste avant.
+  **⚠️ Piège confirmé par IL sur cette revalidation elle-même** : `GetAffectations()` sur
+  `ReglementClient` est un `Lazy<T>` dont le délégué getter est capturé **une seule fois** au
+  chargement de l'entité (`_lazyAffectations`/`_affectationsGetterDelegate`) — un second appel à
+  `GetAffectations()` sur la **même instance déjà chargée** retourne la valeur mise en cache lors du
+  premier appel, pas une requête SQL fraîche. **Pour que la revalidation "juste avant écriture" soit
+  réelle et pas un theatre de sécurité**, il faut **recharger une nouvelle instance** de
+  `ReglementClient` via `ReglementClientRepository.Get(reglementNo)` juste avant l'écriture
+  réflexion, pas réutiliser l'instance déjà en mémoire depuis le début de la requête — sinon la
+  revalidation vérifie la même donnée déjà vue, ce qui ne protège contre rien de nouveau.
 
 ## Risques / dépendances
 
@@ -464,9 +509,19 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       d'historique liée) cohérent en base réelle après modification — vérifié explicitement (table
       signalée par le PO, confirmée par inspection IL, distincte de `RT_MOUVEMENT`/`RT_AFFECTATION`/
       `RT_ECHEANCE`)
-- [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects,
-      dans la même transaction que l'écriture DLL (test d'échec partiel : si l'écriture DLL échoue,
-      aucune ligne d'historique orpheline)
+- [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects
+      (test d'échec partiel : si l'écriture DLL échoue, aucune ligne d'historique orpheline)
+- [ ] **Mécanisme d'atomicité DLL+historique effectivement testé en base réelle, pas seulement
+      supposé fonctionner** : documenter explicitement dans le VERIFY la solution retenue
+      (TransactionScope ambiant englobant / historique post-succès avec compensation / autre —
+      cf. étape 4) et **confirmer si MSDTC a dû être activé sur le serveur SQL cible** pour que ça
+      fonctionne ; si MSDTC est nécessaire et non disponible sur l'environnement de prod LAN fermé,
+      signaler ce blocage au PO avant de considérer la TASK terminée, ne pas livrer une solution qui
+      ne fonctionne que sur le poste dev
+- [ ] Revalidation Client juste avant écriture : confirmé que l'entité est **rechargée** depuis le
+      repository à ce moment précis (pas la même instance réutilisée depuis le début de la requête)
+      — sinon `GetAffectations()` (Lazy, mis en cache à la première lecture) rend la revalidation
+      inopérante contre une modification concurrente
 - [ ] Gestion des exceptions natives de `ReglementUpdate` hors garde commune (remis, remplacé/
       remplaçant, avoir, lié à un remboursement fournisseur, chèque/traite sans pièce, banque en
       sommeil, référence obligatoire/non unique, délai moyen de paiement dépassé) : chaque cas
