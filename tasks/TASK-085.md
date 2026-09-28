@@ -82,15 +82,32 @@ pas les retester séparément sauf doute constaté en VERIFY.
 ## Fichiers concernés
 
 - `GRC.Infrastructure/Services/ReglementService.cs` — nouvelle méthode, ex.
-  `AnnulerReglement(int reglementNo, int userId)`. **Ajout au DTO** (revue architecte 2026-09-28,
-  cf. §étape 5 ci-dessous) : `ReglementClientDto` (ligne ~976) doit exposer un nouveau champ
-  `public bool IsAffecte { get; set; }`, renseigné dans le mapping existant (là où les autres champs
-  `IsComptabilise`/`IsRemis`/`IsAnnule` sont déjà peuplés depuis le modèle DLL natif) via
-  `reg.GetAffectations().Any()` — **`GetAffectations()` est un `Lazy<T>` déjà confirmé par
-  inspection IL en TASK-086 §Contraintes**, son premier appel ici est sans risque (mapping en lecture
-  seule pour la grille, pas une revalidation de garde), mais ne pas réutiliser cette même instance
-  chargée pour une revalidation ultérieure dans le flux d'annulation (recharger si besoin, même
-  remarque que TASK-086).
+  `AnnulerReglement(int reglementNo, int userId)`.
+  **Ajout au DTO** (revue architecte 2026-09-28, cf. §étape 5 ci-dessous) : `ReglementClientDto`
+  (ligne ~976) doit exposer un nouveau champ `public bool IsAffecte { get; set; }`.
+  **⚠️ Correction (second passage architecte, après vérification du mapping réel)** : le peuplement
+  ne peut **pas** passer par le mapping générique existant. `ReglementMapper.Map` (ligne ~1023) fait
+  correspondre les propriétés du DTO à celles de `ReglementClient` **par réflexion sur le nom**
+  (`IsComptabilise`/`IsRemis`/`IsAnnule` sont mappés ainsi parce que ce sont des **propriétés**
+  simples de même nom sur le modèle natif) — **confirmé par réflexion qu'aucune propriété
+  `IsAffecte`/équivalente n'existe sur `ReglementClient`**, seule la méthode `GetAffectations()`
+  (`IEnumerable<Affectation>`, pas une propriété) permet de le déterminer. Le mapper générique ne
+  peut donc pas peupler ce champ automatiquement : il faut un post-traitement explicite après l'appel
+  à `ReglementMapper.Map(...)` (dans `GetReglements`, où le `.Select(r => ReglementMapper.Map(...))`
+  est déjà fait, ligne ~241) qui positionne `target.IsAffecte = r.GetAffectations().Any()`.
+  **⚠️ Risque de performance à vérifier explicitement au dev, avant de généraliser cet appel à toute
+  la grille** : `GetAffectations()` est un `Lazy<T>` (confirmé IL, TASK-086 §Contraintes) dont le
+  coût du **premier** appel par instance n'est pas documenté ici (accès DLL potentiellement
+  requête SQL par règlement, pattern classique de lazy-loading). Appelé pour **chaque ligne** de
+  `GetReglements` (potentiellement plusieurs milliers de règlements sur la fenêtre par défaut, cf.
+  TASK-083 qui a dû réduire cette même grille à 30 jours glissants pour un problème de lenteur), ceci
+  introduirait un risque de N+1 direct sur l'écran que TASK-083 vient de corriger. **Avant
+  d'implémenter tel quel, mesurer le coût réel d'un appel `GetAffectations()` sur un jeu de
+  règlements représentatif** (nombre de requêtes SQL déclenchées, temps total sur la fenêtre par
+  défaut) ; si le coût est significatif, envisager de restreindre `IsAffecte` aux lignes réellement
+  visibles/paginées plutôt qu'à tout `allReglements`, ou toute autre optimisation — **signaler à
+  l'architecte avant de committer une solution lente**, ne pas décider seul si un problème de
+  performance apparaît (même principe que TASK-083, ne pas répéter ce type de régression).
 - `GRC.API/Controllers/ReglementController.cs` — nouvel endpoint, ex.
   `[HttpPost("{id}/annuler")]`, avec le même contrôle de droits caisse que les autres actions
   d'écriture (`VerifierAutorisationCaisse`, pattern TASK-069).
@@ -233,6 +250,11 @@ pour ce motif).
 - [ ] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
       comptabilisé/pointé/remis/annulé) — via le nouveau champ `IsAffecte` du DTO, pas un proxy
       approximatif (`SoldeDeviseSociete != Montant`)
+- [ ] **Coût de `GetAffectations()` sur toute la grille mesuré explicitement** (pas seulement
+      supposé acceptable) : temps de réponse de `GetReglements` sur la fenêtre par défaut avant/après
+      l'ajout du peuplement `IsAffecte`, comparé — si régression sensible constatée (cf. précédent
+      TASK-083 sur cette même grille), documenter la mitigation retenue dans le VERIFY avant de
+      considérer la TASK terminée
 - [ ] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
 - [ ] Règlement affecté → refus, message métier lisible (`InvalidOperationException` catchée et
       traduite, pas de stack trace brute au front)
