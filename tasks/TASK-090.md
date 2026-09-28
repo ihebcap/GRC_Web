@@ -53,8 +53,22 @@ montants différents :
 1. **Remplacer entièrement le bouton « Forcer » actuel** (décision PO actée le 2026-09-28, pas
    d'option de forçage sans correction conservée) — modale existante (`pendingReservation`,
    lignes ~1242-1248), un seul bouton renommé (ex. « Mettre à jour le montant et rapprocher ») qui :
-   - appelle `PUT /api/reglements/{id}` avec `{ Montant: releve.credit }` (le montant de la ligne de
-     relevé sélectionnée, pas celui du règlement) ;
+   - **relit le montant de la ligne de relevé au moment du clic**, pas une valeur capturée à
+     l'ouverture de la modale — `pendingReservation` ne stocke aujourd'hui que `{ grcId, ligneId }`
+     (`RapprochementBancaire.tsx:781`), pas les montants ; retrouver la ligne de relevé fraîche via
+     `lignesReleveRef.current.find(l => l.id === pendingReservation.ligneId)` (même pattern que
+     `applyManualLettrage`, ligne 778) avant l'appel `PUT`, pour éviter d'envoyer une valeur périmée
+     si le relevé a été rafraîchi entre l'ouverture de la modale et la confirmation ;
+   - appelle `PUT /api/reglements/{id}` avec **`{ montant: releve.credit }` uniquement** (le montant
+     de la ligne de relevé sélectionnée, pas celui du règlement) — **ne pas copier le payload complet
+     du modal de modification existant** (`ModifierReglementModal.tsx:155-163`, qui envoie
+     systématiquement `date`/`banqueNo`/`reference`/`clientNo`/etc.). **Piège identifié (vérifié dans
+     `ReglementService.ModifierReglement:856`)** : `referenceChanged` teste `dto.Reference != null`
+     (pas `!string.IsNullOrEmpty`) — envoyer `reference: ''` par erreur (copié du modal, qui utilise
+     ce défaut pour un champ non renseigné) écraserait silencieusement une référence existante non
+     vide avec une chaîne vide, alors que l'intention est de ne toucher qu'au montant. N'envoyer que
+     la clé `montant` dans le corps JSON, omettre complètement les autres clés (pas de `null` ni de
+     `''`) ;
    - si l'appel réussit, enchaîne avec l'appel existant `executeManualLettrage(grcId, ligneId)` pour
      réaliser le rapprochement (les montants sont désormais égaux, donc plus de blocage) ;
    - si l'appel de modification échoue (règlement devenu comptabilisé/affecté/annulé entre-temps,
@@ -62,7 +76,13 @@ montants différents :
      déjà remonté par l'endpoint, **ne pas enchaîner le rapprochement** dans ce cas.
 2. **Rafraîchir l'affichage du règlement dans la grille GRC de l'écran** après la mise à jour réussie
    (le montant affiché doit refléter la nouvelle valeur, pas rester sur l'ancienne jusqu'au prochain
-   rechargement complet de l'écran).
+   rechargement complet de l'écran). **Précision (vérifié dans le code)** : ni
+   `executeManualLettrage` (lignes ~759-760) ni aucun autre appel existant ne met à jour le champ
+   `montant` du state `reglementsGrc` — ces appels ne rafraîchissent que `lettrage`/
+   `reservePar_UserId`. Il faut un `setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r,
+   montant: nouveauMontant } : r))` dédié (même pattern que les mises à jour de state déjà présentes
+   dans ce fichier), à faire après le succès du `PUT` et avant ou après l'appel à
+   `executeManualLettrage` (peu importe l'ordre entre les deux, tant que les deux sont faits).
 3. **Réutiliser le contrôle de droits déjà en place sur l'endpoint de modification** (action
    `ReglementModifier`, TASK-086) — aucun contrôle de droits supplémentaire à ajouter côté front,
    l'endpoint refuse déjà lui-même un utilisateur non autorisé.
@@ -91,11 +111,17 @@ montants différents :
   le règlement reste modifié avec le nouveau montant mais non rapproché — comportement acceptable
   (le montant corrigé est une donnée juste en soi, indépendamment du rapprochement), mais à confirmer
   dans le VERIFY plutôt que supposé.
-- **Montant affiché vs montant réellement comparé** : rappel du piège déjà documenté en TASK-086 —
-  `ReglementUpdate` compare son paramètre montant à `Montant` (devise d'origine), pas à
-  `MontantDeviseSociete` (affiché dans les grilles). Si le règlement est en devise société (cas
-  très majoritaire, cf. TASK-086), ce piège est invisible ; sinon, vérifier explicitement quelle
-  valeur envoyer.
+- **Montant affiché vs montant réellement comparé — non applicable sur cet écran, vérifié par
+  lecture de code (passage architecte du 2026-09-28)** : le piège documenté en TASK-086
+  (`ReglementUpdate` compare son paramètre à `Montant`, devise d'origine, pas à
+  `MontantDeviseSociete`) concernait `App.tsx`, qui affiche `montantDeviseSociete` sous le libellé
+  « Montant ». **Sur `RapprochementBancaire.tsx` précisément, le champ affiché `ReglementGrc.montant`
+  (ligne 33) provient d'un simple spread du DTO backend (`RapprochementBancaire.tsx:486-490`, aucun
+  remapping explicite) — c'est donc directement `ReglementClientDto.Montant` (devise d'origine), pas
+  `MontantDeviseSociete`.** Le montant affiché ici est déjà la bonne valeur à comparer/envoyer, aucune
+  reconversion nécessaire. À confirmer malgré tout en base réelle pour un règlement en devise
+  étrangère si un tel cas existe en pratique sur ce déploiement (cf. TASK-086, aucune gestion
+  multi-devise trouvée dans `ReglementService.cs` à ce jour).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
@@ -104,6 +130,9 @@ montants différents :
       confirmation propose la mise à jour du montant (pas seulement un forçage silencieux)
 - [ ] Confirmation → montant du règlement mis à jour en base réelle avec la valeur exacte de la
       ligne de relevé (`credit`), testé réellement (pas seulement par lecture de code)
+- [ ] **Payload envoyé au serveur ne contient que `montant`** (pas `reference`/`date`/`banqueNo` à
+      vide ou nul) — testé explicitement sur un règlement ayant une Référence non vide avant l'appel :
+      la Référence reste inchangée après la mise à jour du montant (pas écrasée par une chaîne vide)
 - [ ] Après mise à jour réussie → rapprochement (réservation/lettrage) effectué automatiquement,
       sans nouvelle action utilisateur
 - [ ] Ligne d'historique de modification créée pour ce règlement (comportement natif de l'endpoint
