@@ -1,5 +1,40 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Écran comptabilisation : filtre « Rapproché » fixé à Oui, `MV_Type IN (0,4)` exclus du filtre (TASK-087, APPROVE)
+
+### Contexte
+Remarque PO en réunion (2026-09-28), précisée le même jour : sur l'écran de comptabilisation
+(`ApercuComptabilisation.tsx`), le filtre « Rapproché » doit être verrouillé sur Oui, mais sans
+exclure les règlements Espèce/Autre (`MV_Type IN (0,4)`) qui n'ont pas de notion de rapprochement
+bancaire. Décision PO : pour ce filtre précisément, `MV_Type=4` est traité comme `MV_Type=0`
+(dispensé, toujours inclus) — changement de doctrine scopé à ce seul filtre, sans impact sur
+`ReglementEligibilityHelper.EstEligibleRappBancaire` (TASK-021) ni sur la règle d'écriture comptable
+`MV_Type=4` traité comme 3 (TASK-053).
+
+### Modifications
+- **Front** (`ApercuComptabilisation.tsx`) : `<select>` "Rapproché" verrouillé (`disabled`, figé sur
+  "Oui", option unique) — aucune interaction utilisateur possible pour le modifier.
+  `handleSimuler` transmet `pointe: true` et `includeEspeceEtAutreSiPointeFiltre: true` en dur.
+- **Backend** (`ReglementService.cs`, `ReglementController.cs`) : nouveau paramètre opt-in
+  `includeEspeceEtAutreSiPointeFiltre = false` (défaut inchangé pour tous les autres appelants).
+  Quand actif, le filtre `isPointe` devient `(int)r.Type == 0 || (int)r.Type == 4 || r.IsPointe ==
+  pointeVal` — test direct sur `Type`, pas de détournement de `EstEligibleRappBancaire` (qui répond
+  à une question différente : éligibilité au rapprochement bancaire, pas appartenance à {0,4}).
+- **Non-régression** : `App.tsx` (mode Rapprochement, `pointe='non'`) et `RapprochementBancaire.tsx`
+  (`pointe=false&eligibleRappBancaire=true`) ne transmettent pas le nouveau paramètre — comportement
+  strictement inchangé, vérifié sur le code réel par l'architecte.
+
+### Validation
+- Build back + front : 0 erreur.
+- Harnais dédié `harness_task087` : 23/23 PASSED (unitaire + base réelle `GR_GOCOM`) — mode
+  comptabilisation (espèces/Autre toujours inclus, Chèque/Traite/Virement non pointés exclus) et
+  non-régression (mode standard, mode rapprochement bancaire) tous deux couverts.
+- Premier VERIFY rejeté : auto-clôture par l'implémenteur (Statut passé à `DONE`, checklist cochée
+  et entrée `DONE.md` ajoutée sans dépôt VERIFY laissé à review — cf. règle CLAUDE.md du 2026-09-08).
+  Procédure corrigée par l'architecte (statut remis à `VERIFY`, entrée retirée), fond ensuite
+  approuvé sans autre réserve. Rapport `VERIFY/TASK-087_verify.md` (archivé, contenu absorbé
+  ci-dessus).
+
 ## 2026-09-27 — Empilement de requêtes concurrentes sur l'écran liste des règlements (TASK-084, APPROVE)
 
 ### Contexte

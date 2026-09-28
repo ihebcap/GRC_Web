@@ -54,7 +54,8 @@ namespace GRC.API.Controllers
             [FromQuery] string? montantMax = null,
             [FromQuery] string? soldeMin = null,
             [FromQuery] string? soldeMax = null,
-            [FromQuery] bool eligibleRappBancaire = false)
+            [FromQuery] bool eligibleRappBancaire = false,
+            [FromQuery] bool includeEspeceEtAutreSiPointeFiltre = false)
         {
             if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId)) return Unauthorized();
             var caisses = User.FindFirst("Caisses")?.Value;
@@ -67,7 +68,8 @@ namespace GRC.API.Controllers
                 client, numero, piece, reference, libelle, montant, extrait,
                 pointe, comptabilise, remis, impaye, annule, caisseNos,
                 banqueNos, modeNos, banqueClient, solde, info1, info2, info3, info4,
-                montantMin, montantMax, soldeMin, soldeMax, isAdmin, eligibleRappBancaire
+                montantMin, montantMax, soldeMin, soldeMax, isAdmin, eligibleRappBancaire,
+                includeEspeceEtAutreSiPointeFiltre
             );
 
             int totalItems = allReglements.Count();

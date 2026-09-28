@@ -24,7 +24,7 @@ namespace GRC.Infrastructure.Services
             _logger = logger;
         }
 
-        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false)
+        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, string? clientFilter, string? numeroFilter, string? pieceFilter, string? refFilter, string? libelleFilter, string? montantFilter, string? extraitFilter, string? isPointe, string? isComptabilise, string? isRemis, string? isImpaye, string? isAnnule, string? caisseNosFilter, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
         {
             if (isAdmin)
             {
@@ -98,9 +98,15 @@ namespace GRC.Infrastructure.Services
                 allReglements = allReglements.Where(r => r.ExtraitNum != null && values.Contains(r.ExtraitNum));
             }
 
+            // TASK-087 — Filtre « Rapproché » (pointe) de l'écran comptabilisation : si includeEspeceEtAutreSiPointeFiltre
+            // est activé (opt-in exclusif d'ApercuComptabilisation.tsx), les règlements MV_Type IN (0,4) (Espèce, Autre)
+            // sont toujours inclus quel que soit IsPointe car ils n'ont pas de notion de rapprochement bancaire.
+            // Pour tous les autres appelants (App.tsx, RapprochementBancaire.tsx), le filtre IsPointe strict reste inchangé.
             if (!string.IsNullOrEmpty(isPointe)) {
                 bool pointeVal = bool.Parse(isPointe);
-                allReglements = allReglements.Where(r => r.IsPointe == pointeVal);
+                allReglements = includeEspeceEtAutreSiPointeFiltre
+                    ? allReglements.Where(r => (int)r.Type == 0 || (int)r.Type == 4 || r.IsPointe == pointeVal)
+                    : allReglements.Where(r => r.IsPointe == pointeVal);
             }
             
             if (!string.IsNullOrEmpty(isComptabilise)) {

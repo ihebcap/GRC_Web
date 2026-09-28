@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur (demande PO, réunion 2026-09-28 — précisée le 2026-09-28)
 - **Domaine** : Backend (Infrastructure) + Front (`ApercuComptabilisation.tsx`)
-- **Statut** : VERIFY (implémentation déposée, en attente de review architecte)
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte

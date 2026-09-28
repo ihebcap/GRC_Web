@@ -172,7 +172,6 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
     return d.toISOString().split('T')[0];
   });
   const [dateFin, setDateFin] = useState(() => new Date().toISOString().split('T')[0]);
-  const [rapproche, setRapproche] = useState<'all' | 'oui' | 'non'>('all');
 
   const [loading, setLoading] = useState(false);
   const [apercus, setApercus] = useState<Apercu[]>([]);
@@ -216,8 +215,8 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
           societeId: user.societeId,
           caisses: user.caisses.join(','),
           caisseNos: caisses.length ? caisses.join(',') : undefined,
-          modeNos: modes.length ? modes.join(',') : undefined,
-          pointe: rapproche === 'all' ? undefined : (rapproche === 'oui'),
+          pointe: true,
+          includeEspeceEtAutreSiPointeFiltre: true,
           dateDebut,
           dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin,
           page: 1,
@@ -413,12 +412,17 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
         <span style={{color: 'var(--text-tertiary)', fontSize: '0.8125rem'}}>à</span>
         <input type="date" className="form-input" value={dateFin} onChange={e => setDateFin(e.target.value)} style={{width: '120px'}} />
 
+        {/* TASK-087 — Filtre « Rapproché » verrouillé à Oui (décision PO 2026-09-28) : disabled, figé sur Oui */}
         <div style={{display: 'flex', alignItems: 'center', gap: '0.375rem'}}>
           <span style={{fontSize: '0.8125rem', color: 'var(--text-secondary)'}}>Rapproché :</span>
-          <select className="form-input" value={rapproche} onChange={e => setRapproche(e.target.value as 'all' | 'oui' | 'non')} style={{width: '90px', fontSize: '0.8125rem'}}>
-            <option value="all">Tous</option>
+          <select
+            className="form-input"
+            value="oui"
+            disabled
+            style={{width: '90px', fontSize: '0.8125rem', opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-secondary, #f8f9fa)'}}
+            title="Filtre verrouillé à Oui (espèces et autres modes sans rapprochement inclus)"
+          >
             <option value="oui">Oui</option>
-            <option value="non">Non</option>
           </select>
         </div>
 
