@@ -83,6 +83,13 @@ côté front), plutôt que de compter sur un échec DLL non garanti en aval.
   base de test) — peut être implémentée et compilée indépendamment, mais son VERIFY doit attendre
   qu'un règlement annulé existe réellement (via TASK-085 déployée, ou via un `MV_Annule=1` déjà
   présent en base si un tel cas existe déjà indépendamment de TASK-085).
+- **Croisement avec TASK-087 (analyse croisée 085/086/087/088, 2026-09-28)** : TASK-087 (déjà DONE,
+  VERIFY déposé) fait que l'écran de comptabilisation inclut désormais aussi les règlements
+  `MV_Type IN (0,4)` non pointés — ce qui élargit mécaniquement l'ensemble des règlements exposés à
+  la garde `IsAnnule` que cette TASK ajoute. Aucun conflit de logique (les deux gardes sont à des
+  étages différents : TASK-087 filtre la liste affichée, TASK-088 filtre l'action de comptabiliser),
+  mais le cas n'était pas testé dans le VERIFY de TASK-087 (TASK-088 n'existait pas encore) — à
+  couvrir explicitement dans le VERIFY de cette TASK (cf. Checklist VALIDATION).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
@@ -99,5 +106,11 @@ côté front), plutôt que de compter sur un échec DLL non garanti en aval.
       valides ne rejette QUE le règlement annulé (gestion d'erreur par-règlement existante, TASK-046
       — ne bloque pas tout le lot), testé réellement avec un lot mixte, pas seulement un règlement
       annulé isolé
+- [ ] **Cas croisé avec TASK-087** (analyse croisée 085/086/087/088, 2026-09-28) : un règlement
+      `MV_Type IN (0,4)` (Espèce/Autre) et `IsAnnule=true` est désormais **inclus** par le filtre de
+      l'écran de comptabilisation depuis TASK-087 (`includeEspeceEtAutreSiPointeFiltre=true`
+      contourne `IsPointe` mais pas `IsAnnule`) — vérifier qu'il est bien rejeté par
+      `VerifierComptabilisable` à l'étape suivante (aperçu et comptabilisation réelle), testé
+      réellement en base sur au moins un règlement `Type=0` et un `Type=4` annulés
 - [ ] Aucune dette technique silencieuse (un seul point de test `IsAnnule`, pas de duplication)
 - [ ] Cohérent avec l'architecture

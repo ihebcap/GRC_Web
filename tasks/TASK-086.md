@@ -3,7 +3,12 @@
 - **Priorité** : 🟠 Nouveau fonctionnel (demande PO, réunion 2026-09-28)
 - **Domaine** : Backend (API + Infrastructure) + Front (liste des règlements) + SQL (nouvelle table)
 - **Statut** : TODO
-- **Dépend de** : —
+- **Dépend de** : TASK-085 (séquencement acté le 2026-09-28, analyse croisée 085/086/087/088 —
+  TASK-085 doit être implémentée et son VERIFY déposé **avant** TASK-086, pour que la garde commune
+  non-comptabilisé/non-affecté/non-annulé introduite par TASK-085 §étape 1 soit réutilisée telle
+  quelle par TASK-086 §étape 1, au lieu d'être dupliquée en parallèle sur les mêmes fichiers
+  `ReglementService.cs`/`ReglementController.cs`. Ne pas transmettre TASK-086 à l'implémenteur avant
+  que TASK-085 soit en `DONE_DETAIL/`)
 
 ## Contexte
 
@@ -283,8 +288,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    `IsComptabilise == global::Tresorerie.Core.Enum.EtatComptabilite.NonComptabilise` (type exact —
    **pas** `EtatComptabilise`, nom à ne pas confondre, cf. usage réel existant dans
    `ReleveBancaireRepository.cs:740`), `GetAffectations().Any() == false`, `IsAnnule == false`.
-   Centraliser ce contrôle dans une seule méthode/garde réutilisée par TASK-085 si possible (éviter
-   la duplication de logique entre annulation et modification).
+   **Réutiliser telle quelle la méthode de garde introduite par TASK-085 §étape 1** (implémentée et
+   VERIFY déposé avant cette TASK, cf. séquencement acté en en-tête) — ne pas réimplémenter une
+   seconde version de ce contrôle en parallèle. Si TASK-085 n'a codé la garde qu'inline (pas encore
+   extraite en méthode réutilisable au moment de son VERIFY), l'extraire ici en méthode partagée
+   plutôt que de dupliquer la logique une seconde fois — dans les deux cas, un seul point de vérité
+   pour ce contrôle à l'issue de TASK-086.
    **Cette garde applicative ne couvre pas tous les cas** : `CaisseManager.ReglementUpdate` a ses
    propres gardes internes supplémentaires (remis, remplacé/remplaçant, règlement d'avoir, lié à un
    remboursement fournisseur — voir point 3bis ci-dessous) qui ne sont pas dupliquées côté
