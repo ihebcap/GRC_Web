@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur (demande PO, réunion 2026-09-28 — précisée le 2026-09-28)
 - **Domaine** : Backend (Infrastructure) + Front (`ApercuComptabilisation.tsx`)
-- **Statut** : TODO
+- **Statut** : VERIFY (implémentation déposée, en attente de review architecte)
 - **Dépend de** : —
 
 ## Contexte
@@ -152,18 +152,18 @@ Sur l'écran de comptabilisation :
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build back + front OK (0 erreur)
-- [ ] Filtre « Rapproché » verrouillé sur Oui (aucune interaction utilisateur possible pour le
+- [x] Build back + front OK (0 erreur)
+- [x] Filtre « Rapproché » verrouillé sur Oui (aucune interaction utilisateur possible pour le
       changer — select retiré ou désactivé)
-- [ ] Règlements `MV_Type IN (0,4)` (Espèce, Autre) toujours inclus dans les résultats de l'écran
+- [x] Règlements `MV_Type IN (0,4)` (Espèce, Autre) toujours inclus dans les résultats de l'écran
       comptabilisation, quel que soit leur état `IsPointe`
-- [ ] Règlements `MV_Type IN (1,2,3)` non rapprochés bien exclus (comportement Oui strict préservé
+- [x] Règlements `MV_Type IN (1,2,3)` non rapprochés bien exclus (comportement Oui strict préservé
       pour Chèque/Traite/Virement)
-- [ ] Non-régression confirmée sur `App.tsx` (mode Rapprochement, `pointe='non'`) : espèces et type
+- [x] Non-régression confirmée sur `App.tsx` (mode Rapprochement, `pointe='non'`) : espèces et type
       « Autre » toujours exclus comme avant cette TASK
-- [ ] Non-régression confirmée sur `RapprochementBancaire.tsx` (`pointe=false`) : espèces et type
+- [x] Non-régression confirmée sur `RapprochementBancaire.tsx` (`pointe=false`) : espèces et type
       « Autre » toujours exclus comme avant cette TASK
-- [ ] Aucune régression sur les autres appelants de `GetReglements`/paramètre `pointe`
-- [ ] Confirmation que `ReglementEligibilityHelper.EstEligibleRappBancaire` n'a pas été utilisé
+- [x] Aucune régression sur les autres appelants de `GetReglements`/paramètre `pointe`
+- [x] Confirmation que `ReglementEligibilityHelper.EstEligibleRappBancaire` n'a pas été utilisé
       (directement ou par négation) pour détecter `MV_Type IN (0,4)` — test direct sur `Type` requis
-- [ ] Aucune duplication de la logique de détection `MV_Type IN (0,4)`
+- [x] Aucune duplication de la logique de détection `MV_Type IN (0,4)`
