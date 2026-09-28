@@ -241,8 +241,20 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - `GRC.API/Controllers/ReglementController.cs` — nouvel endpoint `[HttpPut("{id}")]` ou
   `[HttpPost("{id}/modifier")]`, avec contrôle de droits caisse (pattern TASK-069).
 - `gocom-web/src/App.tsx` (ou composant liste des règlements) — bouton/modal « Modifier » par ligne,
-  formulaire des 5 champs, dont un sélecteur client réutilisant la recherche client existante
-  (`TiersErpHelper`/cache, pattern déjà en place pour la génération de règlement, TASK-064).
+  formulaire des 5 champs, dont un sélecteur client réutilisant **le combobox client déjà existant
+  dans `RapprochementBancaire.tsx` (lignes ~400-460)**, pas celui de `ReglementGenerationEspece.tsx`
+  (celui-ci liste seulement les clients ayant une facture ouverte, via `GetFacturesARegler`/
+  `Echeance` — impropre à cette TASK où n'importe quel client valide doit être sélectionnable).
+  Chaîne réelle confirmée par lecture de code (pas `vTiers`, jamais accédée directement par
+  GRC_WEB — vue SQL interne à la DLL Trésorerie) :
+  `Tresorerie.UICommun.Helper.TiersErpHelper.GetAll(FiltreTiers.Client, false)` →
+  `ReglementGenerationService.GetClientsFromCache()` (cache mémoire 10 min, TASK-064) → 3 endpoints
+  Minimal API déjà déclarés dans `GRC.API/Program.cs:316-338` : `GET /api/reference/clients`,
+  `GET /api/reference/clients/count`, `GET /api/reference/clients/search?q=&max=` — déjà consommés
+  tels quels par `RapprochementBancaire.tsx`, à réutiliser sans rien ajouter côté back pour ce champ.
+  `ClientDto` (contrat déjà exposé par ces endpoints) contient `{ Code, Intitule, No }` — `No` est
+  l'ID numérique nécessaire pour la réflexion sur `set_ClientNo(int)`, déjà disponible sans appel
+  supplémentaire ni résolution par code à part.
   **Action par ligne, pas un bouton en haut de page** (cohérence avec TASK-085 « Annuler », qui
   tranche déjà ce point pour le même écran — un bouton en haut nécessiterait une présélection de
   ligne, mécanisme absent aujourd'hui de cette grille). Icône (crayon) ou libellé texte au choix de
