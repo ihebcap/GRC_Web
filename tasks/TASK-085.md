@@ -13,10 +13,16 @@ condition explicite du PO : *« le règlement ne doit pas être comptabilisé, r
 
 Vérification par inspection réelle (code source `Tresorerie.Core` + décompilation IL Mono.Cecil du
 binaire livré `libs\Tresorerie\Tresorerie.Core.dll`, concordance totale confirmée entre les deux
-sources) : **`CaisseManager.ReglementClientAnnuler(int reglementNo)` existe déjà en natif** et fait
-tout le travail en interne, sous `TransactionScope` :
+sources, **puis contre-vérification indépendante par une seconde passe**) : **`CaisseManager.
+ReglementClientAnnuler(int reglementNo)` existe déjà en natif** et fait tout le travail en interne.
+**⚠️ Le pseudocode ci-dessous est une paraphrase simplifiée, pas un extrait littéral du corps réel**
+(contre-vérification indépendante confirmée) : dans le code réel, **toutes les gardes s'exécutent
+AVANT l'ouverture du `TransactionScope`** ; le bloc transactionnel ne contient que l'épuisement d'un
+éventuel lot d'entrée non épuisé (omis ci-dessous pour lisibilité), puis `IsAnnule=true` +
+persistance + notification :
 
 ```csharp
+// Paraphrase simplifiée — voir note ci-dessus, ne pas citer comme extrait littéral
 public void ReglementClientAnnuler(int reglementNo)
 {
     var reglement = _reglementClientRepository.Get(reglementNo);
@@ -25,10 +31,13 @@ public void ReglementClientAnnuler(int reglementNo)
     if (reglement.IsImpaye == ImpayeEtat.Impaye) throw new ApplicationException(TresorerieCoreMessages.ErrorReglementImpaye);
     if (reglement.IsRemis != Remis.NonRemis) throw new ApplicationException(TresorerieCoreMessages.ErrorReglementRemis);
     if (reglement.IsReglementAvoir) throw new ApplicationException("Opération invalide. Règlement d'avoir.");
-    // + vérifie : transfert en cours, règlement espèce déjà consommé, GetAffectations().Any(),
-    //   GetRemplacements().Any(), GetMesRemplacants().Any(), IsPointe, Solde != Montant, IsSynchroniser
+    // + vérifie : transfert en cours, règlement espèce déjà consommé (ApplicationException),
+    //   GetAffectations().Any(), GetRemplacements().Any(), GetMesRemplacants().Any() (InvalidOperationException),
+    //   IsPointe, Solde != Montant, IsRemplacer, IsSynchroniser (ApplicationException)
+    // — 14 gardes au total, toutes AVANT le bloc transactionnel qui suit :
     using (var scope = new TransactionScope(...))
     {
+        // + épuisement d'un éventuel lot d'entrée non épuisé (historique), omis ici
         reglement.IsAnnule = true;
         _reglementClientRepository.AnnulerReglement(reglementNo, true);
         _notifyService.Notify(TypeEntity.Reglement, reglementNo, TypeAction.Modification, reglement.SocieteNo);
@@ -48,6 +57,17 @@ garanti à 100 % en théorie (cas limite : comptabilisé, solde intact, non poin
 **Décision actée** : ajouter un test explicite côté GRC_WEB (`IsComptabilise == EtatComptabilise.NonComptabilise`)
 avant l'appel, par prudence — ne pas se reposer uniquement sur les gardes internes de la DLL pour ce
 point précis.
+
+⚠️ **`IsLettrer` non testé non plus par `ReglementClientAnnuler`** (ni comme garde native, ni par la
+garde `IsComptabilise` ci-dessus — vérifié par décompilation, aucune des deux notions n'apparaît dans
+le corps réel de la méthode). **Position PO (2026-09-28)** : un règlement non comptabilisé ne peut pas
+être lettré, donc la garde `IsComptabilise` couvre indirectement ce risque, pas de garde
+supplémentaire nécessaire. **Non prouvée à 100 % côté code** : le moteur de lettrage natif appelé par
+GRC_WEB (`ILettrageReglementClient`, résolu par IoC) est une interface dont l'implémentation concrète
+n'est pas présente dans les DLL inspectables du repo (probablement un assembly Erp.Sage.* spécifique
+version) — impossible de confirmer par le code que le moteur natif exige lui-même `IsComptabilise`
+avant de lettrer. Décision actée sur confiance métier PO, pas sur preuve code à 100 % — si un doute
+apparaît en test réel (VERIFY), vérifier `IsLettrer` sur le jeu de règlements testés avant annulation.
 
 ## Objectif
 
@@ -90,9 +110,14 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
    `catch` couvrant les deux types**, avec message métier lisible remonté au front (pas de message
    technique brut), sur le modèle du panneau d'erreurs de TASK-055.
 5. **Front** : bouton « Annuler » désactivé/masqué si le règlement est visiblement déjà comptabilisé,
-   pointé, remis ou annulé côté données déjà chargées par la grille (défense en profondeur légère,
-   la vraie garde reste côté serveur) ; confirmation modale avant l'appel ; message de succès/erreur
-   affiché clairement (pas un `alert()` — cf. TASK-014, pattern toast déjà en place).
+   **affecté**, pointé, remis ou annulé côté données déjà chargées par la grille (défense en
+   profondeur légère, la vraie garde reste côté serveur — **"affecté" ne doit pas être oublié dans
+   cette liste**, c'est une condition bloquante native de `ReglementClientAnnuler` au même titre que
+   les autres) ; confirmation modale avant l'appel ; message de succès/erreur affiché clairement
+   (pas un `alert()` — cf. TASK-014, pattern toast déjà en place ; noter que `ApercuComptabilisation.tsx`
+   ne reçoit actuellement que `showToast` en prop, pas `showConfirm` — si la confirmation doit
+   s'afficher depuis ce composant plutôt que la liste des règlements dans `App.tsx`, prévoir de
+   propager `showConfirm` en prop supplémentaire).
 6. **Rafraîchir la grille** après annulation réussie (le règlement annulé doit soit disparaître du
    filtre courant, soit afficher visuellement son état annulé selon le filtre actif).
 
@@ -102,7 +127,11 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
   contournement — l'appel natif `ReglementClientAnnuler` fait tout le travail et est la seule voie
   autorisée. Utiliser `ReglementClientDelete` est interdit ici (sémantique différente, suppression
   physique).
-- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069).
+- Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069). **Vérifier
+  explicitement que le règlement appartient à la société de l'utilisateur connecté**, pas seulement
+  à une caisse autorisée (IDOR société, cf. précédent déjà traité TASK-075 sur un autre endpoint de
+  ce projet) — confirmer au dev que `VerifierAutorisationCaisse` couvre nativement cette
+  vérification société↔règlement, sinon l'ajouter explicitement.
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 - Aucun `UPDATE` SQL brut sur une table pilotée par la DLL.
 
@@ -117,9 +146,29 @@ affecté, non annulé — appelant `CaisseManager.ReglementClientAnnuler` sans a
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
+**Préalable discipline de preuve** : la checklist ci-dessous exige de tester 6 états distincts du
+règlement (non comptabilisé éligible, comptabilisé, affecté, remis, pointé, déjà annulé). Deux de ces
+états (affecté, remis) sont peu fréquents et non triviaux à obtenir sur un jeu de données de test —
+sur le modèle des harnais dédiés déjà produits pour TASK-081/082/083 (`harness_task081/082/083` :
+setup SQL réel, appel du vrai repository/DLL, vérification en base, teardown), prévoir soit un
+harnais `harness_task085` équivalent, soit identifier explicitement dans le VERIFY un ou plusieurs
+`MV_Id` réels existants en base couvrant chaque état requis, avant de cocher les cases correspondantes
+— ne pas cocher sur la base d'un raisonnement par le code seul (cf. TASK-083, premier VERIFY rejeté
+pour ce motif).
+
 - [ ] Build back + front OK (0 erreur)
 - [ ] Règlement non comptabilisé/non affecté/non remis/non annulé/non pointé → annulation réussie,
-      confirmée en base réelle (`RT_MOUVEMENT.MV_IsAnnule` ou équivalent)
+      confirmée en base réelle sur **`RT_MOUVEMENT.MV_Annule`** (nom de colonne confirmé par
+      décompilation directe du SQL brut dans `ReglementClientRepository.AnnulerReglement`, pas
+      `MV_IsAnnule`). **Vérifier aussi `RT_HISTOMVT`** : `ReglementClientAnnuler` y fait un `UPDATE`
+      conditionnel de `HM_MontantRestant = 0` (pas un `INSERT`), uniquement s'il existe un lot
+      d'entrée non épuisé pour ce règlement — à contrôler dans le VERIFY si le règlement de test a un
+      tel lot (sinon cette table n'est simplement pas touchée, ce n'est pas un bug)
+- [ ] Vérification société↔règlement confirmée (un règlement d'une société différente de
+      l'utilisateur connecté n'est jamais accessible, même via une caisse au nom similaire — IDOR,
+      cf. TASK-075)
+- [ ] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
+      comptabilisé/pointé/remis/annulé)
 - [ ] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
 - [ ] Règlement affecté → refus, message métier lisible (`InvalidOperationException` catchée et
       traduite, pas de stack trace brute au front)
