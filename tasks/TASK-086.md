@@ -89,6 +89,84 @@ nécessaire seulement si affecté ; **hors périmètre par construction** grâce
 (non affecté). Ne pas implémenter ce recalcul dans cette TASK — le documenter comme non applicable
 tant que la garde tient.
 
+### ⚠️ Mise à jour post-création (2026-09-28, revue architecte) — voie DLL native trouvée pour
+Date/Montant/Banque/Référence, **`UpdateMontant` seule ne suffit pas, ne pas s'y limiter**
+
+Re-inspection IL ciblée (`ReglementClient.UpdateMontant`, `CaisseManager.ReglementUpdate`,
+`ReglementClientRepository.Update`, `VerifySoldeManager`) faite par l'architecte avant transmission
+à l'implémenteur — corrige/précise ce qui précède :
+
+- **`ReglementClient.UpdateMontant(decimal montant, decimal cours)` existe, publique**, gardes :
+  non remis, devise non affectée (`IsAffDevise`), un seul historique, **`GetAffectations()` vide**,
+  non comptabilisé, non pointé. Mais elle ne fait que positionner `Montant`/`SoldeToRemplace`/
+  `Solde`/`MontantDeviseSociete`/`SoldeDeviseSociete` **en mémoire sur l'objet** — aucune
+  persistance, aucun recalcul `MV_Etat`. L'appeler seule et persister via
+  `ReglementClientRepository.Update` suffirait pour les colonnes `RT_MOUVEMENT` (voir ci-dessous)
+  mais **laisserait `MV_Etat` non recalculé** si on s'arrête là.
+
+- **`CaisseManager.ReglementUpdate(reglementNo, date, montantDevise, libelle, piece, banqueClient,
+  echeance, tire, banqueNo, deviseNo, coursDevise, affaireNumero, ribClient, infoLibre1..4,
+  reference, collaborateurNo, isCertifier, dateValidite, montantPlafond, reglementNature)`
+  est la méthode DLL "chapeau" complète — **seule voie appelante trouvée de `UpdateMontant`** dans
+  tout `Tresorerie.Core`, elle est donc probablement **LA** méthode prévue par l'éditeur pour ce cas
+  d'usage, pas une méthode annexe. Dans une `TransactionScope`, elle :
+  1. vérifie non annulé, non lié à un remboursement fournisseur, non règlement d'avoir, autorisation
+     caisse utilisateur ;
+  2. **garde spécifique par mode de règlement** : si `ModeReglement.Type` est chèque/traite (2 ou 1),
+     `piece` doit être non vide et `banqueClient` doit être vide ; si `Type==3` (a priori
+     virement/prélèvement), `banqueNo` doit être renseigné et `banqueClient` doit être vide, et si la
+     banque change elle vérifie qu'elle n'est pas "en sommeil" (`InformationsBanque.EnSommeil`) ;
+  3. si `ModeReglement.IsReferenceReglementClientObligatoire` : référence obligatoire ; si
+     `ControllerUniciteReferenceReglementClient` : référence unique (`ReglementClientIsReferenceUnique`) ;
+  4. si `montantDevise != Montant` actuel → appelle `UpdateMontant` (gardes ci-dessus incluses) ;
+  5. si `echeance != DateEcheance` actuel et `Societe.DelaiPaiementClient` actif → bloque (délai moyen
+     de paiement) ;
+  6. si `date != Date` actuel → appelle `ChangeDate` (gardes : annulé, comptabilisé, remis, affecté,
+     remplacé, pointé) ;
+  7. positionne `Libelle`/`PieceNumero`/`Tire`/`DateEcheance`/`BanqueTier`/`BanqueNo`/
+     `DateModification`/`ModificateurNo`/`AffaireNumero`/`RibClient`/`Info1..4`/`Reference`/
+     `CollaborateurNo`/`IsCertifier`/`DateValiditer`/`MontantPlafond`/`ReglementNature` ;
+  8. si devise/cours changés → `ChangeDevise` ;
+  9. si montant modifié (étape 4) → met à jour le `Lot` associé à l'historique (montant/montant
+     restant) ;
+  10. **persiste tout l'objet** via `ReglementClientRepository.Update(reg)` — un seul appel Dapper
+      `DapperExtensions.Update<MouvementDto>(...)` qui mappe **l'objet entier** (donc
+      `MV_Montant`/`MV_Solde`/`MV_SoldeReplace`/`MV_MtDevise`/`MV_SoldeDevise` inclus
+      automatiquement, **aucun SQL brut/dérogatoire nécessaire pour ces colonnes**) ;
+  11. gère le bordereau si le règlement est remis (hors périmètre ici, règlement non affecté/non remis
+      par construction) ;
+  12. notifie.
+
+  **`MV_Etat` reste non recalculé par cette voie** (ni par `UpdateMontant`, ni par
+  `ReglementClientRepository.Update`) — seul `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)`
+  le fait (`UPDATE [RT_MOUVEMENT] SET [MV_Solde]=@Solde,[MV_Etat]=@Etat`), confirmé par IL. **À
+  appeler explicitement après `ReglementUpdate` si le montant a changé** — rien dans `ReglementUpdate`
+  ne l'appelle automatiquement.
+
+- **Conséquence sur le risque "Montant bloqué en attente d'arbitrage PO sur UPDATE SQL direct"
+  (section Risques / Contraintes ci-dessous) : très probablement caduc.** `ReglementUpdate` couvre
+  nativement Date/Montant/Banque/Référence en un seul appel transactionnel avec persistance ORM
+  complète — pas de bypass SQL requis pour ces 4 champs. **Le Client reste hors de cette méthode**
+  (aucun paramètre client dans sa signature) : le contournement réflexion sur les 3 setters privés
+  reste la seule voie, inchangé par rapport à la section Client ci-dessus.
+
+- **Implication pratique pour l'implémenteur** : préférer un seul appel `CaisseManager.ReglementUpdate`
+  (en passant les valeurs actuelles inchangées pour les champs hors périmètre PO — `libelle`,
+  `tire`, `affaireNumero`, `ribClient`, `infoLibre1..4`, `collaborateurNo`, `isCertifier`,
+  `dateValidite`, `montantPlafond`, `reglementNature`, `deviseNo`, `coursDevise` — lus depuis
+  l'entité chargée avant modification, pas des valeurs par défaut/vides qui écraseraient des données
+  existantes) plutôt que d'appeler `ChangeDate`/`UpdateMontant`/setters Banque/Référence séparément.
+  **Attention piège** : si le PO ne fournit que 5 champs (Date/Client/Montant/Banque/Référence)
+  mais que le mode de règlement en cours exige `piece` non vide (chèque/traite) ou `banqueClient`
+  vide/rempli selon le type, il faut relire ces valeurs sur l'entité existante et les repasser
+  telles quelles à `ReglementUpdate`, sous peine d'exception métier sur un champ que
+  l'utilisateur n'a pas touché. Documenter ce mapping dans le VERIFY.
+  Puis appeler `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` explicitement si le
+  montant a été modifié, pour que `MV_Etat` reste cohérent.
+  **Vérifier au dev** que `ReglementUpdate` fonctionne bien pour un règlement non affecté (les
+  gardes lues en IL n'excluent pas ce cas, mais aucun test réel n'a encore été fait) — si un
+  comportement inattendu apparaît, revenir à l'architecte avant de bypasser en SQL brut.
+
 ## Objectif
 
 Un endpoint et un écran de modification permettant de corriger Date/Client/Montant/Banque/Référence
@@ -123,17 +201,33 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
    `AncienMontant`/`NouveauMontant`, `AncienneDate`/`NouvelleDate`, etc., ou JSON — au choix
    d'implémentation, la contrainte est la granularité "1 ligne par modification", pas le format
    exact de stockage).
-3. **Écriture des champs, par voie DLL** :
-   - Date → `ChangeDate` (standard, sans le bypass `SetDateBypassAffectation` — la garde commune
-     rend ce bypass inutile ici).
-   - Référence → setter public direct.
-   - Banque → setter public direct (`BanqueNo`).
+3. **Écriture des champs, par voie DLL** — **voie recommandée après inspection IL de l'architecte**
+   (cf. section "Mise à jour post-création" ci-dessus) : un seul appel
+   `CaisseManager.ReglementUpdate(reglementNo, date, montantDevise, libelle, piece, banqueClient,
+   echeance, tire, banqueNo, deviseNo, coursDevise, affaireNumero, ribClient, infoLibre1..4,
+   reference, collaborateurNo, isCertifier, dateValidite, montantPlafond, reglementNature)` pour
+   Date/Montant/Banque/Référence :
+   - Charger l'entité `ReglementClient` existante d'abord, puis construire l'appel en reprenant
+     **telles quelles** les valeurs actuelles de tous les paramètres hors périmètre PO (`libelle`,
+     `tire`, `echeance`, `affaireNumero`, `ribClient`, `infoLibre1..4`, `collaborateurNo`,
+     `isCertifier`, `dateValidite`, `montantPlafond`, `reglementNature`, `deviseNo`, `coursDevise`,
+     `piece`) — ne jamais passer de valeur par défaut/vide qui écraserait une donnée existante.
+   - `date`/`montantDevise`/`banqueNo`/`banqueClient`/`reference` : valeurs nouvelles issues du
+     formulaire de modification.
+   - **Piège identifié** : `ReglementUpdate` a ses propres gardes par mode de règlement
+     (`piece` non vide obligatoire si chèque/traite ; `banqueClient` vide/rempli selon le type de
+     mode) qui n'ont rien à voir avec les 5 champs demandés par le PO — les respecter en relisant
+     l'entité, sous peine d'exception métier sur un champ non touché par l'utilisateur.
+   - Après l'appel, **si le montant a été modifié**, appeler explicitement
+     `VerifySoldeManager.UpdateSoldeReglementClient(reglementNo)` pour recalculer `MV_Etat` — non
+     fait automatiquement par `ReglementUpdate`.
    - Client → contournement réflexion sur les 3 setters privés (`ClientNo`/`ClientCode`/
-     `ClientIntitule`), isolé et commenté comme dérogation DLL actée par le PO.
-   - Montant → `UpdateMontant` si disponible pour ce cas, sinon écriture directe des 5 colonnes
-     `RT_MOUVEMENT` confirmées (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`,
-     `MV_SoldeDevise`) **+ recalcul `MV_Etat`** — vérifier au dev laquelle des deux voies la DLL
-     autorise réellement pour un règlement non affecté (ne pas supposer, tester).
+     `ClientIntitule`), isolé et commenté comme dérogation DLL actée par le PO — `ReglementUpdate`
+     ne couvre pas ce champ, appel séparé nécessaire.
+   - **Vérifier au dev en base réelle** que `ReglementUpdate` fonctionne effectivement pour un
+     règlement non affecté et sans lever d'exception sur les champs hors périmètre repris tels
+     quels — aucun test réel fait à ce stade, seulement une lecture IL. Si un blocage apparaît,
+     remonter à l'architecte avant d'envisager un bypass SQL (ne pas décider seul).
 4. **Écrire la ligne d'historique dans la même transaction** que la modification DLL — pas d'
    historisation orpheline si l'écriture DLL échoue, pas de modification silencieuse si
    l'historisation échoue.
@@ -151,12 +245,13 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
   strictement au contexte où la garde commune est respectée (non affecté en particulier) — ne pas
   l'étendre à un règlement affecté sans nouvel arbitrage PO explicite et documenté.
 - Aucun `UPDATE` SQL brut sur `RT_MOUVEMENT`/`RT_AFFECTATION`/`RT_ECHEANCE` en dehors de ce que la
-  DLL expose, **sauf** pour le champ Montant si l'inspection dev confirme qu'aucune méthode DLL ne
-  couvre les 5 colonnes en cohérence pour ce cas précis (à l'instar de la dérogation déjà actée en
-  TASK-059 pour `EC_SoldeDevise`) — documenter ce choix dans le VERIFY si utilisé.
-  Le PO valide alors si le forçage est acceptable en tenant compte que ceci reste un bypass DLL
-  sur une table métier GRC — donc **signaler et attendre arbitrage PO explicite avant de coder ce
-  chemin**, ne pas décider unilatéralement.
+  DLL expose. **Voie DLL confirmée par inspection IL** pour Date/Montant/Banque/Référence :
+  `CaisseManager.ReglementUpdate` (persistance ORM complète, pas de SQL brut nécessaire) + appel
+  explicite `VerifySoldeManager.UpdateSoldeReglementClient` si montant modifié (pour `MV_Etat`) —
+  voir section "Mise à jour post-création" ci-dessus. Un bypass SQL sur le Montant ne devrait donc
+  **plus être nécessaire** ; s'il s'avère malgré tout requis au moment du dev (comportement DLL
+  inattendu constaté en base réelle), **signaler et attendre arbitrage PO explicite avant de coder
+  ce chemin**, ne pas décider unilatéralement.
 - Respecter le scoping caisses/société de l'utilisateur connecté (pattern TASK-069).
 - Respecter la Clean Architecture (Domain ← Application ← Infrastructure/API).
 - Si un écran de sélection/liste est introduit pour choisir la banque ou le client dans le
@@ -172,23 +267,36 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 - **Contournement réflexion sur le champ Client** : non supporté par l'éditeur de la DLL, cassera
   silencieusement si une montée de version renomme les champs internes — risque à surveiller à
   chaque mise à jour de `Tresorerie.Core.dll`.
-- **Montant** : si la voie DLL native (`UpdateMontant`) s'avère insuffisante ou inexistante pour ce
-  cas au moment du dev, la TASK est bloquée en attente d'arbitrage PO sur un éventuel `UPDATE` SQL
-  direct dérogatoire (comme TASK-059) — ne pas trancher seul.
+- **Montant** : voie DLL native identifiée par inspection IL (`CaisseManager.ReglementUpdate`,
+  qui appelle `UpdateMontant` en interne et persiste via l'ORM), mais **non encore testée en base
+  réelle** pour un règlement non affecté — risque résiduel faible mais réel que le comportement
+  observé diffère de la lecture statique. Si la voie DLL s'avère malgré tout insuffisante au moment
+  du dev, la TASK est bloquée en attente d'arbitrage PO sur un éventuel `UPDATE` SQL direct
+  dérogatoire (comme TASK-059) — ne pas trancher seul.
+- **`ReglementUpdate` reprend des paramètres hors périmètre PO** (libellé, pièce, tiré, affaire,
+  RIB, infos libres, collaborateur, certification, validité, plafond, devise/cours) qui doivent être
+  relus depuis l'entité existante et repassés inchangés — un oubli ou une valeur par défaut sur l'un
+  de ces paramètres écraserait silencieusement une donnée existante. Risque de régression si
+  l'implémenteur simplifie en passant des valeurs vides.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
 - [ ] Build back + front OK (0 erreur)
 - [ ] Garde commune vérifiée côté serveur : règlement comptabilisé → refus ; affecté → refus ;
       annulé → refus ; message métier clair pour chaque cas
-- [ ] Modification Date → `ChangeDate` natif, testé en base réelle
-- [ ] Modification Référence → setter public, testé en base réelle
-- [ ] Modification Banque → setter public, testé en base réelle
+- [ ] Modification Date/Montant/Banque/Référence → un seul appel `CaisseManager.ReglementUpdate`,
+      testé en base réelle, confirmé fonctionnel pour un règlement non affecté
+- [ ] Non-régression des champs hors périmètre PO (libellé, pièce, tiré, échéance, affaire, RIB,
+      infos libres, collaborateur, certification, validité, plafond, devise/cours) : valeurs
+      relues depuis l'entité existante et inchangées après modification — vérifié en base réelle
+      sur au moins un règlement de chaque mode (chèque/traite/virement) pour couvrir les gardes
+      spécifiques de `ReglementUpdate` (pièce/banqueClient obligatoires ou interdits selon le mode)
 - [ ] Modification Client → contournement réflexion documenté comme dérogation dans le VERIFY,
       testé en base réelle, `RT_AFFECTATION` non concernée confirmée (règlement non affecté)
-- [ ] Modification Montant → les 5 colonnes `RT_MOUVEMENT` + `MV_Etat` cohérents en base réelle après
-      modification (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`, `MV_SoldeDevise`,
-      `MV_Etat`)
+- [ ] Modification Montant → les 5 colonnes `RT_MOUVEMENT` cohérentes en base réelle après
+      modification (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`, `MV_SoldeDevise`)
+      **et** `MV_Etat` recalculé via l'appel explicite à
+      `VerifySoldeManager.UpdateSoldeReglementClient` après `ReglementUpdate`
 - [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects,
       dans la même transaction que l'écriture DLL (test d'échec partiel : si l'écriture DLL échoue,
       aucune ligne d'historique orpheline)
