@@ -1,5 +1,35 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Garde `IsAnnule` dans `VerifierComptabilisable` (TASK-088, APPROVE)
+
+### Contexte
+Découvert par revue adversariale lors de l'analyse de TASK-085 (2026-09-28) : `Comptabiliser` et
+`ApercuComptabilisation` ne testaient pas `reg.IsAnnule` avant d'appeler `generator.Generate`. Un
+règlement annulé (via TASK-085 ou `MV_Annule=1` préexistant) restait silencieusement sélectionnable
+pour comptabilisation, sans garde applicative explicite.
+
+### Modifications
+- **Backend** (`ReglementService.cs`) : ajout de 4 lignes en tête de `VerifierComptabilisable`
+  (point de vérité partagé TASK-047, lignes 604-607) :
+  ```csharp
+  // TASK-088 — Garde IsAnnule
+  if (reg.IsAnnule)
+      throw new InvalidOperationException(
+          $"Règlement non comptabilisable : le règlement n°{reg.Numero} est annulé.");
+  ```
+  Aucun autre fichier modifié. L'exception est captée par la gestion PAR RÈGLEMENT existante
+  (TASK-046) — `errorCount++` dans `Comptabiliser`, `HasError=true` dans `ApercuComptabilisation`.
+
+### Validation
+- Build back 0 erreur.
+- Banc de test réel `harness_task088` contre `DESKTOP-2VCUE93/GR_GOCOM` : 20/20 PASSED.
+  - Règlement annulé MV_Id=9682 (`MV_Annule=1`, n°RC26021715) : aperçu → `HasError=true` + message
+    clair, 0 écriture ; comptabilisation → `errorCount=1`, `successCount=0`, `MV_Compta` reste 0.
+  - Lot mixte (9682 annulé + 7926 valide) → seul 9682 en erreur, 7926 avec 2 écritures générées.
+  - Non-régression valide (7926) → `HasError=false`, 2 écritures.
+  - Cas croisé TASK-087 : aucun règlement annulé Type 0/4 en base (garde type-agnostique documentée).
+- Rapport `VERIFY/TASK-088_verify.md`.
+
 ## 2026-09-28 — Modification de règlement + historique (TASK-086, APPROVE)
 
 ### Contexte

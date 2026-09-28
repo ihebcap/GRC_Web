@@ -602,6 +602,12 @@ namespace GRC.Infrastructure.Services
             global::Tresorerie.Core.Models.Societe societe,
             global::Tresorerie.Core.Models.ReglementClient reg)
         {
+            // TASK-088 — Garde IsAnnule : un règlement annulé (via TASK-085 ou antécédent)
+            // ne doit jamais générer d'écritures ni d'aperçu comptable.
+            if (reg.IsAnnule)
+                throw new InvalidOperationException(
+                    $"Règlement non comptabilisable : le règlement n°{reg.Numero} est annulé.");
+
             var caisse = societe.GetCaisse(reg.CaisseOrigine);
             if (caisse == null)
                 throw new InvalidOperationException(
