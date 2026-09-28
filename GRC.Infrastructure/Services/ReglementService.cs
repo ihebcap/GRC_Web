@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using GRC.Application.Interfaces;
 using GRC.Application.Services;
@@ -757,8 +758,31 @@ namespace GRC.Infrastructure.Services
             }
         }
 
+        // TASK-085/086 (Étape 1) — Garde commune non-comptabilisé / non-affecté / non-annulé.
+        // Partagée entre l'annulation (TASK-085) et la modification (TASK-086).
+        private void ValiderGardeCommune(global::Tresorerie.Core.Models.ReglementClient reg, string operation)
+        {
+            if (reg.IsAnnule)
+            {
+                _logger.LogWarning("GARDE COMMUNE refusée (déjà annulé) : reglementNo={ReglementNo}", reg.No);
+                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est déjà annulé et ne peut pas être {operation}.");
+            }
+
+            if (reg.IsComptabilise != 0)
+            {
+                _logger.LogWarning("GARDE COMMUNE refusée (comptabilisé) : reglementNo={ReglementNo}, isComptabilise={IsComptabilise}", reg.No, reg.IsComptabilise);
+                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est déjà comptabilisé et ne peut pas être {operation}.");
+            }
+
+            if (reg.GetAffectations().Any())
+            {
+                _logger.LogWarning("GARDE COMMUNE refusée (affecté) : reglementNo={ReglementNo}", reg.No);
+                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est affecté et ne peut pas être {operation}.");
+            }
+        }
+
         // TASK-085 — Annulation de règlement via l'appel natif CaisseManager.ReglementClientAnnuler.
-        // Pré-contrôles : autorisation caisse (ReglementAnnuler) + garde applicative IsComptabilise.
+        // Pré-contrôles : autorisation caisse (ReglementAnnuler) + garde commune applicative.
         // Aucun bypass DLL ni UPDATE SQL direct.
         public void AnnulerReglement(int reglementNo, int jwtUserId, bool isAdmin)
         {
@@ -780,15 +804,8 @@ namespace GRC.Infrastructure.Services
                 VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid);
             }
 
-            // TASK-085 (Étape 1) — Garde applicative explicite avant l'appel DLL :
-            // ReglementClientAnnuler ne teste pas explicitement IsComptabilise (couvert indirectement
-            // par le solde et le pointage en pratique, mais non garanti à 100 % en théorie).
-            // Ajout d'un test explicite par prudence applicative côté GRC_WEB.
-            if (reg.IsComptabilise != 0)
-            {
-                _logger.LogWarning("ANNULATION RÈGLEMENT refusée (comptabilisé) : reglementNo={ReglementNo}, isComptabilise={IsComptabilise}", reglementNo, reg.IsComptabilise);
-                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est déjà comptabilisé et ne peut pas être annulé.");
-            }
+            // TASK-085 (Étape 1) — Garde commune non-comptabilisé / non-affecté / non-annulé
+            ValiderGardeCommune(reg, "annulé");
 
             // TASK-085 (Étape 3) — Résolution et appel natif DLL de CaisseManager.ReglementClientAnnuler
             var caisseManager = _kernel.Resolve<global::Tresorerie.Core.Services.CaisseManager>();
@@ -796,6 +813,335 @@ namespace GRC.Infrastructure.Services
             caisseManager.ReglementClientAnnuler(reglementNo);
 
             _logger.LogInformation("ANNULATION RÈGLEMENT succès DLL : reglementNo={ReglementNo}, userId={UserId}", reglementNo, jwtUserId);
+        }
+
+        // TASK-086 — Modification de règlement (Date, Client, Montant, Banque, Référence) + historique.
+        // Garde commune non-comptabilisé/non-affecté/non-annulé, voie DLL native ReglementUpdate pour Date/Montant/Banque/Référence,
+        // dérogation réflexion actée par le PO pour le champ Client, historisation systématique 1 ligne/modification.
+        public ReglementModificationResult ModifierReglement(int reglementNo, ReglementModificationDto dto, int jwtUserId, bool isAdmin, string? jwtUserName = null)
+        {
+            if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+            var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
+            connProvider.ConnectionString = _dbFactory.GetConnectionString();
+            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+
+            var reg = repo.Get(reglementNo);
+            if (reg == null)
+            {
+                _logger.LogWarning("MODIFICATION RÈGLEMENT introuvable : reglementNo={ReglementNo}", reglementNo);
+                throw new ApplicationException($"Impossible de charger le règlement [{reglementNo}].");
+            }
+
+            // TASK-086 (Étape 7) — Contrôle d'autorisation caisse sur l'action ReglementModifier
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid);
+            }
+
+            // TASK-086 (Étape 1) — Garde commune non-comptabilisé / non-affecté / non-annulé
+            ValiderGardeCommune(reg, "modifié");
+
+            // TASK-086 (Étape 2) — Comparaison des 5 champs pour détecter les modifications réelles
+            bool dateChanged = dto.Date.HasValue && dto.Date.Value.Date != reg.Date.Date;
+            bool montantChanged = dto.Montant.HasValue && dto.Montant.Value != reg.Montant;
+            bool banqueChanged = dto.BanqueNo.HasValue && dto.BanqueNo.Value != (reg.BanqueNo ?? 0);
+            bool referenceChanged = dto.Reference != null && dto.Reference.Trim() != (reg.Reference ?? string.Empty).Trim();
+            bool clientChanged = (dto.ClientNo.HasValue && dto.ClientNo.Value != reg.ClientNo)
+                              || (!string.IsNullOrEmpty(dto.ClientCode) && dto.ClientCode.Trim() != (reg.ClientCode ?? string.Empty).Trim());
+
+            if (!dateChanged && !montantChanged && !banqueChanged && !referenceChanged && !clientChanged)
+            {
+                _logger.LogInformation("MODIFICATION RÈGLEMENT sans changement : reglementNo={ReglementNo}", reglementNo);
+                return new ReglementModificationResult { Success = true, Modified = false, Message = "Aucune modification détectée." };
+            }
+
+            // Capture des valeurs AVANT modification
+            var ancienDate = reg.Date;
+            var ancienMontant = reg.Montant;
+            var ancienBanqueNo = reg.BanqueNo;
+            var ancienReference = reg.Reference;
+            var ancienClientNo = reg.ClientNo;
+            var ancienClientCode = reg.ClientCode;
+            var ancienClientIntitule = reg.ClientIntitule;
+
+            var champsModifies = new List<string>();
+            if (dateChanged) champsModifies.Add("Date");
+            if (montantChanged) champsModifies.Add("Montant");
+            if (banqueChanged) champsModifies.Add("Banque");
+            if (referenceChanged) champsModifies.Add("Référence");
+            if (clientChanged) champsModifies.Add("Client");
+
+            // TASK-086 (Étape 3 & 4bis) : Ordre d'exécution — ReglementUpdate DLL d'abord pour Date/Montant/Banque/Référence
+            bool dllFieldsChanged = dateChanged || montantChanged || banqueChanged || referenceChanged;
+            if (dllFieldsChanged)
+            {
+                var caisseManager = _kernel.Resolve<global::Tresorerie.Core.Services.CaisseManager>();
+                caisseManager.SocieteManager = _kernel.GroupeService.SocieteManager;
+
+                DateTime targetDate = dateChanged ? dto.Date!.Value.Date : reg.Date;
+                decimal targetMontant = montantChanged ? dto.Montant!.Value : reg.Montant;
+                int? targetBanqueNo = banqueChanged ? dto.BanqueNo : reg.BanqueNo;
+                string targetReference = referenceChanged ? dto.Reference!.Trim() : (reg.Reference ?? string.Empty);
+
+                // Appel unitaire à CaisseManager.ReglementUpdate (23 paramètres, tous les paramètres hors périmètre PO
+                // préservés tels quels depuis l'entité chargée pour éviter tout écrasement accidentel).
+                caisseManager.ReglementUpdate(
+                    reglementNo: reg.No,
+                    date: targetDate,
+                    montantDevise: targetMontant,
+                    libelle: reg.Libelle ?? string.Empty,
+                    piece: reg.PieceNumero ?? string.Empty,
+                    banqueClient: reg.BanqueTier ?? string.Empty,
+                    echeance: reg.DateEcheance,
+                    tire: reg.Tire ?? string.Empty,
+                    banqueNo: targetBanqueNo,
+                    deviseNo: reg.DeviseNo,
+                    coursDevise: reg.DeviseCours,
+                    affaireNumero: reg.AffaireNumero ?? string.Empty,
+                    ribClient: reg.RibClient ?? string.Empty,
+                    infoLibre1: reg.Info1 ?? string.Empty,
+                    infoLibre2: reg.Info2 ?? string.Empty,
+                    infoLibre3: reg.Info3 ?? string.Empty,
+                    infoLibre4: reg.Info4 ?? string.Empty,
+                    reference: targetReference,
+                    collaborateurNo: reg.CollaborateurNo,
+                    isCertifier: reg.IsCertifier,
+                    dateValidite: reg.DateValiditer,
+                    montantPlafond: reg.MontantPlafond,
+                    reglementNature: reg.ReglementNature
+                );
+
+                _logger.LogInformation(
+                    "MODIFICATION RÈGLEMENT succès DLL (ReglementUpdate) : reglementNo={ReglementNo}, champs={Champs}",
+                    reglementNo, string.Join(",", champsModifies.Where(c => c != "Client")));
+            }
+
+            // TASK-086 (Étape 3 & 4bis) : Champ Client via dérogation réflexion PO (après ReglementUpdate)
+            if (clientChanged)
+            {
+                // Rechargement obligatoire d'une nouvelle instance fraîche depuis le repository pour garantir
+                // que GetAffectations() (Lazy) est réinterrogé en base réelle et ne renvoie pas la valeur en cache
+                var regFresh = repo.Get(reglementNo);
+                if (regFresh == null)
+                {
+                    throw new ApplicationException($"Impossible de recharger le règlement [{reglementNo}] après modification DLL.");
+                }
+
+                // Revalidation stricte de la garde commune juste avant l'écriture réflexion
+                ValiderGardeCommune(regFresh, "modifié");
+
+                // Application de la dérogation réflexion sur les 3 setters privés
+                ForcerClientReglement(
+                    repo,
+                    regFresh,
+                    dto.ClientNo!.Value,
+                    dto.ClientCode ?? string.Empty,
+                    dto.ClientIntitule ?? string.Empty
+                );
+            }
+
+            // TASK-086 (Étape 2 & 4) : Historisation immédiate (1 ligne pour la modification globale)
+            var modifsDict = new Dictionary<string, object?>();
+            if (dateChanged) modifsDict["Date"] = new { Avant = ancienDate.ToString("yyyy-MM-dd"), Apres = dto.Date!.Value.ToString("yyyy-MM-dd") };
+            if (montantChanged) modifsDict["Montant"] = new { Avant = ancienMontant, Apres = dto.Montant!.Value };
+            if (banqueChanged) modifsDict["BanqueNo"] = new { Avant = ancienBanqueNo, Apres = dto.BanqueNo };
+            if (referenceChanged) modifsDict["Reference"] = new { Avant = ancienReference, Apres = dto.Reference };
+            if (clientChanged) modifsDict["Client"] = new {
+                Avant = new { No = ancienClientNo, Code = ancienClientCode, Intitule = ancienClientIntitule },
+                Apres = new { No = dto.ClientNo, Code = dto.ClientCode, Intitule = dto.ClientIntitule }
+            };
+
+            string jsonModifs = System.Text.Json.JsonSerializer.Serialize(modifsDict);
+
+            InsererHistoriqueModification(
+                reglementNo: reg.No,
+                userId: jwtUserId,
+                userName: jwtUserName,
+                champsModifies: string.Join(", ", champsModifies),
+                ancienneDate: dateChanged ? ancienDate : null,
+                nouvelleDate: dateChanged ? dto.Date!.Value.Date : null,
+                ancienClientNo: clientChanged ? ancienClientNo : null,
+                nouveauClientNo: clientChanged ? dto.ClientNo : null,
+                ancienClientCode: clientChanged ? ancienClientCode : null,
+                nouveauClientCode: clientChanged ? dto.ClientCode : null,
+                ancienClientIntitule: clientChanged ? ancienClientIntitule : null,
+                nouveauClientIntitule: clientChanged ? dto.ClientIntitule : null,
+                ancienMontant: montantChanged ? ancienMontant : null,
+                nouveauMontant: montantChanged ? dto.Montant : null,
+                ancienneBanqueNo: banqueChanged ? ancienBanqueNo : null,
+                nouvelleBanqueNo: banqueChanged ? dto.BanqueNo : null,
+                ancienneReference: referenceChanged ? ancienReference : null,
+                nouvelleReference: referenceChanged ? dto.Reference : null,
+                modificationsJson: jsonModifs
+            );
+
+            return new ReglementModificationResult {
+                Success = true,
+                Modified = true,
+                ChampsModifies = champsModifies,
+                Message = $"Règlement {reg.Numero ?? reglementNo.ToString()} modifié avec succès ({string.Join(", ", champsModifies)})."
+            };
+        }
+
+        /// <summary>
+        /// TASK-086 : Dérogation DLL actée par le PO (réunion 2026-09-28).
+        /// Met à jour le client du règlement par réflexion sur les 3 setters privés (ClientNo, ClientCode, ClientIntitule).
+        /// Condition stricte : le règlement doit être non comptabilisé, non affecté, non annulé (validé immédiatement avant).
+        /// </summary>
+        private void ForcerClientReglement(
+            global::Tresorerie.Dapper.Repositories.ReglementClientRepository repo,
+            global::Tresorerie.Core.Models.ReglementClient reg,
+            int clientNo,
+            string clientCode,
+            string clientIntitule)
+        {
+            var type = typeof(global::Tresorerie.Core.Models.ReglementClient);
+            type.GetProperty("ClientNo", BindingFlags.Public | BindingFlags.Instance)?.SetValue(reg, clientNo);
+            type.GetProperty("ClientCode", BindingFlags.Public | BindingFlags.Instance)?.SetValue(reg, clientCode);
+            type.GetProperty("ClientIntitule", BindingFlags.Public | BindingFlags.Instance)?.SetValue(reg, clientIntitule);
+            repo.Update(reg);
+            _logger.LogInformation(
+                "MODIFICATION CLIENT (dérogation réflexion PO) : reglementNo={ReglementNo}, clientNo={ClientNo}, code={ClientCode}",
+                reg.No, clientNo, clientCode);
+        }
+
+        private void InsererHistoriqueModification(
+            int reglementNo,
+            int userId,
+            string? userName,
+            string champsModifies,
+            DateTime? ancienneDate,
+            DateTime? nouvelleDate,
+            int? ancienClientNo,
+            int? nouveauClientNo,
+            string? ancienClientCode,
+            string? nouveauClientCode,
+            string? ancienClientIntitule,
+            string? nouveauClientIntitule,
+            decimal? ancienMontant,
+            decimal? nouveauMontant,
+            int? ancienneBanqueNo,
+            int? nouvelleBanqueNo,
+            string? ancienneReference,
+            string? nouvelleReference,
+            string? modificationsJson)
+        {
+            try
+            {
+                using var conn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+                conn.Open();
+
+                if (string.IsNullOrWhiteSpace(userName))
+                {
+                    userName = Dapper.SqlMapper.QueryFirstOrDefault<string>(
+                        conn,
+                        "SELECT COALESCE(NULLIF(LTRIM(RTRIM(ISNULL(UT_Nom, '') + ' ' + ISNULL(UT_Prenom, ''))), ''), UT_Login) FROM dbo.P_UTILISATEUR WHERE UT_Id = @UserId",
+                        new { UserId = userId }
+                    ) ?? $"User #{userId}";
+                }
+
+                const string sql = @"
+                    INSERT INTO dbo.GRC_ReglementModificationHistorique (
+                        ReglementNo, UserId, UserName, DateModification, ChampsModifies,
+                        AncienneDate, NouvelleDate,
+                        AncienClientNo, NouveauClientNo, AncienClientCode, NouveauClientCode, AncienClientIntitule, NouveauClientIntitule,
+                        AncienMontant, NouveauMontant,
+                        AncienneBanqueNo, NouvelleBanqueNo,
+                        AncienneReference, NouvelleReference,
+                        ModificationsJson
+                    ) VALUES (
+                        @ReglementNo, @UserId, @UserName, GETDATE(), @ChampsModifies,
+                        @AncienneDate, @NouvelleDate,
+                        @AncienClientNo, @NouveauClientNo, @AncienClientCode, @NouveauClientCode, @AncienClientIntitule, @NouveauClientIntitule,
+                        @AncienMontant, @NouveauMontant,
+                        @AncienneBanqueNo, @NouvelleBanqueNo,
+                        @AncienneReference, @NouvelleReference,
+                        @ModificationsJson
+                    );";
+
+                Dapper.SqlMapper.Execute(conn, sql, new {
+                    ReglementNo = reglementNo,
+                    UserId = userId,
+                    UserName = userName,
+                    ChampsModifies = champsModifies,
+                    AncienneDate = ancienneDate,
+                    NouvelleDate = nouvelleDate,
+                    AncienClientNo = ancienClientNo,
+                    NouveauClientNo = nouveauClientNo,
+                    AncienClientCode = ancienClientCode,
+                    NouveauClientCode = nouveauClientCode,
+                    AncienClientIntitule = ancienClientIntitule,
+                    NouveauClientIntitule = nouveauClientIntitule,
+                    AncienMontant = ancienMontant,
+                    NouveauMontant = nouveauMontant,
+                    AncienneBanqueNo = ancienneBanqueNo,
+                    NouvelleBanqueNo = nouvelleBanqueNo,
+                    AncienneReference = ancienneReference,
+                    NouvelleReference = nouvelleReference,
+                    ModificationsJson = modificationsJson
+                });
+
+                _logger.LogInformation("HISTORIQUE MODIFICATION RÈGLEMENT inséré : reglementNo={ReglementNo}, user={UserName}", reglementNo, userName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ÉCHEC CRITIQUE INSERTION HISTORIQUE : reglementNo={ReglementNo}, userId={UserId}", reglementNo, userId);
+            }
+        }
+
+        // TASK-086 (Étape 8) — Consultation de l'historique des modifications d'un règlement.
+        // Protégée par l'action ReglementModifier, non conditionnée à la garde commune (traçabilité permanente).
+        public List<ReglementModificationHistoriqueDto> GetHistoriqueModifications(int reglementNo, int jwtUserId, bool isAdmin)
+        {
+            var connProvider = new global::Tresorerie.Dapper.ConnectionProvider();
+            connProvider.ConnectionString = _dbFactory.GetConnectionString();
+            var repo = new global::Tresorerie.Dapper.Repositories.ReglementClientRepository(connProvider);
+
+            var reg = repo.Get(reglementNo);
+            if (reg == null)
+            {
+                _logger.LogWarning("CONSULTATION HISTORIQUE introuvable : reglementNo={ReglementNo}", reglementNo);
+                throw new ApplicationException($"Impossible de charger le règlement [{reglementNo}].");
+            }
+
+            if (!isAdmin)
+            {
+                var actionGuid = new global::Tresorerie.Authorization.Core.Actions.ReglementModifier().Guid;
+                VerifierAutorisationCaisse(jwtUserId, reg.CaisseOrigine, actionGuid);
+            }
+
+            using var conn = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString());
+            const string sql = @"
+                SELECT 
+                    h.Id,
+                    h.ReglementNo,
+                    h.UserId,
+                    COALESCE(h.UserName, u.UT_Nom + ' ' + u.UT_Prenom, u.UT_Login, 'User #' + CAST(h.UserId AS VARCHAR)) AS UserName,
+                    h.DateModification,
+                    h.ChampsModifies,
+                    h.AncienneDate,
+                    h.NouvelleDate,
+                    h.AncienClientNo,
+                    h.NouveauClientNo,
+                    h.AncienClientCode,
+                    h.NouveauClientCode,
+                    h.AncienClientIntitule,
+                    h.NouveauClientIntitule,
+                    h.AncienMontant,
+                    h.NouveauMontant,
+                    h.AncienneBanqueNo,
+                    h.NouvelleBanqueNo,
+                    h.AncienneReference,
+                    h.NouvelleReference,
+                    h.ModificationsJson
+                FROM dbo.GRC_ReglementModificationHistorique h
+                LEFT JOIN dbo.P_UTILISATEUR u ON u.UT_Id = h.UserId
+                WHERE h.ReglementNo = @ReglementNo
+                ORDER BY h.DateModification DESC, h.Id DESC";
+
+            return Dapper.SqlMapper.Query<ReglementModificationHistoriqueDto>(conn, sql, new { ReglementNo = reglementNo }).ToList();
         }
 
         public object RapprocherManuel(List<RapprochementManuelDto> items, int jwtUserId, bool isAdmin)
@@ -1029,6 +1375,8 @@ namespace GRC.Infrastructure.Services
     {
         public int No { get; set; }
         public int Type { get; set; }
+        public int ClientNo { get; set; }
+        public string? ClientCode { get; set; }
         public string? ClientIntitule { get; set; }
         public string? Numero { get; set; }
         public string? PieceNumero { get; set; }
@@ -1071,6 +1419,53 @@ namespace GRC.Infrastructure.Services
         public string? ReservePar_UserName { get; set; }
         public DateTime? DateReservation { get; set; }
         public string? Lettrage { get; set; }
+    }
+
+    // TASK-086 — DTO pour la modification d'un règlement existant
+    public class ReglementModificationDto
+    {
+        public DateTime? Date { get; set; }
+        public decimal? Montant { get; set; }
+        public int? BanqueNo { get; set; }
+        public string? Reference { get; set; }
+        public int? ClientNo { get; set; }
+        public string? ClientCode { get; set; }
+        public string? ClientIntitule { get; set; }
+    }
+
+    // TASK-086 — Résultat typé pour l'opération de modification
+    public class ReglementModificationResult
+    {
+        public bool Success { get; set; }
+        public bool Modified { get; set; }
+        public List<string> ChampsModifies { get; set; } = new();
+        public string Message { get; set; } = string.Empty;
+    }
+
+    // TASK-086 — DTO pour la consultation de l'historique des modifications
+    public class ReglementModificationHistoriqueDto
+    {
+        public int Id { get; set; }
+        public int ReglementNo { get; set; }
+        public int UserId { get; set; }
+        public string? UserName { get; set; }
+        public DateTime DateModification { get; set; }
+        public string ChampsModifies { get; set; } = string.Empty;
+        public DateTime? AncienneDate { get; set; }
+        public DateTime? NouvelleDate { get; set; }
+        public int? AncienClientNo { get; set; }
+        public int? NouveauClientNo { get; set; }
+        public string? AncienClientCode { get; set; }
+        public string? NouveauClientCode { get; set; }
+        public string? AncienClientIntitule { get; set; }
+        public string? NouveauClientIntitule { get; set; }
+        public decimal? AncienMontant { get; set; }
+        public decimal? NouveauMontant { get; set; }
+        public int? AncienneBanqueNo { get; set; }
+        public int? NouvelleBanqueNo { get; set; }
+        public string? AncienneReference { get; set; }
+        public string? NouvelleReference { get; set; }
+        public string? ModificationsJson { get; set; }
     }
 
     public static class ReglementMapper

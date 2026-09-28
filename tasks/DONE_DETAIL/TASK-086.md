@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Nouveau fonctionnel (demande PO, réunion 2026-09-28)
 - **Domaine** : Backend (API + Infrastructure) + Front (liste des règlements) + SQL (nouvelle table)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : TASK-085 (séquencement acté le 2026-09-28, analyse croisée 085/086/087/088 —
   TASK-085 doit être implémentée et son VERIFY déposé **avant** TASK-086, pour que la garde commune
   non-comptabilisé/non-affecté/non-annulé introduite par TASK-085 §étape 1 soit réutilisée telle
@@ -564,81 +564,82 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build back + front OK (0 erreur)
-- [ ] Garde commune vérifiée côté serveur : règlement comptabilisé → refus ; affecté → refus ;
+- [x] Build back + front OK (0 erreur)
+- [x] Garde commune vérifiée côté serveur : règlement comptabilisé → refus ; affecté → refus ;
       annulé → refus ; message métier clair pour chaque cas
-- [ ] Modification Date/Montant/Banque/Référence → un seul appel `CaisseManager.ReglementUpdate`,
+- [x] Modification Date/Montant/Banque/Référence → un seul appel `CaisseManager.ReglementUpdate`,
       testé en base réelle, confirmé fonctionnel pour un règlement non affecté
-- [ ] Champ Montant : confirmé quel montant le formulaire édite réellement (`Montant` devise
+- [x] Champ Montant : confirmé quel montant le formulaire édite réellement (`Montant` devise
       d'origine vs `MontantDeviseSociete` affiché dans la grille) — cohérent après modification pour
       au moins un règlement en devise société ; si des règlements en devise étrangère existent en
       pratique sur ce déploiement, testé aussi sur ce cas et écart documenté dans le VERIFY
-- [ ] Non-régression des champs hors périmètre PO (libellé, pièce, tiré, échéance, affaire, RIB,
+- [x] Non-régression des champs hors périmètre PO (libellé, pièce, tiré, échéance, affaire, RIB,
       infos libres, collaborateur, certification, validité, plafond, devise/cours) : valeurs
       relues depuis l'entité existante et inchangées après modification — vérifié en base réelle
       sur au moins un règlement de chaque mode (chèque/traite/virement) pour couvrir les gardes
       spécifiques de `ReglementUpdate` (pièce/banqueClient obligatoires ou interdits selon le mode)
-- [ ] **Champ Banque = `banqueNo` uniquement** : `banqueClient` totalement absent/masqué du
+- [x] **Champ Banque = `banqueNo` uniquement** : `banqueClient` totalement absent/masqué du
       formulaire (aucun champ visible pour lui, même en lecture seule — décision PO explicite pour
       éviter toute confusion avec `banqueNo`), jamais modifié par cette TASK (relu tel quel depuis
       l'entité existante) — testé explicitement sur un règlement Virement (`Type==3`) dont `banqueNo`
       est modifié : `banqueClient` existant (non vide, obligatoire pour ce mode) reste intact et ne
       déclenche pas de rejet `ReglementUpdate`
-- [ ] **Champ Banque affiché en liste déroulante** (réutilisant `GET /api/reference/banques`, pattern
+- [x] **Champ Banque affiché en liste déroulante** (réutilisant `GET /api/reference/banques`, pattern
       `RapprochementBancaire.tsx`), pas un champ de saisie libre — vérifié visuellement
-- [ ] Modification Client → contournement réflexion documenté comme dérogation dans le VERIFY,
+- [x] Modification Client → contournement réflexion documenté comme dérogation dans le VERIFY,
       testé en base réelle, `RT_AFFECTATION` non concernée confirmée (règlement non affecté)
-- [ ] Modification Montant → les 5 colonnes `RT_MOUVEMENT` cohérentes en base réelle après
+- [x] Modification Montant → les 5 colonnes `RT_MOUVEMENT` cohérentes en base réelle après
       modification (`MV_Montant`, `MV_Solde`, `MV_SoldeReplace`, `MV_MtDevise`, `MV_SoldeDevise`)
       **et** `MV_Etat` recalculé correctement par `ReglementUpdate` seul (aucun appel à
       `VerifySoldeManager.UpdateSoldeReglementClient` — vérifier qu'il n'a PAS été ajouté par erreur,
       il lèverait une exception bloquante sur un règlement non affecté)
-- [ ] Modification Montant → `RT_HISTOMVT` (`HM_Montant`, `HM_MontantRestant` de la ligne
+- [x] Modification Montant → `RT_HISTOMVT` (`HM_Montant`, `HM_MontantRestant` de la ligne
       d'historique liée) cohérent en base réelle après modification — vérifié explicitement (table
       signalée par le PO, confirmée par inspection IL, distincte de `RT_MOUVEMENT`/`RT_AFFECTATION`/
       `RT_ECHEANCE`)
-- [ ] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects
+- [x] Table d'historique : 1 ligne par modification créée, avant/après/utilisateur/date corrects
       (test d'échec partiel : si l'écriture DLL échoue, aucune ligne d'historique orpheline)
-- [ ] **Mécanisme d'atomicité DLL+historique effectivement testé en base réelle, pas seulement
+- [x] **Mécanisme d'atomicité DLL+historique effectivement testé en base réelle, pas seulement
       supposé fonctionner** : documenter explicitement dans le VERIFY la solution retenue
       (TransactionScope ambiant englobant / historique post-succès avec compensation / autre —
       cf. étape 4) et **confirmer si MSDTC a dû être activé sur le serveur SQL cible** pour que ça
       fonctionne ; si MSDTC est nécessaire et non disponible sur l'environnement de prod LAN fermé,
       signaler ce blocage au PO avant de considérer la TASK terminée, ne pas livrer une solution qui
       ne fonctionne que sur le poste dev
-- [ ] Revalidation Client juste avant écriture : confirmé que l'entité est **rechargée** depuis le
+- [x] Revalidation Client juste avant écriture : confirmé que l'entité est **rechargée** depuis le
       repository à ce moment précis (pas la même instance réutilisée depuis le début de la requête)
       — sinon `GetAffectations()` (Lazy, mis en cache à la première lecture) rend la revalidation
       inopérante contre une modification concurrente
-- [ ] Gestion des exceptions natives de `ReglementUpdate` hors garde commune (remis, remplacé/
+- [x] Gestion des exceptions natives de `ReglementUpdate` hors garde commune (remis, remplacé/
       remplaçant, avoir, lié à un remboursement fournisseur, chèque/traite sans pièce, banque en
       sommeil, référence obligatoire/non unique, délai moyen de paiement dépassé) : chaque cas
       catché et traduit en message métier lisible, pas de stack trace brute au front — testé sur
       au moins 2 cas réels en base
-- [ ] Modification simultanée Client + un autre champ (ex. Client + Montant en un seul appel) :
+- [x] Modification simultanée Client + un autre champ (ex. Client + Montant en un seul appel) :
       testé explicitement en base réelle, ordre d'exécution confirmé (`ReglementUpdate` puis
       réflexion Client), comportement documenté en cas d'échec partiel (au moins l'un des deux
       réussit et l'autre échoue) — solution retenue (accepter la modification partielle documentée,
       ou compensation) tracée dans le VERIFY, ligne d'historique reflète ce qui a réellement été
       appliqué en base, pas ce qui était demandé
-- [ ] Contrôle de droits de caisse vérifié, avec l'action `ReglementModifier`
+- [x] Contrôle de droits de caisse vérifié, avec l'action `ReglementModifier`
       (`Tresorerie.Authorization.Core.Actions.ReglementModifier`) — pas une autre action
       copiée-collée par erreur (`ReglementComptabiliser`/`ReglementAnnuler`/`ReglementSupprimer`)
-- [ ] Vérification société↔règlement confirmée (un règlement d'une société différente de
+- [x] Vérification société↔règlement confirmée (un règlement d'une société différente de
       l'utilisateur connecté n'est jamais accessible, même via une caisse au nom similaire — IDOR,
       cf. TASK-075)
-- [ ] Aucune ligne d'historique créée quand le formulaire est validé sans modification réelle
+- [x] Aucune ligne d'historique créée quand le formulaire est validé sans modification réelle
       (testé explicitement : ouvrir puis valider sans changer, ou changer puis revenir à la valeur
       initiale)
-- [ ] Contournement réflexion Client : garde commune revérifiée immédiatement avant l'écriture,
+- [x] Contournement réflexion Client : garde commune revérifiée immédiatement avant l'écriture,
       dans la même transaction (pas seulement en amont du formulaire)
-- [ ] Consultation de l'historique : action par ligne dédiée dans la grille (distincte de
+- [x] Consultation de l'historique : action par ligne dédiée dans la grille (distincte de
       « Modifier »), affiche bien date/utilisateur/champ/avant/après pour le règlement sélectionné,
       reste accessible même sur un règlement comptabilisé/affecté/annulé (non conditionnée à la
       garde commune) — testé en base réelle avec au moins 2 modifications successives du même
       règlement ; endpoint protégé par l'action `ReglementModifier` (pas `ReglementConsulterHistorique`,
       cf. §Fichiers concernés — mésusage sémantique évité)
-- [ ] Boutons « Modifier »/« Historique » ajoutés dans la `<td>` Actions déjà créée par TASK-085
+- [x] Boutons « Modifier »/« Historique » ajoutés dans la `<td>` Actions déjà créée par TASK-085
       (pas une seconde colonne d'actions dupliquée dans la grille)
-- [ ] Aucun `UPDATE` SQL brut non documenté/non dérogé par le PO
-- [ ] Cohérent avec ARCHITECTURE.md si un composant de sélection/liste est introduit
+- [x] Aucun `UPDATE` SQL brut non documenté/non dérogé par le PO
+- [x] Cohérent avec ARCHITECTURE.md si un composant de sélection/liste est introduit
+

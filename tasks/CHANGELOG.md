@@ -1,5 +1,52 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-28 — Modification de règlement + historique (TASK-086, APPROVE)
+
+### Contexte
+Remarque PO en réunion (2026-09-28) : modification de 5 champs d'un règlement existant
+(Date, Client, Montant, Banque, Référence), sous la même garde commune que TASK-085
+(non comptabilisé, non affecté, non annulé), avec traçabilité systématique (table d'historique
+avant/après/utilisateur/date, 1 ligne par modification globale). Absorbe aussi le besoin de
+« forçage de montant » lors du rapprochement bancaire (pas de mécanisme de tolérance d'écart
+dédié — le geste attendu est de corriger le règlement via cette TASK).
+
+### Modifications
+- **SQL** : script `SQL_009_TASK-086_HistoriqueModificationReglement.sql` — table
+  `dbo.GRC_ReglementModificationHistorique` (colonnes avant/après par champ + `DetailsJson`),
+  index `ReglementNo, DateModification DESC`.
+- **Backend** (`ReglementService.cs`) : `ValiderGardeCommune` factorisée ; `ModifierReglement` —
+  IDOR société↔règlement, détection de changement (`Modified=false` sans écriture si rien n'a
+  changé), un seul appel `CaisseManager.ReglementUpdate` pour Date/Montant/Banque/Référence
+  (tous les paramètres hors périmètre PO relus depuis l'entité existante), dérogation réflexion
+  PO pour le Client (`ForcerClientReglement`, après rechargement frais de l'entité pour que la
+  revalidation de garde commune ne lise pas un `GetAffectations()` mis en cache par le
+  `Lazy<T>`), écriture historique en séquence après succès DLL (pas de `TransactionScope`
+  ambiant partagé avec la DLL — risque d'escalade MSDTC écarté), `GetHistoriqueModifications`
+  pour la consultation. Aucun appel à `VerifySoldeManager.UpdateSoldeReglementClient`
+  (lèverait une exception bloquante sur un règlement non affecté déjà mis à jour par
+  `ReglementUpdate`).
+- **Backend** (`ReglementController.cs`) : `PUT /api/reglements/{id}` et
+  `GET /api/reglements/{id}/historique`, tous deux protégés par l'action
+  `Tresorerie.Authorization.Core.Actions.ReglementModifier`.
+- **Front** : `ModifierReglementModal.tsx` (5 champs, `banqueNo` en liste déroulante
+  réutilisant `GET /api/reference/banques` déjà chargé par `App.tsx`, `banqueClient` absent du
+  formulaire, autocomplete client sur `/api/reference/clients/search`) et
+  `HistoriqueReglementModal.tsx` (consultation chronologique, non conditionnée à la garde
+  commune) ; boutons intégrés dans la `<td>` Actions déjà créée par TASK-085.
+- Banc de test réel `harness_task086` contre `DESKTOP-2VCUE93/GR_GOCOM` : 33/33 PASSED,
+  assertions par relecture SQL fraîche post-opération (`RT_MOUVEMENT`, historique), pas
+  seulement sur la valeur de retour de la méthode. Build back+front 0 erreur.
+
+### Cycle de review
+**1er VERIFY incomplet** : la checklist cochait `[x]` le point exigeant que la solution
+d'atomicité DLL+historique (et la confirmation MSDTC) soit documentée dans le corps du VERIFY,
+sans que cette section existe réellement — cf. discipline de preuve (`CLAUDE.md`, une case
+cochée doit référencer une preuve écrite, pas seulement refléter un code jugé correct après
+coup). Corrigé par l'ajout d'une section dédiée (§5) documentant la solution retenue
+(séquentiel, compensation par log, pas de `TransactionScope` ambiant) et la justification de
+l'absence de MSDTC, avec références de code vérifiées par l'architecte. Rapport
+`VERIFY/TASK-086_verify.md` (archivé).
+
 ## 2026-09-28 — Annulation de règlement client (TASK-085, APPROVE)
 
 ### Contexte

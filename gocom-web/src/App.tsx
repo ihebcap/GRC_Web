@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote, XCircle } from 'lucide-react';
+import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote, XCircle, Edit, History } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import './index.css';
 import LicenceBlockedScreen from './LicenceBlockedScreen';
@@ -30,6 +30,8 @@ interface Reglement {
   montant: number;
   montantDeviseSociete: number;
   etat: number;
+  clientNo?: number;
+  clientCode?: string | null;
   clientIntitule: string;
   caisseNo: number;
   banqueNo: number | null;
@@ -63,6 +65,8 @@ import { RapprochementBancaire } from './RapprochementBancaire';
 import { RelevesBancaires } from './RelevesBancaires';
 import ReglementGenerationEspece from './ReglementGenerationEspece';
 import { ExcelFilter } from './ExcelFilter';
+import { ModifierReglementModal } from './ModifierReglementModal';
+import { HistoriqueReglementModal } from './HistoriqueReglementModal';
 
 import { API_BASE } from './api';
 
@@ -318,6 +322,10 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   const [lettragePeriodeDateMin, setLettragePeriodeDateMin] = useState('');
   const [lettragePeriodeDateMax, setLettragePeriodeDateMax] = useState('');
   const [isSubmittingLettragePeriode, setIsSubmittingLettragePeriode] = useState(false);
+
+  // TASK-086 — Modification et historique de règlement
+  const [editingReglement, setEditingReglement] = useState<Reglement | null>(null);
+  const [historyReglement, setHistoryReglement] = useState<Reglement | null>(null);
 
   useEffect(() => {
     fetchReferences();
@@ -763,20 +771,48 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             <td key={key}>{renderSharedCell(key, reg, caissesMap, modesMap, banquesMap)}</td>
           ))}
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingReglement(reg);
+                    }}
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
+                    title="Modifier le règlement"
+                  >
+                    <Edit size={13} color="#2563eb" />
+                    <span>Modifier</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAnnulerReglement(reg);
+                    }}
+                    className="btn btn-ghost-danger"
+                    style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
+                    title="Annuler le règlement"
+                  >
+                    <XCircle size={13} color="#ef4444" />
+                    <span>Annuler</span>
+                  </button>
+                </>
+              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleAnnulerReglement(reg);
+                  setHistoryReglement(reg);
                 }}
-                className="btn btn-ghost-danger"
-                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
-                title="Annuler le règlement"
+                className="btn btn-ghost"
+                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
+                title="Historique des modifications"
               >
-                <XCircle size={14} color="#ef4444" />
-                <span>Annuler</span>
+                <History size={13} />
+                <span>Historique</span>
               </button>
-            )}
+            </div>
           </td>
         </tr>
         );
@@ -1299,7 +1335,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         </th>
                       );
                     })}
-                    <th style={{ width: '80px', minWidth: '80px', textAlign: 'center' }}>Actions</th>
+                    <th style={{ width: '220px', minWidth: '220px', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 {tableBodyMemo}
@@ -1402,6 +1438,29 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             </div>
           </div>
         </div>
+      )}
+      {/* TASK-086 — Modale de modification de règlement */}
+      {editingReglement && (
+        <ModifierReglementModal
+          reglement={editingReglement}
+          banquesMap={banquesMap}
+          caissesMap={caissesMap}
+          onClose={() => setEditingReglement(null)}
+          onSuccess={(msg) => {
+            showToast(msg, 'success');
+            fetchReglements(page, debouncedFilters);
+          }}
+          onError={(msg) => showToast(msg, 'error')}
+        />
+      )}
+
+      {/* TASK-086 — Modale de consultation de l'historique des modifications */}
+      {historyReglement && (
+        <HistoriqueReglementModal
+          reglement={historyReglement}
+          banquesMap={banquesMap}
+          onClose={() => setHistoryReglement(null)}
+        />
       )}
     </div>
   );

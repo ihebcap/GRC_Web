@@ -323,6 +323,83 @@ namespace GRC.API.Controllers
                 }
             }
         }
+
+        // TASK-086 — Modification de règlement (Date, Client, Montant, Banque, Référence) + historique :
+        // Contrôle d'autorisation caisse (action ReglementModifier), garde commune (non comptabilisé/affecté/annulé),
+        // voie DLL CaisseManager.ReglementUpdate pour Date/Montant/Banque/Référence, dérogation réflexion pour Client.
+        [HttpPut("{id}")]
+        public IActionResult ModifierReglement(int id, [FromBody] ReglementModificationDto dto)
+        {
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+            string? userName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value 
+                            ?? User.FindFirst("UserName")?.Value 
+                            ?? User.FindFirst("Login")?.Value;
+
+            using (_logger.BeginScope("Modification règlement id={ReglementId} userId={UserId}", id, userId))
+            {
+                _logger.LogInformation("MODIFICATION RÈGLEMENT entrée : reglementId={ReglementId}, userId={UserId}", id, userId);
+                try
+                {
+                    var result = _reglementService.ModifierReglement(id, dto, userId, isAdmin, userName);
+                    _logger.LogInformation("MODIFICATION RÈGLEMENT sortie OK : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "MODIFICATION RÈGLEMENT refusée (autorisation) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return StatusCode(403, new { message = ex.Message });
+                }
+                catch (System.ArgumentException ex)
+                {
+                    _logger.LogWarning(ex, "MODIFICATION RÈGLEMENT rejetée (argument invalide) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return BadRequest(new { message = ex.Message });
+                }
+                catch (System.ApplicationException ex)
+                {
+                    _logger.LogWarning(ex, "MODIFICATION RÈGLEMENT rejetée (règle métier native) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return BadRequest(new { message = ex.Message });
+                }
+                catch (System.InvalidOperationException ex)
+                {
+                    _logger.LogWarning(ex, "MODIFICATION RÈGLEMENT rejetée (opération invalide) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return BadRequest(new { message = ex.Message });
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "MODIFICATION RÈGLEMENT échec inattendu : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return Problem(ex.Message);
+                }
+            }
+        }
+
+        // TASK-086 — Consultation de l'historique des modifications d'un règlement.
+        // Protégée par l'action ReglementModifier, non conditionnée à la garde commune (traçabilité permanente).
+        [HttpGet("{id}/historique")]
+        public IActionResult GetHistoriqueModifications(int id)
+        {
+            if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
+            bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
+
+            using (_logger.BeginScope("Consultation historique modifications id={ReglementId} userId={UserId}", id, userId))
+            {
+                try
+                {
+                    var result = _reglementService.GetHistoriqueModifications(id, userId, isAdmin);
+                    return Ok(result);
+                }
+                catch (System.UnauthorizedAccessException ex)
+                {
+                    _logger.LogWarning(ex, "CONSULTATION HISTORIQUE refusée (autorisation) : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return StatusCode(403, new { message = ex.Message });
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, "CONSULTATION HISTORIQUE échec inattendu : reglementId={ReglementId}, userId={UserId}", id, userId);
+                    return Problem(ex.Message);
+                }
+            }
+        }
     }
 
     // TASK-051 — Payload du lettrage par période : deux dates uniquement, pas de sélection de lignes.
