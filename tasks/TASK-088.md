@@ -19,8 +19,13 @@ comptabilisation qui partagent la même garde de comptabilisabilité `VerifierCo
 - `ApercuComptabilisation` (ligne ~860) : même garde `IsComptabilise != 0`, même appel à
   `VerifierComptabilisable`.
 
-Aucun des deux ne teste `reg.IsAnnule` (propriété déjà exposée sur `ReglementClientDto`, ligne 991,
-et déjà utilisée en filtre de grille ligne 123 : `allReglements.Where(r => r.IsAnnule == annuleVal)`).
+Aucun des deux ne teste `reg.IsAnnule` (propriété exposée côté DTO sur `ReglementClientDto`, ligne
+991, et déjà utilisée en filtre de grille ligne 123 : `allReglements.Where(r => r.IsAnnule ==
+annuleVal)`). **Attention type** : le paramètre `reg` de `VerifierComptabilisable` (ligne 585) est le
+modèle DLL natif `global::Tresorerie.Core.Models.ReglementClient`, **pas** le DTO — ne pas chercher
+`IsAnnule` sur le DTO pour cette implémentation. La propriété existe bien aussi sur ce type natif :
+`ReleveBancaireRepository.cs` (`SetDateBypassAffectation`, ligne ~870) la teste déjà sur ce même
+type (`if (reg.IsAnnule) throw ...`) — faisabilité confirmée par précédent direct dans le code.
 `VerifierComptabilisable` elle-même (lignes 583-596) ne teste que la caisse et le mode de règlement,
 pas l'état du règlement.
 
@@ -90,5 +95,9 @@ côté front), plutôt que de compter sur un échec DLL non garanti en aval.
       générée
 - [ ] Non-régression : règlements non annulés toujours comptabilisables normalement (caisse/mode
       paramétrés)
+- [ ] Non-régression lot mixte : un lot contenant à la fois un règlement annulé et des règlements
+      valides ne rejette QUE le règlement annulé (gestion d'erreur par-règlement existante, TASK-046
+      — ne bloque pas tout le lot), testé réellement avec un lot mixte, pas seulement un règlement
+      annulé isolé
 - [ ] Aucune dette technique silencieuse (un seul point de test `IsAnnule`, pas de duplication)
 - [ ] Cohérent avec l'architecture
