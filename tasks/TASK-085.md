@@ -82,13 +82,22 @@ pas les retester séparément sauf doute constaté en VERIFY.
 ## Fichiers concernés
 
 - `GRC.Infrastructure/Services/ReglementService.cs` — nouvelle méthode, ex.
-  `AnnulerReglement(int reglementNo, int userId)`.
+  `AnnulerReglement(int reglementNo, int userId)`. **Ajout au DTO** (revue architecte 2026-09-28,
+  cf. §étape 5 ci-dessous) : `ReglementClientDto` (ligne ~976) doit exposer un nouveau champ
+  `public bool IsAffecte { get; set; }`, renseigné dans le mapping existant (là où les autres champs
+  `IsComptabilise`/`IsRemis`/`IsAnnule` sont déjà peuplés depuis le modèle DLL natif) via
+  `reg.GetAffectations().Any()` — **`GetAffectations()` est un `Lazy<T>` déjà confirmé par
+  inspection IL en TASK-086 §Contraintes**, son premier appel ici est sans risque (mapping en lecture
+  seule pour la grille, pas une revalidation de garde), mais ne pas réutiliser cette même instance
+  chargée pour une revalidation ultérieure dans le flux d'annulation (recharger si besoin, même
+  remarque que TASK-086).
 - `GRC.API/Controllers/ReglementController.cs` — nouvel endpoint, ex.
   `[HttpPost("{id}/annuler")]`, avec le même contrôle de droits caisse que les autres actions
   d'écriture (`VerifierAutorisationCaisse`, pattern TASK-069).
 - `gocom-web/src/App.tsx` (ou composant liste des règlements) — bouton « Annuler » par ligne,
   visible seulement si le règlement est éligible (voir garde front ci-dessous), avec confirmation
-  utilisateur avant l'appel (opération irréversible côté trésorerie).
+  utilisateur avant l'appel (opération irréversible côté trésorerie). Type front du règlement à
+  étendre avec `isAffecte: boolean` en cohérence avec le nouveau champ DTO.
 
 ## Étapes d'implémentation
 
@@ -130,7 +139,15 @@ pas les retester séparément sauf doute constaté en VERIFY.
    **affecté**, pointé, remis ou annulé côté données déjà chargées par la grille (défense en
    profondeur légère, la vraie garde reste côté serveur — **"affecté" ne doit pas être oublié dans
    cette liste**, c'est une condition bloquante native de `ReglementClientAnnuler` au même titre que
-   les autres) ; confirmation modale avant l'appel ; message de succès/erreur affiché clairement
+   les autres).
+   **⚠️ Trou identifié (revue architecte 2026-09-28)** : `ReglementClientDto` n'exposait jusqu'ici
+   **aucun champ "affecté"** (seulement `IsComptabilise`/`IsRemis`/`IsImpaye`/`IsAnnule`/`IsPointe`) —
+   le masquage front sur ce critère était donc irréalisable tel quel. Corrigé ci-dessus (§Fichiers
+   concernés) par l'ajout de `IsAffecte` au DTO. **Ne pas utiliser `SoldeDeviseSociete != Montant`
+   comme proxy** — ça se voulait une approximation avant correction, mais un règlement peut avoir un
+   solde différent du montant pour d'autres raisons (règlement d'avoir partiellement utilisé, etc.),
+   pas seulement une affectation ; avec `IsAffecte` maintenant disponible, ce proxy n'a plus lieu
+   d'être. Confirmation modale avant l'appel ; message de succès/erreur affiché clairement
    (pas un `alert()` — cf. TASK-014, pattern toast déjà en place ; noter que `ApercuComptabilisation.tsx`
    ne reçoit actuellement que `showToast` en prop, pas `showConfirm` — si la confirmation doit
    s'afficher depuis ce composant plutôt que la liste des règlements dans `App.tsx`, prévoir de
@@ -172,6 +189,11 @@ pas les retester séparément sauf doute constaté en VERIFY.
 
 ## Risques / dépendances
 
+- **Correctif de contrat API (revue architecte 2026-09-28)** : `ReglementClientDto` n'exposait aucun
+  champ "affecté" alors que la checklist VALIDATION exige un masquage front sur ce critère depuis la
+  création de la TASK — trou non détecté aux passages précédents. Corrigé par l'ajout de `IsAffecte`
+  au DTO (cf. §Fichiers concernés/étape 5). Si l'implémenteur constate que ce champ existe déjà sous
+  un autre nom au moment du dev, le réutiliser plutôt que d'en ajouter un doublon.
 - La garde `IsComptabilise` ajoutée côté GRC_WEB est une **prudence applicative en plus** de la DLL,
   pas une redite d'une garde native — bien la commenter comme telle (why non-obvious) pour qu'un
   futur lecteur ne la prenne pas pour du code mort.
@@ -209,7 +231,8 @@ pour ce motif).
       construction (kernel mono-société par process, cf. Contraintes ci-dessus) — pas de code à
       tester spécifiquement, case cochée dès que le reste de la checklist passe
 - [ ] Bouton front "Annuler" masqué/désactivé aussi pour un règlement affecté (pas seulement
-      comptabilisé/pointé/remis/annulé)
+      comptabilisé/pointé/remis/annulé) — via le nouveau champ `IsAffecte` du DTO, pas un proxy
+      approximatif (`SoldeDeviseSociete != Montant`)
 - [ ] Règlement comptabilisé → refus explicite (garde applicative GRC_WEB), message clair
 - [ ] Règlement affecté → refus, message métier lisible (`InvalidOperationException` catchée et
       traduite, pas de stack trace brute au front)

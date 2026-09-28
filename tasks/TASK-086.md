@@ -269,6 +269,12 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
   ligne, mécanisme absent aujourd'hui de cette grille). Icône (crayon) ou libellé texte au choix de
   l'implémenteur, à harmoniser visuellement avec le bouton « Annuler » de TASK-085 s'il est livré en
   premier (même zone d'actions par ligne, pas deux styles différents côte à côte).
+  **⚠️ Précision (revue architecte 2026-09-28)** : TASK-085 (livrée en premier, cf. séquencement acté
+  en en-tête) ajoute déjà une `<td>` Actions fixe en fin de ligne dans `tableBodyMemo`/`App.tsx`
+  (hors boucle `selectedColumns.map`, avec son `<th>` correspondant hors boucle dans le `<thead>`,
+  cf. TASK-085 §étape 5). **Ajouter les boutons « Modifier » et « Historique » dans cette même `<td>`
+  déjà créée**, pas une seconde `<td>` Actions séparée — sinon deux colonnes d'actions distinctes
+  apparaîtraient côte à côte dans la grille.
 - **Consultation de l'historique** (point absent de la version initiale de la TASK, la table
   d'historique n'a de sens que si elle est consultable) — nouveau modal/panneau « Historique des
   modifications » ouvert depuis la grille (action par ligne, à côté de « Modifier »), affichant les
@@ -277,10 +283,19 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
   consultation d'historique n'existe encore ailleurs dans `gocom-web` — s'appuyer sur le pattern
   modal déjà en place (`RapprochementBancaire.tsx`, panneau de messages TASK-055) plutôt
   qu'introduire un nouveau système d'affichage. Nouvel endpoint de lecture, ex.
-  `[HttpGet("{id}/historique")]`, même contrôle de droits que la consultation du règlement
-  (`ReglementConsulterHistorique` existe côté `Tresorerie.Authorization.Core.Actions` — à
-  vérifier si réutilisable tel quel ou si un droit GRC dédié est préférable, trancher au dev sans
-  bloquer si ambigu, documenter le choix dans le VERIFY).
+  `[HttpGet("{id}/historique")]`.
+  **Droit d'accès (tranché en revue architecte 2026-09-28, ne pas utiliser `ReglementConsulterHistorique`)** :
+  cette action existe bien côté `Tresorerie.Authorization.Core.Actions` (confirmé par réflexion sur
+  `Tresorerie.Authorization.Core.dll`), mais c'est une action **native de l'éditeur de la DLL
+  Trésorerie**, très probablement pensée pour un historique propre à l'écran WinForm d'origine (ex.
+  mouvements de caisse) — **elle ne gère pas la nouvelle table GRC** `GRC_ReglementModificationHistorique`
+  créée par cette TASK, sans aucun rapport avec la DLL. La réutiliser créerait le même risque de
+  mésusage sémantique déjà nommé ailleurs pour `ReglementAnnuler`/`ReglementModifier` (une action de
+  droits pouvant être paramétrée par l'admin pour un tout autre usage métier natif). **Réutiliser
+  plutôt `ReglementModifier`** (même action que l'écriture, §étape 7 ci-dessous) pour protéger la
+  lecture de l'historique — cohérent avec le principe déjà appliqué dans ce projet qu'un droit de
+  lecture d'un objet suit le droit d'écriture le plus proche quand aucun droit de lecture dédié
+  n'existe nativement pour cet objet précis.
 
 ## Étapes d'implémentation
 
@@ -589,6 +604,9 @@ d'un règlement **non comptabilisé, non affecté, non annulé**, avec :
       « Modifier »), affiche bien date/utilisateur/champ/avant/après pour le règlement sélectionné,
       reste accessible même sur un règlement comptabilisé/affecté/annulé (non conditionnée à la
       garde commune) — testé en base réelle avec au moins 2 modifications successives du même
-      règlement
+      règlement ; endpoint protégé par l'action `ReglementModifier` (pas `ReglementConsulterHistorique`,
+      cf. §Fichiers concernés — mésusage sémantique évité)
+- [ ] Boutons « Modifier »/« Historique » ajoutés dans la `<td>` Actions déjà créée par TASK-085
+      (pas une seconde colonne d'actions dupliquée dans la grille)
 - [ ] Aucun `UPDATE` SQL brut non documenté/non dérogé par le PO
 - [ ] Cohérent avec ARCHITECTURE.md si un composant de sélection/liste est introduit
