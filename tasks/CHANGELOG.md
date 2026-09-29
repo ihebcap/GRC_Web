@@ -1,5 +1,34 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Boutons « Modifier »/« Historique » en premières colonnes, icônes seules (TASK-092, APPROVE)
+
+### Contexte
+Remontée PO (2026-09-29) sur l'écran de liste des règlements (`App.tsx`) : les boutons « Modifier »
+et « Historique », regroupés dans la colonne « Actions » en fin de tableau avec libellé texte,
+devaient devenir les premières colonnes du tableau, sous forme d'icône seule, pour libérer de
+l'espace et permettre un accès immédiat.
+
+### Modifications
+- **Front** (`App.tsx`) : ajout de deux `<td>`/`<th>` dédiés en tête de ligne/tableau (largeur
+  40px), icônes `Edit`/`History` seules (suppression des `<span>Modifier</span>`/`<span>Historique</span>`),
+  `title` explicite conservé. Condition d'affichage de Modifier inchangée à l'identique (même
+  expression booléenne, simplement déplacée de `<td>`). Colonne « Actions » réduite à 100px,
+  ne conservant que le bouton Annuler avec son texte.
+- Deux `colSpan` corrigés (`selectedColumns.length + 1` → `+ 3`) : ligne d'édition inline du mode
+  Rapprochement (`App.tsx:828`) et message « Aucun règlement trouvé » (`App.tsx:863`) — les deux
+  emplacements identifiés par grep exhaustif avant transmission à Gemini, pour éviter qu'un seul
+  soit corrigé silencieusement (régression visible uniquement liste vide / sélection Rapprochement).
+- Tableau de dépendances du `useMemo` de `tableBodyMemo` non modifié (aucun nouvel état introduit).
+
+### Validation
+- Test E2E Playwright/Chromium réel (`gocom-web/e2e_task092.cjs`) : 100% PASSED — positions de
+  colonnes, clic Modifier ouvrant `ModifierReglementModal` pour la bonne ligne (condition vérifiée
+  sur un règlement affiché et un masqué), clic Historique ouvrant `HistoriqueReglementModal`,
+  `colSpan` vérifié sur les deux cas limites (ligne sélectionnée en mode Rapprochement, liste vide).
+  Capture d'écran `screenshot_task092.png`.
+- Build front (`npm run build`) et lint (`oxlint`) : 0 erreur, rejoués par l'architecte.
+- Rapport `VERIFY/TASK-092_verify.md` (archivé).
+
 ## 2026-09-29 — Optimisation perf et payload de `GET /api/reglements` (TASK-091, APPROVE)
 
 ### Contexte

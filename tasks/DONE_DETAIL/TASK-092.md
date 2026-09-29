@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Correction (Front, UX)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : — (chevauchement de fichier avec TASK-093 — même bloc JSX `App.tsx:770-816` ;
   traiter l'une après l'autre, pas en parallèle, pour éviter un conflit de merge)
 
@@ -92,17 +92,17 @@ libellé texte), pour minimiser l'espace utilisé — au lieu d'être regroupés
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build front OK (0 erreur)
-- [ ] Boutons Modifier et Historique visuellement en premières colonnes, icônes seules, sans texte
-- [ ] Clic sur Modifier ouvre toujours `ModifierReglementModal` pour la bonne ligne, condition
+- [x] Build front OK (0 erreur)
+- [x] Boutons Modifier et Historique visuellement en premières colonnes, icônes seules, sans texte
+- [x] Clic sur Modifier ouvre toujours `ModifierReglementModal` pour la bonne ligne, condition
       d'affichage inchangée (vérifiée sur un règlement conditionnellement masqué et un affiché)
-- [ ] Clic sur Historique ouvre toujours `HistoriqueReglementModal` pour la bonne ligne
-- [ ] Les DEUX `colSpan` (`App.tsx:825` ligne d'édition inline mode Rapprochement, ET `App.tsx:860`
+- [x] Clic sur Historique ouvre toujours `HistoriqueReglementModal` pour la bonne ligne
+- [x] Les DEUX `colSpan` (`App.tsx:825` ligne d'édition inline mode Rapprochement, ET `App.tsx:860`
       message « Aucun règlement trouvé ») mis à jour et cohérents après ajout des 2 colonnes
       (vérifié visuellement sur les deux cas : une ligne sélectionnée en mode Rapprochement, et une
       recherche/filtre qui ne retourne aucun résultat)
-- [ ] Tableau de dépendances du `useMemo` de `tableBodyMemo` (`App.tsx:864`) inchangé (aucun nouveau
+- [x] Tableau de dépendances du `useMemo` de `tableBodyMemo` (`App.tsx:864`) inchangé (aucun nouveau
       state introduit par cette tâche)
-- [ ] Bouton Annuler toujours fonctionnel, inchangé dans la colonne Actions
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Bouton Annuler toujours fonctionnel, inchangé dans la colonne Actions
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
