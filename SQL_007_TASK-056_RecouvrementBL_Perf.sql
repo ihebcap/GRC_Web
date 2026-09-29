@@ -275,18 +275,19 @@ WITH DepotsFacturation AS (
    1️⃣ BL reconstruit depuis les lignes de facture (DL_PieceBL)
    CORRECTIF bug 2 : agrégé au grain BL (CT_Num retiré de la clé de regroupement).
    NbClients/DO_Tiers = information indicative sur le multi-client, pas une clé.
-   CORRECTIF v10 (2026-09-29) : filtre DepotsFacturation RÉINTRODUIT (cf. § 0 ci-dessus) —
-   décision PO assumée de revenir sur le retrait v7.
-   CORRECTIF v9 (Bug 4, 2026-09-29) : DL_PieceBL n'est PAS fiable comme numéro de BL
-   pour une ligne issue d'une facture déjà éclatée — confirmé en base : un même vrai BL
-   éclaté en plusieurs factures produit un DL_PieceBL DIFFÉRENT par facture (pseudo-numéro
-   généré à la volée, jamais retrouvé comme document réel). Cette CTE ne doit capter que
-   les vrais BL PAS ENCORE facturés (décision PO explicite) : filtre ajouté sur l.DO_Piece
-   (la facture porteuse de la ligne), pas sur DL_PieceBL — si cette facture est déjà connue
-   de FG_BlFacture comme DO_NumFC, son montant est déjà compté via le vrai BL d'origine
-   (source FG_DOCENTETE_SAUV) et la ligne est exclue ici. Vérifié en base : aucun vrai BL
-   non-facturé n'est jamais un DO_NumFC de FG_BlFacture (0 collision mesurée) — filtre sûr.
-   Effet mesuré : 12531 -> 1443 "BL" reconstruits (-88,5%), 359M -> 145M TTC.
+   CORRECTIF v10 (2026-09-29) : filtre DepotsFacturation RÉINTRODUIT (décision PO, retour
+   sur le retrait v7). CORRECTIF v9 (Bug 4) : filtre l.DO_Piece déjà connu de FG_BlFacture,
+   cf. § dédié plus haut dans ce fichier.
+   INCIDENT PERF v10 → v13 (2026-09-29, cf. TASK-056.md « Incident perf v10 → v12 » pour le
+   détail complet de l'isolation) : la vraie cause de l'explosion de perf (F_DOCLIGNE à
+   ~197M lectures logiques) n'était PAS le JOIN DepotsFacturation sur CETTE CTE (un temps
+   retiré en v12 par erreur d'analyse, puis réintroduit ici en v13 après confirmation),
+   mais l'absence de ce même filtre sur FA_BL (§ 2 ci-dessous), consommée par NOT EXISTS
+   dans la branche F_DOCENTETE elle-même filtrée par dépôt — déséquilibre de cardinalité
+   entre les deux ensembles de l'anti-join, qui faisait basculer l'optimiseur vers une
+   boucle imbriquée. FA_BL filtrée par dépôt (v13) → 316082 lectures, stable avec ou sans
+   ce JOIN ici. Conservé pour respecter la demande PO (documents des dépôts facturants
+   uniquement sur toutes les branches), sans risque de régression perf confirmé par mesure.
 =========================== */
 , BL AS (
     SELECT
@@ -305,12 +306,22 @@ WITH DepotsFacturation AS (
 )
 
 /* ===========================
-   2️⃣ BL déjà facturés (INCHANGÉ — hypothèse de bug testée en base et invalidée,
+   2️⃣ BL déjà facturés (hypothèse de bug testée en base et invalidée en juillet,
    cf. diagnostic (c) : la comparaison DO_Piece vs DO_Piece exclut bien 3012 BL)
+   CORRECTIF v13 (incident perf 2026-09-29) : filtre DepotsFacturation AJOUTÉ ici aussi —
+   la branche F_DOCENTETE qui consomme FA_BL (NOT EXISTS) est filtrée par dépôt depuis v10,
+   mais FA_BL restait non filtrée (cardinalité pleine base vs 30 dépôts) : l'optimiseur
+   basculait vers une boucle imbriquée réévaluant F_DOCLIGNE en boucle (197M lectures
+   logiques mesurées, contre 316K après ce fix) — cf. TASK-056.md « Incident perf v10 → v12 »
+   pour le détail complet de l'isolation. Cohérence : FA_BL sert uniquement à exclure des
+   BL déjà facturés dans la branche F_DOCENTETE, elle-même filtrée par dépôt — aucune perte
+   de couverture, un BL hors des 30 dépôts facturants n'a de toute façon aucune incidence
+   sur les factures qui, elles, sont dans le périmètre filtré.
 =========================== */
 , FA_BL AS (
     SELECT DISTINCT l.DO_Piece
     FROM GOCOM.dbo.F_DOCLIGNE l
+    INNER JOIN DepotsFacturation dep ON dep.DE_No = l.DE_No
     WHERE ISNULL(l.DL_PieceBL,'') <> ''
 )
 

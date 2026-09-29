@@ -457,6 +457,53 @@ v9 (résultat vide), aucun problème SQL résiduel identifié pour ce cas. Si le
 affiché dans Metabase, il s'agit très probablement d'un cache de résultats côté Metabase (question/
 carte à ré-exécuter explicitement, pas seulement rouvrir la page).
 
+## Incident perf v10 → v12 (2026-09-29) — filtre dépôt réintroduit rend la vue live inutilisable
+
+Signalé par le PO après désactivation du job cassé de TASK-058 (sans lien de cause à effet réel) :
+Metabase devenu "très très lent" sur `vMetaRecouvrementBL` elle-même. Investigation par isolation
+successive de chaque composant, en base, avec `SET STATISTICS IO` :
+
+| Test | Lectures logiques `F_DOCLIGNE` | Conclusion |
+|---|---|---|
+| Vue complète (v10, avec join dépôt + v9) | 197 055 991 (17 scans) | Lent — ~89 s à plusieurs minutes, instable |
+| CTE `BL` seule (avec v9 + join dépôt) | 316 074 | Rapide isolée — pas le seul coupable |
+| CTE `BL` seule (sans v9, ancien filtre) | — (125 ms mesuré) | v9 écarté comme cause (temps quasi identique) |
+| Vue complète sans v9 (v10 toujours présent) | 197 083 759 | **v9 définitivement écarté** — aucune différence |
+| Chaîne FIFO complète sans join dépôt sur `BL` | 316 074 | Suggérait `BL`/join dépôt coupable — **faux positif** |
+| Vue complète avec join dépôt retiré de `BL` uniquement (v12) | 197 084 293 | **Toujours identique — pas la cause non plus** |
+| `DocumentsRaw` seule (v12, sans `ReglementAlloc`/FIFO) | 197 084 293 | Le problème existe déjà ici, pas besoin du FIFO |
+| `DocumentsRaw` sans le `NOT EXISTS(FA_BL)` sur `F_DOCENTETE` | **158 037** | **Cause isolée : `FA_BL`** |
+| `FA_BL` avec `ISNULL()` retiré du prédicat (aligné sur l'index) | 197 085 895 | Pas un problème d'index/prédicat — la présence même du `NOT EXISTS(FA_BL)` combinée au join dépôt sur `F_DOCENTETE` fait basculer le plan |
+
+**Cause confirmée** : le `NOT EXISTS (SELECT 1 FROM FA_BL WHERE FA_BL.DO_Piece = f.DO_Piece)` dans
+la branche `F_DOCENTETE` de `DocumentsRaw`, combiné au nouveau `INNER JOIN DepotsFacturation`
+ajouté par v10 sur cette même branche, fait basculer l'optimiseur d'un hash anti-join (avant v10)
+vers une boucle imbriquée qui réévalue `F_DOCLIGNE` (source de `FA_BL`) un nombre de fois
+disproportionné. `FA_BL` lui-même n'a jamais changé dans cette session — le déclencheur est
+l'ajout du filtre dépôt sur la branche qui le consomme, pas `FA_BL` en tant que tel.
+
+**Fix définitif appliqué (v13)** : `FA_BL` filtrée par `DepotsFacturation` (même `INNER JOIN` que
+les 2 autres branches) — cohérence de cardinalité rétablie entre la branche `F_DOCENTETE` (filtrée
+à 30 dépôts) et l'ensemble `FA_BL` qu'elle consomme via `NOT EXISTS` (avant : cardinalité pleine
+base, ~213 dépôts). Aucune perte de couverture : `FA_BL` sert uniquement à exclure des BL déjà
+facturés dans la branche `F_DOCENTETE`, elle-même filtrée par dépôt — un BL hors des 30 dépôts
+facturants n'a aucune incidence sur les factures du périmètre filtré.
+
+**Résultat mesuré en base** :
+- `F_DOCLIGNE` : 197 084 293 → **316 080 lectures logiques** (validé sur `DocumentsRaw` seule et
+  sur la chaîne FIFO complète avec `ReglementAlloc`).
+- Temps d'exécution de la vue complète (`SELECT COUNT(*) FROM vMetaRecouvrementBL`) : **89-90 s
+  → 531 ms** (gain ~170×).
+- `BLG2603983` toujours confirmé absent (Bug 4/v9 intact), filtre dépôt (v10) intact sur les 3
+  branches, 3959 lignes en sortie (cohérent avec les mesures précédentes ~3938-3961).
+
+**Statut final : v13 appliqué et vérifié en base — incident clos.** Point de vigilance conservé
+pour le futur : toute nouvelle jointure ajoutée à une branche de cette vue doit être vérifiée pour
+cohérence de cardinalité avec les ensembles `NOT EXISTS`/`EXISTS` qu'elle consomme ou qui la
+consomment — cette classe de régression (anti-join cardinalité déséquilibrée → boucle imbriquée)
+s'est manifestée deux fois sur cette vue (CTE `account` en juillet, `FA_BL` ici) et pourrait se
+reproduire sur un futur changement similaire.
+
 ## Découverte incidente (2026-09-29) — TASK-058 partiellement appliquée en base, job cassé
 
 En cherchant la vue interrogée par Metabase, découverte que **TASK-058 (table persistée) a déjà
@@ -542,8 +589,8 @@ reporting.
 - [ ] BL de test réglé via versement multi-`#` : `TotalReglement` non nul, réparti FIFO par date
 - [ ] BL de test multi-client : une seule ligne en sortie, `NbClients > 1`, solde correct
 - [ ] Aucune régression sur un BL simple (1 versement, 1 client) : mêmes valeurs qu'avant
-- [ ] Temps de réponse Metabase mesuré avant/après — **connu à date : toujours ~3-4 min**, gain
-      réel attendu uniquement après TASK-058
+- [x] Temps de réponse mesuré avant/après (2026-09-29, post v13) : **89-90 s → 531 ms** (gain
+      ~170×) — cf. « Incident perf v10 → v12 » pour le détail de l'isolation et le fix `FA_BL`
 - [ ] Sandbox Metabase vérifié fonctionnel malgré le retrait de `A_EMAIL`/`ID_UserBhub`/
       `DE_Intitule` (risque signalé, non confirmé par le PO) — périmètre par dépôt toujours
       effectif pour les autres users, `n.salim` toujours hors sandbox
