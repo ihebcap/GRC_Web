@@ -233,6 +233,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const [selectedGrcId, setSelectedGrcId] = useState<number | null>(null);
     const [selectedReleveLigneId, setSelectedReleveLigneId] = useState<number | null>(null);
     const [pendingReservation, setPendingReservation] = useState<{ grcId: number; ligneId: number } | null>(null);
+    const [isUpdatingMontant, setIsUpdatingMontant] = useState(false);
 
     // Banques
     const [banques, setBanques] = useState<Banque[]>([]);
@@ -784,6 +785,47 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         executeManualLettrage(grcId, ligneId);
     }, [executeManualLettrage]);
 
+    // TASK-090 — Correction du montant du règlement avec celui de la ligne de relevé puis lettrage
+    const handleUpdateMontantAndLettrer = React.useCallback(async (grcId: number, ligneId: number) => {
+        const releve = lignesReleveRef.current.find(l => l.id === ligneId);
+        if (!releve) {
+            showToast("Ligne de relevé introuvable.", "error");
+            setPendingReservation(null);
+            setSelectedGrcId(null);
+            setSelectedReleveLigneId(null);
+            return;
+        }
+
+        const nouveauMontant = releve.credit;
+        setIsUpdatingMontant(true);
+
+        try {
+            const userStr = sessionStorage.getItem('gocom_user');
+            const token = userStr ? JSON.parse(userStr).token : '';
+            const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+            // N'envoyer STRICTEMENT que la clé montant dans le corps JSON (pas reference/date/banqueNo)
+            // pour ne pas écraser d'autres champs (ex: reference existante vidée si chaîne vide envoyée).
+            await axios.put(`${API_BASE}/reglements/${grcId}`, {
+                montant: nouveauMontant
+            }, { headers });
+
+            // Rafraîchir l'affichage du règlement dans la grille GRC de l'écran
+            setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, montant: nouveauMontant } : r));
+
+            // Enchaîner avec la réservation / le lettrage manuel
+            await executeManualLettrage(grcId, ligneId);
+        } catch (error: any) {
+            const msg = error.response?.data?.message || error.response?.data?.title || error.message || "Erreur lors de la mise à jour du montant du règlement.";
+            showToast(typeof msg === 'string' ? msg : JSON.stringify(msg), "error");
+            setPendingReservation(null);
+            setSelectedGrcId(null);
+            setSelectedReleveLigneId(null);
+        } finally {
+            setIsUpdatingMontant(false);
+        }
+    }, [executeManualLettrage, showToast]);
+
     // handleSelectGrc — ref pour selectedReleveLigneId : la référence du callback
     // reste stable même quand la sélection du relevé change => GrcTableBody ne re-rend pas.
     const handleSelectGrc = React.useCallback((grcId: number) => {
@@ -1242,11 +1284,23 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 {pendingReservation && (
                     <div style={{ padding: '12px 16px', background: '#fff3cd', border: '1px solid #ffe69c', borderRadius: '8px', color: '#664d03', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '10px 0' }}>
                         <div>
-                            <strong>Attention :</strong> Les montants sélectionnés sont différents. Voulez-vous vraiment forcer le rapprochement ?
+                            <strong>Attention :</strong> Les montants sélectionnés sont différents. Voulez-vous mettre à jour le montant du règlement avec celui du relevé et rapprocher ?
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-success" onClick={() => executeManualLettrage(pendingReservation.grcId, pendingReservation.ligneId)}>Forcer</button>
-                            <button className="btn btn-ghost-danger" onClick={() => { setPendingReservation(null); setSelectedGrcId(null); setSelectedReleveLigneId(null); }}>Annuler</button>
+                            <button
+                                className="btn btn-success"
+                                disabled={isUpdatingMontant}
+                                onClick={() => handleUpdateMontantAndLettrer(pendingReservation.grcId, pendingReservation.ligneId)}
+                            >
+                                {isUpdatingMontant ? 'Mise à jour en cours...' : 'Mettre à jour le montant et rapprocher'}
+                            </button>
+                            <button
+                                className="btn btn-ghost-danger"
+                                disabled={isUpdatingMontant}
+                                onClick={() => { setPendingReservation(null); setSelectedGrcId(null); setSelectedReleveLigneId(null); }}
+                            >
+                                Annuler
+                            </button>
                         </div>
                     </div>
                 )}
