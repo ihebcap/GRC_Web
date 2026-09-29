@@ -4,6 +4,7 @@ import { Loader2, CheckSquare, RefreshCw, Filter, ChevronRight, ChevronDown, Che
 
 import { API_BASE } from './api';
 import { fixMojibake } from './utils';
+import './ApercuComptabilisation.css';
 
 interface User {
   no: number;
@@ -100,30 +101,23 @@ const CheckboxDropdown = ({
   };
 
   return (
-    <div ref={containerRef} style={{position: 'relative', width: '220px'}}>
+    <div ref={containerRef} className="apercu-dropdown">
       <div 
         onClick={() => { setIsOpen(!isOpen); if (isOpen) setSearch(''); }}
-        style={{
-          border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.375rem 0.625rem',
-          backgroundColor: 'white', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          fontSize: '0.8125rem'
-        }}>
-        <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+        className="apercu-dropdown-trigger"
+      >
+        <span title={selectedValues.length === 1 ? options.find(o => o.value === selectedValues[0])?.label : undefined}>
           {selectedValues.length === 0 ? placeholder : 
            selectedValues.length === options.length ? 'Tous sélectionnés' : 
            selectedValues.length === 1 ? options.find(o => o.value === selectedValues[0])?.label :
            `${selectedValues.length} sélectionnés`}
         </span>
-        <ChevronDown size={16} style={{color: 'var(--text-tertiary)'}} />
+        <ChevronDown size={14} style={{color: 'var(--text-tertiary)', flexShrink: 0}} />
       </div>
 
       {isOpen && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, width: '100%',
-          backgroundColor: 'white', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
-          boxShadow: 'var(--shadow-md)', zIndex: 9999, maxHeight: '290px', overflowY: 'auto'
-        }}>
-          <div style={{padding: '0.5rem', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, backgroundColor: 'white'}}>
+        <div className="apercu-dropdown-panel">
+          <div className="apercu-dropdown-search-box">
             <input
               type="text"
               autoFocus
@@ -131,13 +125,12 @@ const CheckboxDropdown = ({
               onChange={e => setSearch(e.target.value)}
               onClick={e => e.stopPropagation()}
               placeholder="Rechercher..."
-              className="form-input"
-              style={{width: '100%', fontSize: '0.8125rem', padding: '0.25rem 0.5rem'}}
+              className="apercu-dropdown-search-input"
             />
           </div>
           <div
             onClick={toggleAll}
-            style={{padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 600, backgroundColor: '#f9fafb'}}
+            className="apercu-dropdown-toggle-all"
           >
             <input type="checkbox" checked={filteredOptions.length > 0 && filteredOptions.every(o => selectedValues.includes(o.value))} readOnly style={{cursor: 'pointer'}} />
             (TOUT SÉLECTIONNER)
@@ -146,14 +139,13 @@ const CheckboxDropdown = ({
             <div 
               key={opt.value} 
               onClick={() => toggleOne(opt.value)}
-              style={{padding: '0.5rem 0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem'}}
-              className="dropdown-item-hover"
+              className="apercu-dropdown-item"
             >
               <input type="checkbox" checked={selectedValues.includes(opt.value)} readOnly style={{cursor: 'pointer'}} />
               {opt.label}
             </div>
           ))}
-          {filteredOptions.length === 0 && <div style={{padding: '0.5rem', textAlign: 'center', fontSize: '0.75rem', color: 'gray'}}>Aucun élément</div>}
+          {filteredOptions.length === 0 && <div className="apercu-dropdown-empty">Aucun élément</div>}
         </div>
       )}
     </div>
@@ -388,10 +380,10 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
 
       {/* Top bar Filters (masquée en mode présélection : la sélection vient de la liste) */}
       {!isPreselectionMode && (
-      <div className="card animate-fade-in" style={{padding: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', position: 'relative', zIndex: 50}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-          <Filter size={18} style={{color: 'var(--text-tertiary)'}} />
-          <span style={{fontWeight: 600, fontSize: '0.8125rem'}}>Filtres de simulation :</span>
+      <div className="apercu-toolbar animate-fade-in">
+        <div className="apercu-toolbar-title">
+          <Filter size={15} style={{color: 'var(--text-tertiary)'}} />
+          <span>Filtres de simulation :</span>
         </div>
         
         <CheckboxDropdown
@@ -408,27 +400,27 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
           placeholder="Tous les modes"
         />
         
-        <input type="date" className="form-input" value={dateDebut} onChange={e => setDateDebut(e.target.value)} style={{width: '120px'}} />
-        <span style={{color: 'var(--text-tertiary)', fontSize: '0.8125rem'}}>à</span>
-        <input type="date" className="form-input" value={dateFin} onChange={e => setDateFin(e.target.value)} style={{width: '120px'}} />
+        <input type="date" className="apercu-toolbar-date" value={dateDebut} onChange={e => setDateDebut(e.target.value)} />
+        <span className="apercu-toolbar-separator">à</span>
+        <input type="date" className="apercu-toolbar-date" value={dateFin} onChange={e => setDateFin(e.target.value)} />
 
         {/* TASK-087 — Filtre « Rapproché » verrouillé à Oui (décision PO 2026-09-28) : disabled, figé sur Oui */}
-        <div style={{display: 'flex', alignItems: 'center', gap: '0.375rem'}}>
-          <span style={{fontSize: '0.8125rem', color: 'var(--text-secondary)'}}>Rapproché :</span>
+        <div className="apercu-toolbar-field">
+          <span className="apercu-toolbar-label">Rapproché :</span>
           <select
-            className="form-input"
+            className="apercu-toolbar-select"
             value="oui"
             disabled
-            style={{width: '90px', fontSize: '0.8125rem', opacity: 0.85, cursor: 'not-allowed', backgroundColor: 'var(--bg-secondary, #f8f9fa)'}}
+            style={{width: '72px'}}
             title="Filtre verrouillé à Oui (espèces et autres modes sans rapprochement inclus)"
           >
             <option value="oui">Oui</option>
           </select>
         </div>
 
-        <div style={{display: 'flex', gap: '0.5rem', marginLeft: 'auto'}}>
-          <button onClick={handleSimuler} className="btn btn-primary" disabled={loading} style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+        <div className="apercu-toolbar-actions">
+          <button onClick={handleSimuler} className="btn btn-primary apercu-toolbar-btn" disabled={loading}>
+            {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             Générer l'Aperçu
           </button>
         </div>

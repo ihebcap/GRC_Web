@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Front (UX)
-- **Statut** : TODO
+- **Statut** : FAIT (validé E2E)
 - **Dépend de** : —
 
 ## Contexte
@@ -111,12 +111,8 @@ plus du double sur l'écran comptabilisation aujourd'hui).
   uniquement.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK (date + méthode : build log front)
-- [ ] Comportement vérifié end-to-end (capture d'écran avant/après jointe ; dropdowns
-      Caisses/Modes testés manuellement : recherche, tout sélectionner, fermeture au clic
-      extérieur)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse (préciser si le mode présélection présente une
-      incohérence visuelle résiduelle, cf. Étape 7)
-- [ ] Cohérent avec l'architecture (aucune classe/fichier CSS de `RapprochementBancaire`
-      modifié ; pas de nouveau composant de filtre inventé)
+- [x] Build OK (2026-09-29, build log front `npm run build` : `tsc -b && vite build` terminé en 773ms sans erreur)
+- [x] Comportement vérifié end-to-end (captures d'écran avant `screenshot_task095_before.png` / après `screenshot_task095.png` jointes ; test Playwright `e2e_task095.cjs` 100% PASSED : hauteur 45px vs 44px référence, dropdowns Caisses/Modes testés : ouverture, recherche, tout sélectionner, fermeture au clic extérieur, dates et select verrouillé)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse (mode présélection mutuellement exclusif avec la barre de filtres vérifié sans impact résiduel)
+- [x] Cohérent avec l'architecture (`RapprochementBancaire.css` non modifié, style isolé dans `ApercuComptabilisation.css`, pas de nouveau composant de filtre inventé)

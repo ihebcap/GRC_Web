@@ -1,5 +1,21 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Compactage de la barre de filtres de l'écran Comptabilisation (TASK-095, APPROVE)
+
+### Contexte
+Demande PO (2026-09-29) : la barre de filtres de simulation de l'écran « Comptabilisation » (`ApercuComptabilisation.tsx`) était visuellement trop haute et étalée (~114.5px), alors que l'écran « Rapprochement bancaire » dispose d'une barre compacte de référence (`.rappro-toolbar`, hauteur mesurée 44.0px). Le PO demandait d'aligner la barre de comptabilisation sur ce standard ergonomique SaaS.
+
+### Changement
+- Création d'une feuille de style dédiée `gocom-web/src/ApercuComptabilisation.css` (classes `.apercu-toolbar`, `.apercu-dropdown*`, `.apercu-toolbar-date`, `.apercu-toolbar-select`, `.apercu-toolbar-btn`), évitant tout couplage avec `RapprochementBancaire.css`.
+- Gabarit du conteneur compacté (hauteur 45.0px, padding `6px 12px`, border-radius 10px, shadow discret).
+- Composant local `CheckboxDropdown` compacté (largeur réduite de 220px à 175px, trigger 31px de haut, paddings et polices réduits), logique interne (recherche, sélection, tout sélectionner) 100% préservée.
+- Champs dates et sélecteur « Rapproché » (verrouillé à Oui) alignés sur police 12.5px et hauteur 31px.
+- Bouton d'action « Générer l'Aperçu » compact aligné à droite via `margin-left: auto`.
+- Mode présélection vérifié sans impact car mutuellement exclusif avec la barre de filtres de simulation.
+
+### Validation
+Build front (`tsc -b && vite build`) et lint (`oxlint`) 0 erreur. Test E2E Playwright (`e2e_task095.cjs`) 100% PASSED : hauteur mesurée à 45.0px (vs 44.0px référence et 114.5px avant), dropdowns Caisses/Modes testés de bout en bout (recherche, tout sélectionner, fermeture au clic extérieur). Captures d'écran avant (`screenshot_task095_before.png`) et après (`screenshot_task095.png`).
+
 ## 2026-09-29 — Bouton « Annuler » rapproché du bouton « Modifier », icône seule (TASK-096, APPROVE)
 
 ### Contexte
