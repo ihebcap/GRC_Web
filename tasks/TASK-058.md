@@ -1,10 +1,30 @@
 # TASK-058 — `vMetaRecouvrementBL` : table persistée pour le recouvrement par BL (fix durable perf)
 
-- **Priorité** : 🔴 Bloquant (Metabase inutilisable en l'état : ~3-4 min par exécution)
+- **Priorité** : ⏸️ Non prioritaire — cause perf réelle résolue autrement (décision PO 2026-09-29)
 - **Domaine** : Performance / Architecture (SQL Server, base `GR_GOCOM`, hors GRC_WEB)
-- **Statut** : TODO (cadrage — pas de SQL avant validation PO explicite)
+- **Statut** : DIFFÉRÉ — cf. « Clôture de fait » ci-dessous
 - **Dépend de** : [TASK-056](TASK-056.md) (porte l'algorithme métier — FIFO, agrégation BL — à
   reproduire ici) ; remplace la piste [TASK-057](TASK-057.md) (écran GRC_WEB, abandonnée)
+
+## Clôture de fait (2026-09-29) — table persistée jugée non nécessaire
+
+L'incident perf documenté ci-dessous (~3-4 min, ~66M lectures `F_DOCLIGNE`) avait fait conclure
+que seule une table persistée (calcul batch) pouvait rendre `vMetaRecouvrementBL` durablement
+rapide. **Ce diagnostic s'est révélé incomplet** : l'incident perf v10→v13 du 2026-09-29
+(TASK-056.md « Incident perf v10 → v12 ») a montré que la lenteur n'était pas structurelle mais
+causée par un déséquilibre de cardinalité corrigible dans un anti-join (`FA_BL` non filtrée par
+dépôt alors que la branche qui la consomme l'est) — un bug d'optimisation classique, pas une
+limite inhérente à une vue SQL sur ce volume de données.
+
+**Une fois corrigé (v13)** : la vue s'exécute en **~300 ms**, largement suffisant pour un usage
+interactif Metabase. **Décision PO explicite : pas de table persistée pour le moment** — le
+problème que TASK-058 devait résoudre (recalcul systématiquement lourd, même bien optimisé)
+n'existe plus dans les conditions actuelles.
+
+**TASK-058 reste documentée et différée**, pas supprimée : à rouvrir seulement si un futur
+changement de la vue (nouvelle jointure, nouveau filtre) réintroduit une lenteur structurelle
+qu'une simple correction de requête ne suffit plus à résorber — le job SQL Agent cassé
+(cf. « Découverte incidente », TASK-056.md) reste désactivé, pas de raison de le réactiver.
 
 ## Contexte
 
