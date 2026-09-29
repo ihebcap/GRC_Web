@@ -1,96 +1,112 @@
-# TASK-097 — Filtre par numéro de règlement (`No` / `mv_numero`) sur la grille des règlements
+# TASK-097 — Rendre visible/utilisable le filtre par numéro de règlement (`MV_Numero`)
 
 - **Priorité** : 🟡 Mineur
-- **Domaine** : Front (`gocom-web/src/App.tsx`) + Backend (API + Infra)
+- **Domaine** : Front (`gocom-web/src/utils.tsx`)
 - **Statut** : TODO
 - **Dépend de** : —
+
+## ⚠️ Correction post-création (2026-09-29)
+
+**Cette TASK a été réécrite après une erreur factuelle de la 1ère version.** La 1ère version affirmait
+que la colonne "N°" (`key: 'no'`) correspondait à `MV_Numero` et qu'il fallait créer un nouveau filtre
+sur ce champ. **C'est faux, vérifié en profondeur** (workflow de vérification adversariale à 3
+agents indépendants, tous `certain_refute`, dont un par décompilation réelle des DLL `Tresorerie.*`
+avec `ilspycmd` et une requête SQL directe sur `RT_MOUVEMENT` en prod) :
+
+- `ReglementClient.No` (colonne affichée "N°", `reg.no`, `utils.tsx:118` → `#{reg.no}`) = **`MV_Id`**,
+  la clé technique auto-incrémentée de `RT_MOUVEMENT`. Preuve directe (SQL Dapper décompilé) :
+  `SELECT [MV_Id] Id, [MV_No] ErpNo, [MV_Numero] Numero, [MV_Date] Date ... FROM [RT_MOUVEMENT] WHERE
+  MV_Domaine = 0 AND SO_Id = @SocieteNo AND CA_IdOut In @CaissesNo`.
+- `ReglementClient.Numero` = **`MV_Numero`** (`nvarchar(30)`, numéro métier, souvent préfixé `RC...`,
+  vérifié unique par ligne sur 46056 lignes réelles de `RT_MOUVEMENT`, et **non substituable** à
+  `MV_Id` — 95,6% des lignes ont une valeur numérique différente entre les deux colonnes).
+- Ce champ `Numero` est **déjà exposé** dans `ReglementClientDto.Numero`
+  (`GRC.Infrastructure/Services/ReglementService.cs:1503`, mappé ligne 1604), **déjà filtrable**
+  côté backend (`GRC.API/Controllers/ReglementController.cs:35` paramètre `numero`,
+  `ReglementService.cs:78-81`), et **déjà déclaré côté UI** comme colonne disponible :
+  `gocom-web/src/utils.tsx:107` → `{ key: 'numero', label: 'Numéro' }`, avec son `<ExcelFilter>` déjà
+  rendu (pas dans la liste d'exclusions de `App.tsx:1339/1363`, qui ne visait que `no`) et ses valeurs
+  distinctes déjà remontées par le backend (`distincts.numeros`, `ReglementService.cs:417`).
+
+**Le vrai problème n'est donc pas un filtre manquant, mais un défaut de visibilité** : la colonne
+`numero` n'est pas dans `DEFAULT_COLUMNS` (`utils.tsx:15` :
+`['no', 'client', 'caisseCode', 'caisseIntitule', 'mode', 'date', 'montant', 'pointe',
+'comptabilise']` — `numero` absent). Elle n'apparaît donc pas à l'écran tant que l'utilisateur ne
+l'ajoute pas manuellement via le sélecteur de colonnes, ce qui explique l'impression qu'"on ne peut
+pas filtrer par numéro de règlement".
 
 ## Contexte
 
 Demande PO (2026-09-29) : sur l'écran principal de liste des règlements, impossible de filtrer par
-numéro de règlement (colonne SQL `mv_numero`, exposée en `No` dans `ReglementClientDto` —
-`GRC.Infrastructure/Services/ReglementService.cs:1498`).
+numéro de règlement. Le PO a précisé que la colonne visée en base est `mv_numero` ("normalement
+c'est celle-là la colonne qui est affichée").
 
-Exploration du code (2026-09-29) : ce n'est pas un oubli isolé, le filtre est **absent des 3 couches**
-de la chaîne filtre :
-
-1. **Rendu UI** — `gocom-web/src/App.tsx` :
-   - Ligne 1339 : `else if (col.key !== 'no')` — construction des valeurs distinctes du filtre liste
-     explicitement sautée pour `no`.
-   - Ligne 1363 : `col.key !== 'no' && ...` — le composant `<ExcelFilter>` n'est **pas rendu du tout**
-     dans le `<th>` de la colonne `no`. Aucun contrôle de filtre n'apparaît à l'écran pour cette
-     colonne.
-   - Ligne 1315-1316 : `filterType` n'a pas de cas dédié pour `no` (retombe sur `'list'` par défaut,
-     inadapté — cardinalité 1 valeur/ligne, cf. `ARCHITECTURE.md` "Écarts actés").
-2. **Construction de la requête** — `buildParams` (`App.tsx:483-...`) : aucune entrée `if
-   (currentFilters.no) ...` — même si l'UI envoyait une valeur, elle ne serait jamais transmise au
-   backend.
-3. **Backend** — `GRC.API/Controllers/ReglementController.cs:27-60` (`GetReglements`) et
-   `GRC.Infrastructure/Services/ReglementService.cs:28-32` (`GetReglementsPaged`) : aucun paramètre
-   pour filtrer sur `No`. Le paramètre existant `numero` (ligne 35 du contrôleur, ligne 78-81 du
-   service) filtre sur `r.Numero`, un champ métier **différent** (référence bancaire/pièce) — ne pas
-   le confondre ni le réutiliser pour `No`.
-
-Le champ `No` (`ReglementClient.No`, DLL `Tresorerie.Dapper`) existe déjà et est déjà exploité pour le
-tri (`ReglementService.cs:202` et toutes les branches `ThenBy(r => r.No)`) — la donnée est disponible,
-seul le filtre est manquant de bout en bout.
+Or la colonne actuellement affichée par défaut sous le libellé "N°" (`no`) est en réalité `MV_Id`
+(clé technique), pas `MV_Numero`. `MV_Numero` correspond à la colonne `numero` (libellé "Numéro"),
+qui existe et est fonctionnelle mais n'est pas affichée par défaut.
 
 ## Objectif
 
-Permettre de filtrer la grille des règlements par numéro de règlement (`No`), en respectant le
-pattern déjà en place pour les filtres numériques à forte cardinalité (`montant`/`solde` : plage
-min/max, cf. `ARCHITECTURE.md`), pas un filtre liste (une checklist avec une valeur par ligne serait
-inutilisable).
+Rendre le filtre par `MV_Numero` immédiatement disponible pour l'utilisateur, sans qu'il ait besoin
+de connaître l'existence du sélecteur de colonnes ni la distinction technique `no`/`numero`.
+
+**Décision à prendre avec le PO avant implémentation** (ne pas trancher seul, cf. règle "ne jamais
+improviser un contexte manquant") :
+
+- **Option A** — Ajouter `'numero'` à `DEFAULT_COLUMNS` (`utils.tsx:15`), pour que la colonne
+  "Numéro" (`MV_Numero`) apparaisse par défaut aux côtés de "N°" (`MV_Id`). Changement minimal,
+  aucune ambiguïté technique introduite, les deux colonnes coexistent avec des libellés déjà
+  distincts.
+- **Option B** — Si le PO juge que la colonne technique "N°" (`MV_Id`) n'a aucune valeur pour
+  l'utilisateur final et ne doit pas être visible du tout, la retirer de `DEFAULT_COLUMNS` (et/ou de
+  `getAvailableColumns`) au profit de "Numéro" (`MV_Numero`) seul — changement plus large, à valider
+  explicitement car `no`/`MV_Id` est aussi utilisé comme clé de tri par défaut et de navigation
+  interne (cf. `ReglementService.cs`, tri `ThenBy(r => r.No)` partout) ; retirer la colonne de
+  l'affichage n'empêche pas son usage interne, mais à confirmer qu'aucun autre usage utilisateur n'en
+  dépend (ex. recherche d'un règlement précis lors d'un appui client par son "N°" affiché
+  aujourd'hui).
+
+Sauf avis contraire du PO, l'**option A** est recommandée : c'est le changement le plus sûr, réversible,
+qui ne supprime aucune fonctionnalité existante et résout directement le besoin exprimé.
 
 ## Fichiers concernés
 
-- `gocom-web/src/App.tsx` (rendu colonne, `buildParams`)
-- `GRC.API/Controllers/ReglementController.cs` (`GetReglements`)
-- `GRC.Infrastructure/Services/ReglementService.cs` (`GetReglementsPaged`)
+- `gocom-web/src/utils.tsx` — `DEFAULT_COLUMNS` (ligne 15), éventuellement `getAvailableColumns`
+  (lignes 88-114) selon l'option retenue.
 
 ## Étapes d'implémentation
 
-1. **Frontend — `App.tsx`** :
-   - Ligne ~1315-1316 : ajouter `'no'` au groupe de colonnes numériques à filtre plage, aux côtés de
-     `montant`/`solde` (`filterType = 'number'`). Si un numéro de règlement se filtre plutôt par
-     valeur exacte que par plage côté PO, clarifier avec le PO avant de trancher entre plage
-     min/max (comme `montant`) et saisie exacte (comme `client`/`piece`, `filterType: 'text'`) — ne
-     pas décider seul, documenter le choix retenu dans le VERIFY.
-   - Ligne 1339 : retirer l'exclusion `col.key !== 'no'` (devient sans effet si `filterType` n'est
-     plus `'list'` pour `no`, mais la nettoyer pour éviter toute confusion).
-   - Ligne 1363 : retirer `col.key !== 'no' &&` pour que `<ExcelFilter>` se rende pour cette colonne.
-   - `buildParams` (~ligne 522-542) : ajouter la lecture de `currentFilters.no` et son mapping vers
-     les paramètres query (`noMin`/`noMax` si plage, ou `no` si valeur exacte — cohérent avec le choix
-     de `filterType` ci-dessus).
-2. **Backend — `ReglementController.cs`** : ajouter le(s) paramètre(s) `[FromQuery]` correspondant(s)
-   (`string? no`, ou `string? noMin`/`string? noMax`) à `GetReglements`, et les transmettre à
-   `_reglementService.GetReglementsPaged(...)`.
-3. **Backend — `ReglementService.cs`** : ajouter le(s) paramètre(s) à la signature de
-   `GetReglementsPaged` et le filtre correspondant sur `allReglements` (même emplacement que les
-   filtres existants, ~ligne 73-104), sur `r.No` (int) — comparaison directe si valeur exacte,
-   `>=`/`<=` si plage.
-4. Vérifier qu'aucune autre grille de règlements (`RapprochementBancaire.tsx`,
-   `ApercuComptabilisation.tsx`, `ReglementGenerationEspece.tsx`) n'a la même exclusion sur une colonne
-   équivalente — corriger uniquement si le PO confirme que ces écrans sont dans le périmètre demandé
-   (la demande initiale ne mentionne que "la liste des règlements", à clarifier si ambigu).
+1. Confirmer l'option (A ou B) avec le PO.
+2. **Option A** : ajouter `'numero'` dans le tableau `DEFAULT_COLUMNS` (`utils.tsx:15`), à la position
+   jugée pertinente (ex. juste après `'no'`).
+3. Vérifier que les utilisateurs ayant déjà une préférence de colonnes sauvegardée en `localStorage`
+   (clé `gocom_table_columns`, cf. `App.tsx:291-305`) ne sont pas bloqués sur l'ancien jeu de colonnes
+   — `DEFAULT_COLUMNS` ne s'applique qu'en absence de préférence sauvegardée, donc les utilisateurs
+   existants ne verront PAS la nouvelle colonne apparaître automatiquement. Documenter ce point dans
+   le VERIFY et informer le PO : à communiquer aux utilisateurs (ajout manuel via le sélecteur de
+   colonnes), ou prévoir une migration de la préférence sauvegardée si le PO veut que ça s'applique
+   aussi aux postes déjà configurés.
+4. Test réel : vérifier que la colonne "Numéro" apparaît par défaut sur un poste sans préférence
+   sauvegardée, que son filtre (`<ExcelFilter>` mode liste) fonctionne, et que le résultat filtré
+   correspond bien à `MV_Numero` (comparer avec une valeur connue en base, ex. `RC26070370`).
 
 ## Contraintes
 
-- Ne pas confondre `No` (identifiant technique du règlement, `mv_numero`) avec `Numero` (champ métier
-  déjà filtrable, paramètre `numero` existant) — deux colonnes distinctes, ne pas réutiliser le
-  paramètre `numero` existant pour ce nouveau filtre.
-- Respecter `ARCHITECTURE.md` : pas de nouveau composant de filtre, réutiliser `ExcelFilter.tsx` en
-  mode `number` (pattern `montant`/`solde`) ou `text`, selon la décision de l'étape 1.
-- Filtrage actuellement fait en mémoire côté service (`IEnumerable<ReglementClient>.Where(...)`), pas
-  en SQL direct — rester cohérent avec les filtres voisins déjà présents dans la même méthode, ne pas
-  introduire un accès SQL brut parallèle.
+- Ne pas toucher au champ `no`/`MV_Id` ni à son filtre (actuellement volontairement exclu du filtre
+  dans `App.tsx:1339/1363` — ce point reste hors périmètre de cette TASK, aucune preuve qu'il s'agit
+  d'un besoin PO distinct).
+- Ne pas dupliquer le mécanisme de filtre existant : `numero` a déjà son `<ExcelFilter>` mode `list`
+  et son alimentation backend — aucun nouveau code de filtrage à écrire.
+- Respecter `ARCHITECTURE.md` : pas de nouveau composant, pas de nouveau mécanisme de persistance
+  colonnes.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Filtre visible et fonctionnel sur la colonne `N°` de la grille principale des règlements
-- [ ] `buildParams` transmet bien la valeur saisie à l'API (vérifier l'onglet réseau ou un log)
-- [ ] Filtre backend appliqué sur `r.No`, pas sur `r.Numero` (non-régression du filtre existant)
-- [ ] Tri par colonne `no` toujours fonctionnel après modification (non-régression, cf.
-  `ReglementService.cs:202`)
-- [ ] Build back + front 0 erreur
-- [ ] Décision documentée : filtre plage (min/max) ou valeur exacte pour `No`, avec justification
+- [ ] Option A ou B confirmée par le PO avant implémentation (citer la confirmation)
+- [ ] Colonne "Numéro" visible par défaut sur un poste sans préférence `localStorage` préexistante
+- [ ] Filtre liste sur "Numéro" fonctionnel, valeurs distinctes correctes, résultat filtré vérifié
+  contre une valeur réelle de `MV_Numero` en base
+- [ ] Impact sur les postes ayant déjà une préférence de colonnes sauvegardée documenté et communiqué
+  au PO (pas de changement automatique rétroactif sans action utilisateur, sauf migration explicite
+  décidée)
+- [ ] Build front 0 erreur
