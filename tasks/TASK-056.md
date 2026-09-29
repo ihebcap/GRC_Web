@@ -445,6 +445,35 @@ en usage réel.
 
 **Statut : validé en base et appliqué (SQL_007 v9, SQL_008 branches `_A`/`_B`).**
 
+### Confirmation de la requête Metabase réelle et fausse piste écartée (2026-09-29)
+
+PO a fourni la requête Metabase exacte : `FROM GR_GOCOM.dbo.vMetaRecouvrementBL bl INNER JOIN
+gocom.dbo.F_DEPOT d ON bl.DE_No = d.DE_No`. Confirme que Metabase interroge bien **la vraie vue**
+sur `GR_GOCOM` (celle corrigée par v9/v10), pas la vue homonyme `GOCOM.dbo.vMetaRecouvrementBL`
+découverte en parallèle (liée à TASK-058, table persistée jamais rafraîchie faute de procédure —
+cf. section suivante) : cette dernière est une **fausse piste**, sans lien avec ce que voit
+Metabase. Reproduction manuelle de la requête Metabase exacte confirmée : `BLG2603983` absent après
+v9 (résultat vide), aucun problème SQL résiduel identifié pour ce cas. Si le PO voit encore ce BL
+affiché dans Metabase, il s'agit très probablement d'un cache de résultats côté Metabase (question/
+carte à ré-exécuter explicitement, pas seulement rouvrir la page).
+
+## Découverte incidente (2026-09-29) — TASK-058 partiellement appliquée en base, job cassé
+
+En cherchant la vue interrogée par Metabase, découverte que **TASK-058 (table persistée) a déjà
+été partiellement appliquée en base** sans que ce fait soit documenté ici jusqu'à présent :
+- Tables `GOCOM.dbo.FG_MetaRecouvrementBL_A`/`_B` : créées, **vides** (0 ligne chacune).
+- Synonym `GOCOM.dbo.FG_MetaRecouvrementBL_Live` : créé, pointe sur `_A`.
+- Vue `GOCOM.dbo.vMetaRecouvrementBL` : redéfinie pour lire le synonym (donc renvoie 0 ligne).
+- Job SQL Agent `GR_GOCOM - Refresh MetaRecouvrementBL` : créé et **activé**, planifié toutes les
+  15 min.
+- **`GOCOM.dbo.usp_RefreshFG_MetaRecouvrementBL` : n'existe PAS.** Le job échoue donc silencieusement
+  à chaque exécution depuis sa création — les tables `_A`/`_B` n'ont jamais été alimentées.
+
+Sans lien avec le sujet Metabase de cette session (Metabase interroge `GR_GOCOM`, pas `GOCOM`, cf.
+section précédente) — mais un job qui échoue en silence depuis un temps indéterminé reste un
+problème réel à traiter dans le cadre de TASK-058, une fois sa checklist reprise (aucune action
+engagée ici, hors périmètre de cette investigation).
+
 ## Précision PO 2026-07-16 — retrait complet du filtre dépôt en SQL (v6 → v7)
 
 Clarification PO en 2 temps après tests demandés en base :

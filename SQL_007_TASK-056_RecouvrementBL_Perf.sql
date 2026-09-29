@@ -254,15 +254,29 @@ ALTER VIEW [dbo].[vMetaRecouvrementBL]
 AS
 
 /* ===========================
+   0️⃣ Dépôts facturants — RÉINTRODUIT (v10, 2026-09-29, décision PO explicite).
+   Ce filtre avait été ajouté (v4, 2026-07-16) puis retiré (v7, même jour) sur demande PO,
+   au motif que le filtrage par dépôt devait se faire côté reporting Metabase plutôt que
+   figé dans la vue. Retour en arrière assumé par le PO le 2026-09-29 : seuls les documents
+   des dépôts présents dans FG_DEPOTFACTURATION doivent être affichés, filtré directement en
+   SQL. Jointure non triviale, confirmée par le PO (pas déductible du schéma seul) :
+   FG_DEPOTFACTURATION.DP_Id se rapproche de F_DEPOT via F_DEPOT.cbMarq (colonne
+   normalement technique/réplication chez Sage, ici réutilisée comme clé de rapprochement).
+   Revérifié en base le 2026-09-29 : toujours 30 dépôts sur 213 matchés (stable depuis v4).
+   Jointure (pas EXISTS corrélé) pour rester sargable, cf. incident perf CTE account (TASK-056).
+=========================== */
+WITH DepotsFacturation AS (
+    SELECT d.DE_No
+    FROM GOCOM.dbo.F_DEPOT d
+    INNER JOIN GOCOM.dbo.FG_DEPOTFACTURATION df ON df.DP_Id = d.cbMarq
+)
+
+/* ===========================
    1️⃣ BL reconstruit depuis les lignes de facture (DL_PieceBL)
    CORRECTIF bug 2 : agrégé au grain BL (CT_Num retiré de la clé de regroupement).
    NbClients/DO_Tiers = information indicative sur le multi-client, pas une clé.
-   account/EXISTS RETIRÉ (décision PO 2026-07-16, cf. TASK-056.md) : plus de filtre
-   dépôt côté SQL, périmètre par dépôt délégué au sandbox Metabase.
-   CORRECTIF v7 : le filtre DepotsFacturation (v4, 704/27 359 lignes hors périmètre)
-   est RETIRÉ ici aussi (décision PO 2026-07-16, même traitement que SAUV/F_DOCENTETE) :
-   toutes les lignes sortent, DE_No exposé, filtrage dépôt entièrement délégué au
-   reporting. Plus aucune branche de DocumentsRaw ne filtre par dépôt.
+   CORRECTIF v10 (2026-09-29) : filtre DepotsFacturation RÉINTRODUIT (cf. § 0 ci-dessus) —
+   décision PO assumée de revenir sur le retrait v7.
    CORRECTIF v9 (Bug 4, 2026-09-29) : DL_PieceBL n'est PAS fiable comme numéro de BL
    pour une ligne issue d'une facture déjà éclatée — confirmé en base : un même vrai BL
    éclaté en plusieurs factures produit un DL_PieceBL DIFFÉRENT par facture (pseudo-numéro
@@ -274,7 +288,7 @@ AS
    non-facturé n'est jamais un DO_NumFC de FG_BlFacture (0 collision mesurée) — filtre sûr.
    Effet mesuré : 12531 -> 1443 "BL" reconstruits (-88,5%), 359M -> 145M TTC.
 =========================== */
-WITH BL AS (
+, BL AS (
     SELECT
         l.DL_PieceBL,
         SUM(l.dl_montantttc)    AS DO_TotalTTC,
@@ -283,6 +297,7 @@ WITH BL AS (
         COUNT(DISTINCT l.CT_Num) AS NbClients,
         MIN(l.CT_Num)           AS DO_Tiers
     FROM GOCOM.dbo.F_DOCLIGNE l
+    INNER JOIN DepotsFacturation dep ON dep.DE_No = l.DE_No
     WHERE l.DO_Type IN (6,7)
       AND l.DL_PieceBL <> ''
       AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece)
@@ -315,15 +330,19 @@ WITH BL AS (
    pas encore (double comptage résiduel non détecté par la mesure v5).
    CORRECTIF v6/v7 : plus aucune branche n'est filtrée par dépôt (décision PO) — toutes
    les lignes sortent, DE_No exposé sur les 3 sources pour filtrage côté reporting.
+   CORRECTIF v10 (2026-09-29) : filtre DepotsFacturation RÉINTRODUIT sur les 3 branches
+   (cf. § 0 ci-dessus) — décision PO assumée de revenir sur le retrait v6/v7.
 =========================== */
 , DocumentsRaw AS (
     SELECT f.DO_Piece, f.DO_Date, f.DO_Tiers, f.DE_No, f.DO_TotalTTC, 1 AS NbClients, 1 AS Prio
     FROM GOCOM.dbo.FG_DOCENTETE_SAUV f
+    INNER JOIN DepotsFacturation dep ON dep.DE_No = f.DE_No
 
     UNION ALL
 
     SELECT f.DO_Piece, f.DO_Date, f.DO_Tiers, f.DE_No, f.DO_TotalTTC, 1 AS NbClients, 2 AS Prio
     FROM GOCOM.dbo.F_DOCENTETE f
+    INNER JOIN DepotsFacturation dep ON dep.DE_No = f.DE_No
     WHERE f.DO_Type IN (6,7)
       AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = f.DO_Piece)
       AND NOT EXISTS (SELECT 1 FROM FA_BL WHERE FA_BL.DO_Piece = f.DO_Piece)

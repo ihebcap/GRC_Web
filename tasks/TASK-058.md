@@ -168,6 +168,26 @@ filtre, comme dans la vue actuelle.
 - Reproduire fidèlement l'algorithme validé en TASK-056 (FIFO par date de BL, agrégation au grain
   BL, dédoublonnage `Documents`, `FA_BL` inchangée) — pas une réécriture métier parallèle.
 
+## Découverte incidente (2026-09-29) — application partielle déjà en place, job cassé
+
+En investiguant un sujet Metabase séparé (TASK-056), découverte que **cette TASK a déjà été
+partiellement appliquée en base sur `GOCOM`**, sans trace ni checklist mise à jour jusqu'ici :
+
+- Tables `GOCOM.dbo.FG_MetaRecouvrementBL_A`/`_B` créées, **0 ligne chacune**.
+- Synonym `GOCOM.dbo.FG_MetaRecouvrementBL_Live` créé (pointe sur `_A`).
+- Vue `GOCOM.dbo.vMetaRecouvrementBL` déjà redéfinie pour lire le synonym (section 4 du script).
+- Job SQL Agent `GR_GOCOM - Refresh MetaRecouvrementBL` créé et **activé**, toutes les 15 min.
+- **`GOCOM.dbo.usp_RefreshFG_MetaRecouvrementBL` n'existe PAS** (section 3, jamais créée) — le job
+  échoue donc silencieusement à chaque exécution depuis sa création, les 2 tables sont vides depuis
+  toujours.
+
+Sans conséquence sur le sujet Metabase en cours (Metabase interroge `GR_GOCOM.dbo.vMetaRecouvrementBL`,
+pas la vue `GOCOM` — cf. TASK-056.md), mais **à corriger avant de considérer cette TASK comme
+avancée** : soit créer la procédure manquante et lancer un premier run, soit repartir proprement de
+zéro (`DROP` des objets partiels puis rejouer `SQL_008` en entier) si l'état actuel est jugé
+incohérent avec ce qui a été réellement voulu/testé. Non traité ici, hors périmètre de
+l'investigation en cours.
+
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
 - [x] Tolérance de fraîcheur obtenue du PO — 15-30 min (2026-07-16)
@@ -179,6 +199,10 @@ filtre, comme dans la vue actuelle.
 - [ ] Note de cadrage formelle séparée — non rédigée à part, mais SQL_008 répond en pratique aux
       points 1/3/5 (forme de table, full rebuild, migration de vue transparente)
 - [ ] Impact du job validé avec l'admin GOCOM (tables ERP partagées)
+- [ ] **Découverte 2026-09-29 : `SQL_008` déjà partiellement en base sur `GOCOM`** — tables `_A`/`_B`
+      + synonym + job créés, mais `usp_RefreshFG_MetaRecouvrementBL` manquante (job cassé depuis
+      sa création). À corriger explicitement (procédure manquante ou reprise à zéro) avant de
+      considérer les items suivants comme applicables
 - [ ] `SQL_008_TASK-058_TablePersistee.sql` appliqué en base (`GR_GOCOM`) section par section
 - [ ] Premier run manuel de `usp_RefreshFG_MetaRecouvrementBL` vérifié (table remplie, synonym bascule)
 - [ ] Filtre `SoldeFiltre` confirmé rapide en usage réel Metabase après bascule sur la table persistée
