@@ -63,6 +63,11 @@ ci-dessous — validée, à implémenter telle quelle.
 
 - `gocom-web/src/utils.tsx` — `DEFAULT_COLUMNS` (ligne 15), éventuellement `getAvailableColumns`
   (lignes 88-114) selon l'option retenue.
+- **Impact indirect** : `DEFAULT_COLUMNS` est aussi consommé par
+  `gocom-web/src/RapprochementBancaire.tsx:309` (`['lettrage', ...DEFAULT_COLUMNS]`) — la colonne
+  "Numéro" apparaîtra donc aussi par défaut sur l'écran Rapprochement Bancaire, pas seulement sur
+  l'écran principal. Voulu (même donnée source `ReglementClient`), à inclure dans le test manuel du
+  VERIFY sur les deux écrans.
 
 ## Étapes d'implémentation
 
@@ -77,8 +82,10 @@ ci-dessous — validée, à implémenter telle quelle.
    colonnes), ou prévoir une migration de la préférence sauvegardée si le PO veut que ça s'applique
    aussi aux postes déjà configurés.
 3. Test réel : vérifier que la colonne "Numéro" apparaît par défaut sur un poste sans préférence
-   sauvegardée, que son filtre (`<ExcelFilter>` mode liste) fonctionne, et que le résultat filtré
-   correspond bien à `MV_Numero` (comparer avec une valeur connue en base, ex. `RC26070370`).
+   sauvegardée, **sur l'écran principal ET sur l'écran Rapprochement Bancaire** (les deux consomment
+   `DEFAULT_COLUMNS`), que son filtre (`<ExcelFilter>` mode liste) fonctionne, et que le résultat
+   filtré correspond bien à `MV_Numero` (comparer avec une valeur réelle présente dans
+   `RT_MOUVEMENT.MV_Numero` pour la période testée, format `RC...`).
 
 ## Contraintes
 
@@ -93,10 +100,26 @@ ci-dessous — validée, à implémenter telle quelle.
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
 - [ ] Colonne "Numéro" visible par défaut aux côtés de "N°" (les deux coexistent, aucune supprimée)
-  sur un poste sans préférence `localStorage` préexistante
+  sur un poste sans préférence `localStorage` préexistante — **testé sur l'écran principal ET sur
+  Rapprochement Bancaire** (`RapprochementBancaire.tsx:309`, même tableau `DEFAULT_COLUMNS`)
 - [ ] Filtre liste sur "Numéro" fonctionnel, valeurs distinctes correctes, résultat filtré vérifié
   contre une valeur réelle de `MV_Numero` en base
 - [ ] Impact sur les postes ayant déjà une préférence de colonnes sauvegardée documenté et communiqué
   au PO (pas de changement automatique rétroactif sans action utilisateur, sauf migration explicite
   décidée)
-- [ ] Build front 0 erreur
+- [ ] Build front 0 erreur (déjà pré-validé côté architecte : `npm run build` + `tsc -b --force` 0
+  erreur, changement confirmé jusque dans le bundle généré — cf. note de vérification ci-dessous)
+
+## Note de vérification côté architecte (2026-09-29)
+
+Avant transmission, 5 vérifications indépendantes ont été menées sur cette TASK (mapping SQL
+re-confirmé par code source non compilé + SQL live sur 46181 lignes réelles, filtre `numero`
+re-tracé bout en bout, non-régression sur les 2 écrans consommateurs de `DEFAULT_COLUMNS` +
+localStorage + tests e2e + droits utilisateur, changement réellement implémenté et buildé (5×,
+0 erreur) puis annulé proprement, revue finale adversariale). Aucun point bloquant trouvé. Un défaut
+préexistant et hors périmètre a été repéré au passage : le endpoint `/api/reglements/distincts`
+(`App.tsx:451`, `fetchReferences`) ne transmet pas `dateDebut`/`dateFin`, donc les valeurs proposées
+dans les filtres-liste (`numero` inclus, comme `client`/`piece`/`reference`/etc.) peuvent être
+incohérentes avec une plage de dates atypique (fenêtre fixe de 12 mois côté backend,
+`ReglementService.cs:391`, vs plage réellement affichée). **Hors périmètre de TASK-097** — à
+formaliser en TASK dédiée séparément si le PO le juge utile, ne pas corriger ici.
