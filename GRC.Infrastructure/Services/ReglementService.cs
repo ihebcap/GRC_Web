@@ -25,7 +25,11 @@ namespace GRC.Infrastructure.Services
             _logger = logger;
         }
 
-        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut = null, DateTime? dateFin = null, string? clientFilter = null, string? numeroFilter = null, string? pieceFilter = null, string? refFilter = null, string? libelleFilter = null, string? montantFilter = null, string? extraitFilter = null, string? isPointe = null, string? isComptabilise = null, string? isRemis = null, string? isImpaye = null, string? isAnnule = null, string? caisseNosFilter = null, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
+        public (IEnumerable<ReglementClientDto> Items, int TotalItems) GetReglementsPaged(
+            int societeId, int[] caissesList,
+            int page = 1, int pageSize = 50,
+            string? sortCol = null, bool? sortDesc = null,
+            DateTime? dateDebut = null, DateTime? dateFin = null, string? clientFilter = null, string? numeroFilter = null, string? pieceFilter = null, string? refFilter = null, string? libelleFilter = null, string? montantFilter = null, string? extraitFilter = null, string? isPointe = null, string? isComptabilise = null, string? isRemis = null, string? isImpaye = null, string? isAnnule = null, string? caisseNosFilter = null, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
         {
             if (isAdmin)
             {
@@ -186,7 +190,104 @@ namespace GRC.Infrastructure.Services
             if (!string.IsNullOrEmpty(soldeMax) && decimal.TryParse(soldeMax, anyStyle, inv, out var sMax))
                 allReglements = allReglements.Where(r => r.SoldeDeviseSociete <= sMax);
 
-            var reglementIds = allReglements.Select(r => r.No).ToList();
+            int totalItems = allReglements.Count();
+
+            // TASK-091 — Tri déterministe avec prise en compte de sortCol / sortDesc
+            if (!string.IsNullOrEmpty(sortCol))
+            {
+                bool desc = sortDesc ?? false;
+                switch (sortCol.ToLowerInvariant())
+                {
+                    case "no":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.No) : allReglements.OrderBy(r => r.No);
+                        break;
+                    case "date":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Date).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Date).ThenBy(r => r.No);
+                        break;
+                    case "client":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.ClientIntitule).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.ClientIntitule).ThenBy(r => r.No);
+                        break;
+                    case "montant":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.MontantDeviseSociete).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.MontantDeviseSociete).ThenBy(r => r.No);
+                        break;
+                    case "solde":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.SoldeDeviseSociete).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.SoldeDeviseSociete).ThenBy(r => r.No);
+                        break;
+                    case "caissecode":
+                    case "caisseintitule":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.CaisseNo).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.CaisseNo).ThenBy(r => r.No);
+                        break;
+                    case "banque":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.BanqueNo).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.BanqueNo).ThenBy(r => r.No);
+                        break;
+                    case "banqueclient":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.BanqueTier ?? r.RibClient).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.BanqueTier ?? r.RibClient).ThenBy(r => r.No);
+                        break;
+                    case "mode":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.ModeReglementNo).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.ModeReglementNo).ThenBy(r => r.No);
+                        break;
+                    case "typereglement":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Type).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Type).ThenBy(r => r.No);
+                        break;
+                    case "pointe":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.IsPointe).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.IsPointe).ThenBy(r => r.No);
+                        break;
+                    case "comptabilise":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.IsComptabilise).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.IsComptabilise).ThenBy(r => r.No);
+                        break;
+                    case "remis":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.IsRemis).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.IsRemis).ThenBy(r => r.No);
+                        break;
+                    case "impaye":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.IsImpaye).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.IsImpaye).ThenBy(r => r.No);
+                        break;
+                    case "annule":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.IsAnnule).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.IsAnnule).ThenBy(r => r.No);
+                        break;
+                    case "piece":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.PieceNumero).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.PieceNumero).ThenBy(r => r.No);
+                        break;
+                    case "extrait":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.ExtraitNum).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.ExtraitNum).ThenBy(r => r.No);
+                        break;
+                    case "numero":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Numero).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Numero).ThenBy(r => r.No);
+                        break;
+                    case "reference":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Reference).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Reference).ThenBy(r => r.No);
+                        break;
+                    case "libelle":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Libelle).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Libelle).ThenBy(r => r.No);
+                        break;
+                    case "info1":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Info1).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Info1).ThenBy(r => r.No);
+                        break;
+                    case "info2":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Info2).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Info2).ThenBy(r => r.No);
+                        break;
+                    case "info3":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Info3).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Info3).ThenBy(r => r.No);
+                        break;
+                    case "info4":
+                        allReglements = desc ? allReglements.OrderByDescending(r => r.Info4).ThenByDescending(r => r.No) : allReglements.OrderBy(r => r.Info4).ThenBy(r => r.No);
+                        break;
+                    default:
+                        allReglements = allReglements.OrderByDescending(r => r.Date).ThenByDescending(r => r.No);
+                        break;
+                }
+            }
+            else
+            {
+                // Tri déterministe par défaut : Date décroissante puis No décroissant
+                allReglements = allReglements.OrderByDescending(r => r.Date).ThenByDescending(r => r.No);
+            }
+
+            // TASK-091 — Découpage paginé AVANT les requêtes complémentaires et le mapping
+            var pageSlice = (pageSize == int.MaxValue || page < 1)
+                ? allReglements.ToList()
+                : allReglements.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+            var reglementIds = pageSlice.Select(r => r.No).ToList();
             var reservations = new Dictionary<int, (string? Lettrage, int? UserId, string? UserName, DateTime? Date)>();
             var affectesSet = new HashSet<int>();
             
@@ -196,7 +297,7 @@ namespace GRC.Infrastructure.Services
                 {
                     connection.Open();
                     
-                    // 1. Charger les réservations pour les règlements
+                    // 1. Charger les réservations pour les règlements de la page demandée
                     string sqlRes = "SELECT MV_ID, Lettrage, ReservePar_UserId, DateReservation FROM dbo.RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids";
                     string sqlAffectations = "SELECT DISTINCT MV_ID FROM dbo.RT_AFFECTATION WHERE MV_ID IN @Ids";
                     var userIds = new HashSet<int>();
@@ -248,12 +349,27 @@ namespace GRC.Infrastructure.Services
                 }
             }
 
-            return allReglements.Select(r => {
+            var items = pageSlice.Select(r => {
                 var hasRes = reservations.TryGetValue(r.No, out var res);
                 var dto = ReglementMapper.Map(r, hasRes ? res.Lettrage : null, hasRes ? res.UserId : null, hasRes ? res.UserName : null, hasRes ? res.Date : null);
                 dto.IsAffecte = affectesSet.Contains(r.No);
                 return dto;
             }).ToList();
+
+            return (Items: items, TotalItems: totalItems);
+        }
+
+        public IEnumerable<object> GetReglements(int societeId, int[] caissesList, DateTime? dateDebut = null, DateTime? dateFin = null, string? clientFilter = null, string? numeroFilter = null, string? pieceFilter = null, string? refFilter = null, string? libelleFilter = null, string? montantFilter = null, string? extraitFilter = null, string? isPointe = null, string? isComptabilise = null, string? isRemis = null, string? isImpaye = null, string? isAnnule = null, string? caisseNosFilter = null, string? banqueNosFilter = null, string? modeNosFilter = null, string? banqueClientFilter = null, string? soldeFilter = null, string? info1Filter = null, string? info2Filter = null, string? info3Filter = null, string? info4Filter = null, string? montantMin = null, string? montantMax = null, string? soldeMin = null, string? soldeMax = null, bool isAdmin = false, bool eligibleRappBancaire = false, bool includeEspeceEtAutreSiPointeFiltre = false)
+        {
+            return GetReglementsPaged(
+                societeId, caissesList, 1, int.MaxValue, null, null,
+                dateDebut, dateFin, clientFilter, numeroFilter, pieceFilter, refFilter,
+                libelleFilter, montantFilter, extraitFilter, isPointe, isComptabilise, isRemis,
+                isImpaye, isAnnule, caisseNosFilter, banqueNosFilter, modeNosFilter, banqueClientFilter,
+                soldeFilter, info1Filter, info2Filter, info3Filter, info4Filter,
+                montantMin, montantMax, soldeMin, soldeMax, isAdmin, eligibleRappBancaire,
+                includeEspeceEtAutreSiPointeFiltre
+            ).Items;
         }
 
         public object GetDistinctReglements(int societeId, int[] caissesList, DateTime? dateDebut, DateTime? dateFin, bool isAdmin = false, bool eligibleRappBancaire = false)
@@ -1476,39 +1592,48 @@ namespace GRC.Infrastructure.Services
 
     public static class ReglementMapper
     {
-        private static readonly System.Collections.Generic.List<(System.Reflection.PropertyInfo Source, System.Reflection.PropertyInfo Target)> _matchedProps = new System.Collections.Generic.List<(System.Reflection.PropertyInfo, System.Reflection.PropertyInfo)>();
-
-        static ReglementMapper()
-        {
-            var sourceProps = typeof(global::Tresorerie.Core.Models.ReglementClient).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Where(p => p.CanRead);
-            var targetProps = typeof(ReglementClientDto).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Where(p => p.CanWrite);
-
-            foreach (var tProp in targetProps)
-            {
-                var sProp = sourceProps.FirstOrDefault(p => p.Name == tProp.Name);
-                if (sProp != null)
-                {
-                    _matchedProps.Add((sProp, tProp));
-                }
-            }
-        }
-
         public static ReglementClientDto Map(global::Tresorerie.Core.Models.ReglementClient source, string? lettrage, int? reserveParUserId, string? reserveParUserName, DateTime? dateReservation)
         {
-            var target = new ReglementClientDto();
-            foreach (var pair in _matchedProps)
+            return new ReglementClientDto
             {
-                var val = pair.Source.GetValue(source);
-                if (val != null)
-                {
-                    try { pair.Target.SetValue(target, val); } catch { }
-                }
-            }
-            target.Lettrage = lettrage;
-            target.ReservePar_UserId = reserveParUserId;
-            target.ReservePar_UserName = reserveParUserName;
-            target.DateReservation = dateReservation;
-            return target;
+                No = source.No,
+                Type = (int)source.Type,
+                ClientNo = source.ClientNo,
+                ClientCode = source.ClientCode,
+                ClientIntitule = source.ClientIntitule,
+                Numero = source.Numero,
+                PieceNumero = source.PieceNumero,
+                Reference = source.Reference,
+                Libelle = source.Libelle,
+                ExtraitNum = source.ExtraitNum,
+                RibClient = source.RibClient,
+                Montant = source.Montant,
+                MontantDeviseSociete = source.MontantDeviseSociete,
+                SoldeDeviseSociete = source.SoldeDeviseSociete,
+                Etat = (int)source.Etat,
+                IsPointe = source.IsPointe,
+                IsComptabilise = (int)source.IsComptabilise,
+                IsRemis = (int)source.IsRemis,
+                IsImpaye = (int)source.IsImpaye,
+                IsAnnule = source.IsAnnule,
+                CaisseNo = source.CaisseNo,
+                BanqueNo = source.BanqueNo,
+                ModeReglementNo = source.ModeReglementNo,
+                BanqueTier = source.BanqueTier,
+                Info1 = source.Info1,
+                Info2 = source.Info2,
+                Info3 = source.Info3,
+                Info4 = source.Info4,
+                Date = source.Date,
+                DateEcheance = source.DateEcheance,
+                DatePointage = source.DatePointage,
+                DateRemis = source.DateRemis,
+                ImpayeDate = source.ImpayeDate,
+                Lettrage = lettrage,
+                ReservePar_UserId = reserveParUserId,
+                ReservePar_UserName = reserveParUserName,
+                DateReservation = dateReservation
+            };
         }
     }
 }

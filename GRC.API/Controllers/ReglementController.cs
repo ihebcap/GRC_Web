@@ -27,6 +27,8 @@ namespace GRC.API.Controllers
         public IActionResult GetReglements(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50,
+            [FromQuery] string? sortCol = null,
+            [FromQuery] bool? sortDesc = null,
             [FromQuery] System.DateTime? dateDebut = null,
             [FromQuery] System.DateTime? dateFin = null,
             [FromQuery] string? client = null,
@@ -63,17 +65,20 @@ namespace GRC.API.Controllers
 
             bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
 
-            var allReglements = _reglementService.GetReglements(
-                societeId, caissesList, dateDebut, dateFin,
+            // Sécurité pagination
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+
+            // TASK-091 — Appel optimisé avec tri déterministe et découpage paginé avant requêtes complémentaires
+            var (items, totalItems) = _reglementService.GetReglementsPaged(
+                societeId, caissesList, page, pageSize, sortCol, sortDesc,
+                dateDebut, dateFin,
                 client, numero, piece, reference, libelle, montant, extrait,
                 pointe, comptabilise, remis, impaye, annule, caisseNos,
                 banqueNos, modeNos, banqueClient, solde, info1, info2, info3, info4,
                 montantMin, montantMax, soldeMin, soldeMax, isAdmin, eligibleRappBancaire,
                 includeEspeceEtAutreSiPointeFiltre
             );
-
-            int totalItems = allReglements.Count();
-            var items = allReglements.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
             return Ok(new { items, totalItems });
         }
