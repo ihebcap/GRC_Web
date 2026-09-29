@@ -185,8 +185,26 @@ Sans conséquence sur le sujet Metabase en cours (Metabase interroge `GR_GOCOM.d
 pas la vue `GOCOM` — cf. TASK-056.md), mais **à corriger avant de considérer cette TASK comme
 avancée** : soit créer la procédure manquante et lancer un premier run, soit repartir proprement de
 zéro (`DROP` des objets partiels puis rejouer `SQL_008` en entier) si l'état actuel est jugé
-incohérent avec ce qui a été réellement voulu/testé. Non traité ici, hors périmètre de
-l'investigation en cours.
+incohérent avec ce qui a été réellement voulu/testé.
+
+**Recommandation architecte (2026-09-29)** : désactiver le job immédiatement, ne pas compléter
+l'implémentation dans l'immédiat. Un job qui échoue silencieusement toutes les 15 min depuis un
+temps indéterminé sur un serveur de prod partagé (ERP Sage, saisie commerciale continue) consomme
+des ressources et pollue l'historique SQL Agent pour rien — le désactiver est réversible, sans
+risque, et ne dépend d'aucune décision métier. Compléter l'implémentation (créer la procédure,
+lancer un run réel) engagerait TASK-058 plus loin sans réponse aux questions encore ouvertes
+(depuis quand ce job tourne en échec, validation admin GOCOM de l'impact déjà faite ou non, usage
+réel de `GOCOM.dbo.vMetaRecouvrementBL` par autre chose que Metabase) — pas de quoi improviser une
+suite. Aucune urgence : rien ne dépend aujourd'hui de cette table (Metabase lit `GR_GOCOM`).
+
+**Commande de désactivation (à exécuter par le PO — action refusée par le classificateur auto-mode
+de l'architecte, modification d'une ressource partagée serveur) :**
+```sql
+EXEC msdb.dbo.sp_update_job
+  @job_name = N'GR_GOCOM - Refresh MetaRecouvrementBL',
+  @enabled = 0;
+```
+Statut : **non exécutée à ce stade**, recommandation en attente d'action PO.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
