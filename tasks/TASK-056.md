@@ -355,6 +355,81 @@ résultat non vide est attendu (essentiellement l'historique de l'ancien traitem
 avant application pour connaître l'ampleur du volume/montant qui sort désormais du périmètre du
 recouvrement, pas pour bloquer le go.
 
+## Bug 4 — pseudo-numéros de BL par facture éclatée, comptés comme documents autonomes (confirmé en base, 2026-09-29)
+
+Signalé par le PO après application de v8 en base : le BL `BLG2603983` (parmi d'autres) apparaît
+encore dans le recouvrement Metabase alors qu'il ne devrait pas — cas d'éclatement déjà couvert
+côté facture par le fix `DO_Coord03` (v8), mais **pas côté BL reconstruit**.
+
+**Diagnostic vérifié en base** (`sqlcmd`, lecture seule, connexion directe `172.16.0.205/GR_GOCOM`) :
+- `BLG2603983` n'existe dans **aucune** table de document (`F_DOCENTETE`, `FG_DOCENTETE_SAUV`),
+  n'est référencé par **aucun** `DO_Coord03`, et n'apparaît **jamais** dans `FG_BlFacture` (ni comme
+  `DO_NumFC`, ni comme `DO_NumBL`). Il n'existe que comme valeur de `F_DOCLIGNE.DL_PieceBL` sur les
+  lignes de la facture `FAG2639967`.
+- Cette même facture `FAG2639967` a pourtant un lien parfaitement correct par ailleurs :
+  `F_DOCENTETE.DO_Coord03 = 'BLG2603807'` **et** `FG_BlFacture` (`DO_NumFC='FAG2639967'` →
+  `DO_NumBL='BLG2603807'`) — `BLG2603807` est le **vrai** BL d'origine, visible dans
+  `FG_DOCENTETE_SAUV` (tiers `GRMIM`, 5 713 420 TTC), éclaté en **287 factures** distinctes.
+- **`F_DOCLIGNE.DL_PieceBL` ne contient donc pas le numéro du vrai BL d'origine dans ce cas** —
+  il contient un pseudo-numéro généré à la volée, différent pour chaque facture issue du même
+  éclatement. Confirmé sur un second exemple : le vrai BL `BLG2602320` (AZAF, 101 915 TTC, visible
+  en SAUV) a été éclaté en factures dont les lignes `F_DOCLIGNE` portent respectivement
+  `DL_PieceBL = BLG2602357`, `BLG2602358`, `BLG2602359`, `BLG2602360`, `BLG2602361`, `BLG2602362` —
+  une **suite de pseudo-numéros consécutifs, un par facture**, aucun ne valant `BLG2602320`.
+- **Ampleur mesurée** (lignes `F_DOCLIGNE` type 6/7 dont la facture, via `DO_Piece`, est déjà
+  rattachée à un vrai BL dans `FG_BlFacture`, mais dont le `DL_PieceBL` ne correspond à aucun
+  `DO_NumBL`/`DO_NumFC` connu de `FG_BlFacture`) : **11 089 pseudo-BL distincts sur 12 531 BL
+  reconstruits au total par la branche `BL`** de la vue (88,5%), représentant **19 436 lignes**
+  `F_DOCLIGNE` et **~214 169 648 TTC**. Bug bien plus large en volume que le Bug 3 (`DO_Coord03`,
+  51 factures) — même famille de cause (éclatement d'un BL en plusieurs factures), mais touchant
+  la branche `BL` reconstruite plutôt que la branche `F_DOCENTETE`.
+
+**Cause dans la vue actuelle (v8)** : la branche `BL` de `DocumentsRaw` (`SELECT b.DL_PieceBL AS
+DO_Piece, ... FROM BL b WHERE NOT EXISTS (SELECT 1 FROM FG_BlFacture bf WHERE bf.DO_NumFC =
+b.DL_PieceBL)`) teste si `DL_PieceBL` **lui-même** est déjà une facture connue de `FG_BlFacture` —
+mais un pseudo-numéro comme `BLG2603983` n'est **jamais** un `DO_NumFC` (ce n'est pas une facture),
+donc ce `NOT EXISTS` ne l'exclut jamais, quel que soit le nombre de fois où le montant réel a déjà
+été compté ailleurs via le vrai BL.
+
+**Piste de fix envisagée, PAS ENCORE APPLIQUÉE** (à valider avant modification de `SQL_007`/
+`SQL_008`) : tester plutôt si la **facture** (`l.DO_Piece`, pas `l.DL_PieceBL`) est déjà connue de
+`FG_BlFacture` comme `DO_NumFC` — auquel cas cette ligne `F_DOCLIGNE` ne doit pas alimenter un BL
+autonome, son montant étant déjà compté via le vrai BL d'origine (`FG_DOCENTETE_SAUV`) :
+
+```sql
+BL AS (
+    SELECT
+        l.DL_PieceBL,
+        SUM(l.dl_montantttc)    AS DO_TotalTTC,
+        l.DE_No,
+        MIN(l.DL_DateBL)        AS DO_Date,
+        COUNT(DISTINCT l.CT_Num) AS NbClients,
+        MIN(l.CT_Num)           AS DO_Tiers
+    FROM GOCOM.dbo.F_DOCLIGNE l
+    WHERE l.DO_Type IN (6,7)
+      AND l.DL_PieceBL <> ''
+      AND NOT EXISTS (
+          SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece
+      )
+    GROUP BY l.DL_PieceBL, l.DE_No
+)
+```
+
+**Points à vérifier avant application** (non faits à ce stade) :
+- Confirmer qu'aucun **vrai** BL légitime (jamais facturé, `DL_PieceBL` = numéro de BL réel non
+  éclaté) n'est affecté par ce changement — le nouveau `NOT EXISTS` porte sur `l.DO_Piece` (la
+  facture), pas sur `l.DL_PieceBL`, donc un vrai BL non encore facturé (dont les lignes ont
+  `DO_Piece` = le BL lui-même, `DO_Type` BL) ne devrait pas être concerné, mais à confirmer par
+  une requête de non-régression sur quelques BL simples connus.
+- Revérifier si ce même problème de pseudo-numéro affecte aussi le calcul de `NbClients`/`DO_Tiers`
+  agrégés par `DL_PieceBL` dans la CTE `BL` (actuellement agrégés sur un identifiant qui n'est pas
+  toujours le vrai BL).
+- Répercuter le même correctif dans `SQL_008` (branches `_A`/`_B` de la table persistée TASK-058),
+  comme fait pour v8, si le fix est validé.
+
+**Statut : documenté, PAS appliqué.** Ampleur (88,5% des BL reconstruits, ~214M TTC) trop
+importante pour un correctif improvisé sans validation PO explicite — cf. checklist.
+
 ## Précision PO 2026-07-16 — retrait complet du filtre dépôt en SQL (v6 → v7)
 
 Clarification PO en 2 temps après tests demandés en base :
@@ -445,3 +520,9 @@ reporting.
 - [ ] Aucune facture "intermédiaire" d'éclatement (`DO_Coord03` renseigné) visible comme document
       autonome dans la vue après application de v8, quel que soit l'état d'archivage SAUV de son
       BL d'origine ou le traitement (ancien/nouveau) qui l'a générée
+- [ ] **Bug 4 (pseudo-numéros de BL, non appliqué) — décision PO explicite requise** : go/no-go sur
+      le fix proposé (`NOT EXISTS FG_BlFacture` sur `l.DO_Piece` au lieu de `l.DL_PieceBL` dans la
+      CTE `BL`), après vérification qu'aucun vrai BL non-facturé n'est affecté par le changement
+- [ ] Si go sur Bug 4 : `BLG2603983` (et l'exemple `BLG2602320`/`357-362`) confirmés absents comme
+      documents autonomes après application, montant retrouvé uniquement via le vrai BL d'origine
+- [ ] Si go sur Bug 4 : répercuté dans `SQL_008` (branches `_A`/`_B`, TASK-058) comme fait pour v8
