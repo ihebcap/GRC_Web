@@ -1,5 +1,56 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Optimisation perf et payload de `GET /api/reglements` (TASK-091, APPROVE)
+
+### Contexte
+Remontée PO (2026-09-29, capture DevTools à l'appui) : lenteur sur l'écran de liste des règlements
+(`App.tsx`), requête `GET /api/reglements` mesurée à 7 119 kB — largement l'appel le plus lourd de la
+page. Le PO attribuait initialement la lenteur à l'historique des modifications (TASK-086) ; exploration
+du code infirmant ce lien (`HistoriqueReglementModal.tsx` n'appelle son endpoint dédié qu'à l'ouverture
+manuelle, pour un seul règlement, capture réseau du PO cohérente avec 0.2 kB pour cet appel).
+
+### Diagnostic chiffré (AVANT correction, base réelle `GR_GOCOM`, `harness_task091`)
+- 7 119 kB = exactement ~8 477 règlements dans un JSON unique → l'option `pageSize=10000` (« Tout »,
+  `App.tsx:1360`) était sélectionnée et persistée en `localStorage`, forçant le chargement de ~8 500
+  règlements d'un coup (+ 250 000 nœuds DOM React).
+- Décomposition du temps serveur (mois actif, 8 824 mouvements, `pageSize=50`) : DB `repo.GetAll` 414 ms,
+  filtrage LINQ en mémoire 1 ms, **requêtes complémentaires réservations/affectations/utilisateurs sur
+  TOUT le périmètre : 3 798 ms (87% du temps total)**, mapping réflexif 24-78 ms — la pagination
+  `.Skip().Take()` n'intervenant qu'après toutes ces étapes. Sur le périmètre complet (46 055 lignes),
+  cette même étape montait à 20 535 ms (94% du temps total).
+- `sortCol`/`sortDesc` envoyés par le front (`App.tsx:475-476`) mais non déclarés dans la signature du
+  contrôleur — ignorés silencieusement par ASP.NET Core, tri par colonne non fonctionnel.
+- Requête SQL sous-jacente de `Tresorerie.Dapper.Repositories.ReglementClientRepository.GetAll` sans
+  `ORDER BY` — point bloquant identifié avant toute pagination poussée en mémoire ou en SQL.
+
+### Modifications
+- **Backend** (`ReglementService.cs`) : nouvelle méthode `GetReglementsPaged` — le découpage paginé
+  (`pageSlice`) est calculé **avant** les requêtes complémentaires SQL batch (`RAPP_ReleveBancaire_Ligne`,
+  `RT_AFFECTATION`, `P_UTILISATEUR`), qui ne portent donc plus que sur les identifiants de la page
+  demandée au lieu de tout le périmètre filtré. Tri déterministe câblé sur toutes les colonnes
+  (`sortCol`/`sortDesc`), chaque tri stabilisé par un `.ThenBy(r => r.No)`/`.ThenByDescending(r => r.No)`
+  systématique ; tri par défaut `Date DESC` puis `No DESC`. Remplacement du mapper réflexif
+  (`ReglementMapper`, `PropertyInfo.GetValue/SetValue`) par un mapping direct typé, propriété à propriété.
+  Ancienne méthode `GetReglements` conservée comme wrapper rétrocompatible (`pageSize=int.MaxValue`) pour
+  les appelants existants (`harness_task083`, `harness_task087`).
+- **Backend** (`ReglementController.cs`) : déclaration de `sortCol`/`sortDesc` dans la signature de
+  `GetReglements`, appel à `GetReglementsPaged`, garde `page < 1 → 1` / `pageSize < 1 → 50`.
+- **Front** (`App.tsx`) : suppression de l'option `pageSize=10000` (« Tout »), remplacée par un plafond à
+  100 ; assainissement du state initial (repli automatique à 50 si une valeur `localStorage` obsolète
+  > 100 est détectée). L'export complet reste géré par le bouton dédié « Export Excel » en tâche de fond.
+
+### Validation
+- `harness_task091` (nouveau) : benchmark mapping réflexion vs direct avec vérification d'équivalence
+  JSON stricte sur 5 000 objets réels (0 différence) ; test de déterminisme tri/pagination sur 3 013
+  lignes réelles réparties P1/P2/P3 (colonnes `date`/`montant`/`client`/`no`/défaut, ASC/DESC : 0 doublon,
+  séquence 100% stricte dans tous les cas) ; validation finale `GetReglementsPaged` en conditions réelles
+  (pages 1/2 sans chevauchement, filtres client/montant/pointé conformes).
+- `harness_task087` (23/23 PASSED) et `harness_task083` rejoués sans régression.
+- Mesures réelles : temps serveur 4 382 ms → 317 ms (-92,8%, pageSize=50, mois actif) et 21 784 ms →
+  1 173 ms (-94,6%, 46 055 lignes) ; payload HTTP usage normal 7 119 kB → 42,0 kB (-99,4%).
+- Build back (`dotnet build`) et front (`npm run build`) : 0 erreur, revérifiés par l'architecte.
+- Rapport `VERIFY/TASK-091_verify.md` (archivé dans `DONE_DETAIL/TASK-091.md`).
+
 ## 2026-09-28 — Correction du montant du règlement depuis l'écran de rapprochement (TASK-090, APPROVE après 1 REJECT)
 
 ### Contexte

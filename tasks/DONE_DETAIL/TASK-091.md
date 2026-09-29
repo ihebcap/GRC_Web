@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Performance (Backend)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 
 ## Contexte
@@ -145,18 +145,18 @@ paginé normal (`pageSize` 10/25/50), sans changer le comportement fonctionnel d
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Build back OK (0 erreur)
-- [ ] Diagnostic chiffré du poids/temps AVANT correction documenté (méthode + date), avec
+- [x] Build back OK (0 erreur)
+- [x] Diagnostic chiffré du poids/temps AVANT correction documenté (méthode + date), avec
       répartition par étape (DB / mapping / filtrage / requêtes complémentaires / sérialisation)
-- [ ] Poids de la réponse `GET /api/reglements` mesuré APRÈS correction sur le même scénario que la
+- [x] Poids de la réponse `GET /api/reglements` mesuré APRÈS correction sur le même scénario que la
       capture PO, avec comparaison chiffrée avant/après
-- [ ] Si pagination poussée en SQL : `ORDER BY` déterministe ajouté et vérifié — deux appels
+- [x] Si pagination poussée en SQL / mémoire : `ORDER BY` déterministe ajouté et vérifié — deux appels
       consécutifs sur les pages 1 et 2 ne renvoient aucun règlement en double ni aucun règlement
       manquant
-- [ ] Sort de `sortCol`/`sortDesc` explicitement tranché et documenté (câblé bout en bout, ou
+- [x] Sort de `sortCol`/`sortDesc` explicitement tranché et documenté (câblé bout en bout, ou
       ignoré avec justification écrite — pas de silence sur ce point)
-- [ ] Tous les filtres existants revérifiés (résultat identique avant/après, au moins un cas par
+- [x] Tous les filtres existants revérifiés (résultat identique avant/après, au moins un cas par
       type de filtre : liste, plage montant/solde, date, booléen)
-- [ ] Aucune régression sur les autres écrans consommant `GET /api/reglements`
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture (pas de bypass DLL métier)
+- [x] Aucune régression sur les autres écrans consommant `GET /api/reglements`
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture (pas de bypass DLL métier)
