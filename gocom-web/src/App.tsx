@@ -783,48 +783,63 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             boxShadow: isSelected ? 'inset 4px 0 0 var(--success-color, #22c55e)' : undefined
           }}
         >
-          <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
-            {!modifDisabledReason ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingReglement(reg);
-                }}
-                className="btn btn-ghost"
-                style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
-                title="Modifier le règlement"
-              >
-                <Edit size={13} color="#2563eb" />
-              </button>
-            ) : (
-              <span
-                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed' }}
-                title={modifDisabledReason}
-              >
+          <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '68px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: '4px' }}>
+              {!modifDisabledReason ? (
                 <button
-                  disabled
-                  tabIndex={-1}
-                  className="btn btn-ghost"
-                  style={{
-                    padding: '4px 6px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.75rem',
-                    cursor: 'not-allowed',
-                    borderRadius: '4px',
-                    border: '1px solid #e5e7eb',
-                    color: '#9ca3af',
-                    backgroundColor: '#f3f4f6',
-                    opacity: 0.6,
-                    pointerEvents: 'none'
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingReglement(reg);
                   }}
-                  aria-label={modifDisabledReason}
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
+                  title="Modifier le règlement"
                 >
-                  <Edit size={13} color="#9ca3af" />
+                  <Edit size={13} color="#2563eb" />
                 </button>
-              </span>
-            )}
+              ) : (
+                <span
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed' }}
+                  title={modifDisabledReason}
+                >
+                  <button
+                    disabled
+                    tabIndex={-1}
+                    className="btn btn-ghost"
+                    style={{
+                      padding: '4px 6px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.75rem',
+                      cursor: 'not-allowed',
+                      borderRadius: '4px',
+                      border: '1px solid #e5e7eb',
+                      color: '#9ca3af',
+                      backgroundColor: '#f3f4f6',
+                      opacity: 0.6,
+                      pointerEvents: 'none'
+                    }}
+                    aria-label={modifDisabledReason}
+                  >
+                    <Edit size={13} color="#9ca3af" />
+                  </button>
+                </span>
+              )}
+              {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAnnulerReglement(reg);
+                  }}
+                  className="btn btn-ghost-danger"
+                  style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #fecaca', color: '#ef4444', backgroundColor: '#fef2f2' }}
+                  title="Annuler le règlement"
+                >
+                  <XCircle size={13} color="#ef4444" />
+                </button>
+              )}
+            </div>
           </td>
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
             <button
@@ -842,22 +857,6 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
           {selectedColumns.map(key => (
             <td key={key}>{renderSharedCell(key, reg, caissesMap, modesMap, banquesMap)}</td>
           ))}
-          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAnnulerReglement(reg);
-                }}
-                className="btn btn-ghost-danger"
-                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
-                title="Annuler le règlement"
-              >
-                <XCircle size={13} color="#ef4444" />
-                <span>Annuler</span>
-              </button>
-            )}
-          </td>
         </tr>
         );
         
@@ -866,7 +865,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
               <React.Fragment key={reg.no}>
                 {rowUI}
                 <tr style={{backgroundColor: 'rgba(34, 197, 94, 0.05)'}}>
-                  <td colSpan={selectedColumns.length + 3} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
+                  <td colSpan={selectedColumns.length + 2} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
                     <div style={{display: 'inline-flex', gap: '1.5rem', alignItems: 'center'}}>
                         <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
                             <span style={{fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)'}}>N° Extrait pour cette ligne:</span>
@@ -901,7 +900,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
       })}
       {reglements.length === 0 && !loading && (
         <tr>
-          <td colSpan={selectedColumns.length + 3} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
+          <td colSpan={selectedColumns.length + 2} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
         </tr>
       )}
     </tbody>
@@ -1306,7 +1305,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                 <table style={{minWidth: '1000px', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto'}}>
                 <thead>
                   <tr>
-                    <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '0.75rem 0.25rem' }}></th>
+                    <th style={{ width: '68px', minWidth: '68px', textAlign: 'center', padding: '0.75rem 0.25rem' }}></th>
                     <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '0.75rem 0.25rem' }}></th>
                     {selectedColumns.map(key => {
                       const col = availableColumns.find(c => c.key === key);
@@ -1381,7 +1380,6 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         </th>
                       );
                     })}
-                    <th style={{ width: '100px', minWidth: '100px', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 {tableBodyMemo}

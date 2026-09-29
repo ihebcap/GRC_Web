@@ -318,7 +318,7 @@ async function run() {
     for (const testCase of expectedCases) {
       console.log(`Vérification ligne ${testCase.rowIdx} (${testCase.desc})...`);
       const rowTd = await page.locator(`table tbody tr:nth-child(${testCase.rowIdx}) td:nth-child(1)`);
-      const button = rowTd.locator('button');
+      const button = rowTd.locator('button').first();
       
       const isDisabled = await button.isDisabled();
       if (isDisabled !== testCase.disabled) {
@@ -347,7 +347,7 @@ async function run() {
 
     // Tester le clic sur bouton actif (ligne 1) : DOIT ouvrir la modale
     console.log('Test clic sur bouton actif (ligne 1)...');
-    await page.click('table tbody tr:nth-child(1) td:nth-child(1) button');
+    await page.click('table tbody tr:nth-child(1) td:nth-child(1) button[title="Modifier le règlement"]');
     await page.waitForTimeout(500);
     bodyText = await page.evaluate(() => document.body.innerText);
     if (!bodyText.includes('Modifier le règlement')) {
