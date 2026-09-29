@@ -1,5 +1,27 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Bouton « Annuler » rapproché du bouton « Modifier », icône seule (TASK-096, APPROVE)
+
+### Contexte
+Demande PO (2026-09-29) : le bouton « Annuler » de la liste des règlements (`App.tsx`) était isolé
+dans une colonne « Actions » en toute fin de ligne, avec un libellé texte visible, loin du bouton
+« Modifier » placé en tête de ligne.
+
+### Changement
+Bouton Annuler déplacé dans la même `<td>` que Modifier (1ère colonne, 68px, conteneur
+`inline-flex`), rendu en icône seule (`XCircle size={13} color="#ef4444"`, `title="Annuler le
+règlement"`), sur le même modèle que Modifier/Historique. Colonne « Actions » et son `<th>`
+supprimés ; `colSpan` des lignes de détail rapprochement et de la ligne vide corrigés de
+`selectedColumns.length + 3` à `+ 2`. Condition d'affichage et handler (`handleAnnulerReglement`,
+`e.stopPropagation()`) strictement inchangés.
+
+### Validation
+Build front (`tsc -b && vite build`) et lint (`oxlint`) 0 erreur. Test E2E Playwright
+(`e2e_task096.cjs`) : en-tête « Actions » absent, bouton Annuler présent/absent selon les 5
+conditions d'éligibilité testées individuellement, clic + confirmation + appel `POST
+/api/reglements/{id}/annuler` réel, `colSpan` de la ligne de détail vérifié égal au nombre de
+colonnes réel. Non-régression `e2e_task093.cjs` rejouée 100% PASSED.
+
 ## 2026-09-29 — Blocage ressenti à la fermeture du modal Historique — diagnostic et clôture (TASK-094, APPROVE)
 
 ### Contexte

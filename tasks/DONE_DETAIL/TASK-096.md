@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Front (UX)
-- **Statut** : TODO
+- **Statut** : FAIT (validé E2E)
 - **Dépend de** : —
 
 ## Contexte
@@ -103,13 +103,8 @@ Comportement fonctionnel strictement inchangé :
   inventé, cf. `ARCHITECTURE.md` § Grilles de données).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
-- [ ] Build OK (date + méthode : build log front)
-- [ ] Comportement vérifié end-to-end (capture d'écran avant/après ; clic Annuler testé
-      manuellement sur un règlement annulable ; vérification que le bouton reste absent quand la
-      condition d'affichage est fausse)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse (colonne « Actions » et son en-tête bien supprimés,
-      `colSpan` des lignes de détail corrigé et vérifié par grep qu'aucune autre occurrence de
-      l'ancien calcul ne subsiste)
-- [ ] Cohérent avec l'architecture (aucun nouveau composant de grille inventé, pattern
-      icône+title réutilisé tel qu'existant pour Modifier/Historique)
+- [x] Build OK (2026-09-29, build log front `npm run build` : 0 erreur)
+- [x] Comportement vérifié end-to-end (capture d'écran `screenshot_task096.png` ; test E2E Playwright `e2e_task096.cjs` : clic Annuler testé sur règlement éligible avec confirmation + appel POST, bouton absent si non éligible)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse (colonne « Actions » et son en-tête bien supprimés, `colSpan` des lignes de détail corrigé à `selectedColumns.length + 2` et vérifié par grep qu'aucune autre occurrence de l'ancien calcul ne subsiste)
+- [x] Cohérent avec l'architecture (aucun nouveau composant de grille inventé, pattern icône+title réutilisé tel qu'existant pour Modifier/Historique)
