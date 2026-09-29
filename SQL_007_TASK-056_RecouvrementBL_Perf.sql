@@ -136,12 +136,16 @@ WHERE (c.object_id = OBJECT_ID('RT_MOUVEMENT') AND c.name = 'MV_Reference')
    OR (c.object_id = OBJECT_ID('RT_ECHEANCE')  AND c.name = 'DO_Numero');
 GO
 
--- (f) v8 (2026-09-29) — vérifie qu'aucun BL d'origine ne disparaît totalement du recouvrement
---     une fois que TOUTE facture avec DO_Coord03 renseigné est exclue de la branche F_DOCENTETE :
---     pour chaque DO_Coord03 distinct, le BL doit apparaître soit dans FG_DOCENTETE_SAUV, soit
---     reconstruit depuis F_DOCLIGNE (BL). Un résultat non vide = BL orphelin à investiguer AVANT
---     application de v8 (le document disparaîtrait du recouvrement au lieu d'être dédoublonné).
-SELECT DISTINCT f.DO_Coord03
+-- (f) v8 (2026-09-29) — MESURE D'INFORMATION, PAS UN BLOCAGE (précision PO 2026-09-29,
+--     cf. TASK-056.md « Précision PO 2026-09-29 ») : un résultat non vide est ATTENDU, il
+--     correspond à l'ancien traitement (BL éclaté générant ses factures directement, sans
+--     jamais créer de document BL propre) — décision PO actée : ces factures restent
+--     exclues du recouvrement par v8 malgré l'absence de BL de substitution. Cette requête
+--     sert uniquement à mesurer le volume/montant qui sort du périmètre du recouvrement
+--     avant d'appliquer v8, pas à décider si on applique ou non.
+SELECT
+    COUNT(*)               AS NbFacturesSansBLSubstitution,
+    SUM(f.DO_TotalTTC)      AS MontantTotalTTC
 FROM GOCOM.dbo.F_DOCENTETE f
 WHERE f.DO_Type IN (6,7)
   AND ISNULL(f.DO_Coord03,'') <> ''

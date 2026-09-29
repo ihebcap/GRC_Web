@@ -328,14 +328,32 @@ reconstruit) doit être visible.
 facture avec `DO_Coord03` renseigné est exclue de cette branche, quel que soit l'état de son BL
 d'origine ailleurs dans `DocumentsRaw`. Plus besoin du `NOT EXISTS` sur `FG_DOCENTETE_SAUV`, retiré.
 
-⚠️ **Point non revérifié en base à ce stade** (à faire avant application) : en v5, 22 294 factures
-avaient `DO_Coord03` renseigné dont 22 293 pointaient vers un BL déjà en SAUV — reste 1 facture dont
-le BL d'origine n'était pas en SAUV à la date de la mesure. Avec v8, cette facture est également
-exclue de la branche `F_DOCENTETE`, ce qui est l'effet recherché **à condition que son BL d'origine
-soit bien capté par une autre branche** (`FG_DOCENTETE_SAUV` si archivé depuis, ou `BL` reconstruit
-depuis `F_DOCLIGNE` sinon) — sinon ce document disparaîtrait entièrement du recouvrement au lieu
-d'être simplement dédoublonné. À confirmer par une requête de vérification avant application (cf.
-checklist).
+### Précision PO 2026-09-29 — deux générations de données derrière `DO_Coord03`, exclusion maintenue dans les deux cas
+
+Explication PO sur le résultat attendu de la requête de vérification (f) : il existe deux processus
+métier successifs derrière `DO_Coord03`, pas une anomalie de données.
+
+- **Ancien traitement** : un BL éclaté générait ses factures **directement**, sans jamais créer de
+  document BL propre dans `F_DOCLIGNE`/`FG_DOCENTETE_SAUV`. Pour ces factures, `DO_Coord03` référence
+  un numéro de BL purement logique qui n'a **jamais existé** comme document séparé — la requête (f)
+  le trouve normalement "introuvable ailleurs".
+- **Nouveau traitement** : un vrai BL est créé d'abord (visible dans `F_DOCLIGNE`/`FG_DOCENTETE_SAUV`),
+  puis transformé en facture(s) — ici `DO_Coord03` pointe vers un BL qui existe réellement ailleurs
+  dans `DocumentsRaw`.
+
+**Décision PO explicite (2026-09-29) : l'exclusion `ISNULL(f.DO_Coord03,'') = ''` reste appliquée
+dans les deux cas, y compris l'ancien traitement.** Une facture avec `DO_Coord03` renseigné est
+considérée comme une facture d'éclatement, jamais un document de recouvrement autonome — même si,
+pour l'ancien traitement, aucun document de substitution (BL réel) n'existe ailleurs pour la
+remplacer. Effet assumé : les montants de ces factures anciennes ne sont plus visibles dans le
+recouvrement par BL après application de v8 (alors qu'ils l'étaient jusqu'ici, sans doublon, en tant
+que documents autonomes réels sous l'ancien traitement). Le point ouvert précédent ("BL orphelin à
+investiguer") est donc **levé** : ce n'est pas une anomalie mais un effet de bord accepté par le PO.
+
+**Requête (f) reclassée** : de "bloquant à investiguer" à simple **mesure d'information** — son
+résultat non vide est attendu (essentiellement l'historique de l'ancien traitement), à consulter
+avant application pour connaître l'ampleur du volume/montant qui sort désormais du périmètre du
+recouvrement, pas pour bloquer le go.
 
 ## Précision PO 2026-07-16 — retrait complet du filtre dépôt en SQL (v6 → v7)
 
@@ -421,10 +439,9 @@ reporting.
 - [ ] Filtrage par dépôt reconfiguré côté Metabase (report du filtre SQL v4 retiré) —
       **bloquant fonctionnel si non fait avant mise en prod** : sans filtre reporting, tous
       les dépôts verraient tous les BL/factures de tous les dépôts
-- [ ] Bug 3 révisé (v8) validé : requête de vérification exécutée en base — pour chaque facture
-      `F_DOCENTETE` avec `DO_Coord03` renseigné, son BL d'origine apparaît bien dans une autre
-      branche de `DocumentsRaw` (SAUV ou `BL` reconstruit), aucun document ne disparaît
-      totalement du recouvrement (cf. requête de diagnostic ajoutée à `SQL_007` section 0)
+- [ ] Requête (f) exécutée et lue **avant** application — résultat non vide **attendu** (ancien
+      traitement, cf. « Précision PO 2026-09-29 ») : sert à mesurer le volume/montant sortant du
+      périmètre du recouvrement, ne bloque pas le go (décision PO déjà actée)
 - [ ] Aucune facture "intermédiaire" d'éclatement (`DO_Coord03` renseigné) visible comme document
       autonome dans la vue après application de v8, quel que soit l'état d'archivage SAUV de son
-      BL d'origine
+      BL d'origine ou le traitement (ancien/nouveau) qui l'a générée
