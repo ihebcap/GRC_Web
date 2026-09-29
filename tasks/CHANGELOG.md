@@ -1,5 +1,19 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Rendre visible/utilisable le filtre par numéro de règlement (TASK-097, APPROVE)
+
+### Contexte
+Demande PO (2026-09-29) : sur l'écran principal des règlements, impossibilité apparente de filtrer par numéro de règlement (`MV_Numero`). L'analyse approfondie a démontré que la colonne affichée par défaut « N° » correspondait à l'ID technique `MV_Id` (`ReglementClient.No`), tandis que le numéro métier `MV_Numero` (`ReglementClient.Numero`, format `RC...`) existait déjà avec son composant `<ExcelFilter>`, mais n'était pas affiché par défaut faute de présence dans `DEFAULT_COLUMNS`. Décision PO validée : conserver les deux colonnes (Option A).
+
+### Changement
+- Ajout de `'numero'` à `DEFAULT_COLUMNS` (`gocom-web/src/utils.tsx:15`), positionné immédiatement après `'no'`.
+- La colonne « Numéro » (`MV_Numero`) apparaît désormais par défaut aux côtés de « N° » (`MV_Id`), sur l'écran principal des règlements et sur l'écran Rapprochement Bancaire (`RapprochementBancaire.tsx:309`).
+- Le filtre `<ExcelFilter>` liste est immédiatement disponible sans action préalable de l'utilisateur.
+- Respect strict des préférences `localStorage` préexistantes : les utilisateurs existants ayant une sélection personnalisée la conservent et peuvent activer « Numéro » en 2 clics via le menu « Colonnes ».
+
+### Validation
+Build front (`tsc -b && vite build`) 0 erreur, lint (`oxlint`) 0 erreur. Vérification SQL directe sur base réelle `GR_GOCOM` (distinction `MV_Id` vs `MV_Numero` confirmée sur 46 056 lignes). Test E2E Playwright automatisé (`gocom-web/e2e_task097.cjs`) 100% PASSED : présence par défaut des deux colonnes côte à côte, bouton `<ExcelFilter>` présent, ouverture et sélection dans la liste des numéros réels (`RC26070369`), filtrage effectif, coexistence vérifiée sur Rapprochement Bancaire, respect de `localStorage`. Non-régression `e2e_task096.cjs` 100% PASSED. Captures d'écran archivées (`screenshot_task097_main.png`, `screenshot_task097_filter.png`, `screenshot_task097_rappro.png`). Rapport `tasks/VERIFY/TASK-097_verify.md`.
+
 ## 2026-09-29 — Compactage de la barre de filtres de l'écran Comptabilisation (TASK-095, APPROVE)
 
 ### Contexte

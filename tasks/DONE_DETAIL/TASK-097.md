@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟡 Mineur
 - **Domaine** : Front (`gocom-web/src/utils.tsx`)
-- **Statut** : TODO
+- **Statut** : FAIT (validé E2E & SQL)
 - **Dépend de** : —
 
 ## ⚠️ Correction post-création (2026-09-29)
@@ -99,16 +99,18 @@ ci-dessous — validée, à implémenter telle quelle.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Colonne "Numéro" visible par défaut aux côtés de "N°" (les deux coexistent, aucune supprimée)
+- [x] Colonne "Numéro" visible par défaut aux côtés de "N°" (les deux coexistent, aucune supprimée)
   sur un poste sans préférence `localStorage` préexistante — **testé sur l'écran principal ET sur
   Rapprochement Bancaire** (`RapprochementBancaire.tsx:309`, même tableau `DEFAULT_COLUMNS`)
-- [ ] Filtre liste sur "Numéro" fonctionnel, valeurs distinctes correctes, résultat filtré vérifié
-  contre une valeur réelle de `MV_Numero` en base
-- [ ] Impact sur les postes ayant déjà une préférence de colonnes sauvegardée documenté et communiqué
+- [x] Filtre liste sur "Numéro" fonctionnel, valeurs distinctes correctes, résultat filtré vérifié
+  contre une valeur réelle de `MV_Numero` en base (`RC26070369`)
+- [x] Impact sur les postes ayant déjà une préférence de colonnes sauvegardée documenté et communiqué
   au PO (pas de changement automatique rétroactif sans action utilisateur, sauf migration explicite
   décidée)
-- [ ] Build front 0 erreur (déjà pré-validé côté architecte : `npm run build` + `tsc -b --force` 0
+- [x] Build front 0 erreur (déjà pré-validé côté architecte : `npm run build` + `tsc -b --force` 0
   erreur, changement confirmé jusque dans le bundle généré — cf. note de vérification ci-dessous)
+- [x] Lint front 0 erreur (`oxlint` 0 erreur)
+- [x] Test E2E automatisé validé à 100% (`npm run test:e2e-097`, captures d'écran archivées)
 
 ## Note de vérification côté architecte (2026-09-29)
 

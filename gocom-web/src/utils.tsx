@@ -12,7 +12,7 @@ export const fixMojibake = (s: string | null | undefined): string => {
   return s;
 };
 
-export const DEFAULT_COLUMNS = ['no', 'client', 'caisseCode', 'caisseIntitule', 'mode', 'date', 'montant', 'pointe', 'comptabilise'];
+export const DEFAULT_COLUMNS = ['no', 'numero', 'client', 'caisseCode', 'caisseIntitule', 'mode', 'date', 'montant', 'pointe', 'comptabilise'];
 
 export const getTypeReglementLabel = (typeNo?: number) => {
   if (typeNo === undefined || typeNo === null) return '';
