@@ -266,7 +266,10 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   const [banquesMap, setBanquesMap] = useState<Record<number, any>>({});
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(() => parseInt(localStorage.getItem('gocom_page_size') || '10'));
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = parseInt(localStorage.getItem('gocom_page_size') || '50', 10);
+    return (!saved || isNaN(saved) || saved > 100) ? 50 : saved;
+  });
   const [total, setTotal] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState<'reglements' | 'comptabilisation' | 'rapprochement' | 'releves' | 'reglement-espece'>('reglements');
@@ -767,52 +770,52 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             boxShadow: isSelected ? 'inset 4px 0 0 var(--success-color, #22c55e)' : undefined
           }}
         >
+          <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
+            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingReglement(reg);
+                }}
+                className="btn btn-ghost"
+                style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
+                title="Modifier le règlement"
+              >
+                <Edit size={13} color="#2563eb" />
+              </button>
+            )}
+          </td>
+          <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setHistoryReglement(reg);
+              }}
+              className="btn btn-ghost"
+              style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
+              title="Historique des modifications"
+            >
+              <History size={13} />
+            </button>
+          </td>
           {selectedColumns.map(key => (
             <td key={key}>{renderSharedCell(key, reg, caissesMap, modesMap, banquesMap)}</td>
           ))}
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingReglement(reg);
-                    }}
-                    className="btn btn-ghost"
-                    style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
-                    title="Modifier le règlement"
-                  >
-                    <Edit size={13} color="#2563eb" />
-                    <span>Modifier</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAnnulerReglement(reg);
-                    }}
-                    className="btn btn-ghost-danger"
-                    style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
-                    title="Annuler le règlement"
-                  >
-                    <XCircle size={13} color="#ef4444" />
-                    <span>Annuler</span>
-                  </button>
-                </>
-              )}
+            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setHistoryReglement(reg);
+                  handleAnnulerReglement(reg);
                 }}
-                className="btn btn-ghost"
-                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
-                title="Historique des modifications"
+                className="btn btn-ghost-danger"
+                style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px' }}
+                title="Annuler le règlement"
               >
-                <History size={13} />
-                <span>Historique</span>
+                <XCircle size={13} color="#ef4444" />
+                <span>Annuler</span>
               </button>
-            </div>
+            )}
           </td>
         </tr>
         );
@@ -822,7 +825,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
               <React.Fragment key={reg.no}>
                 {rowUI}
                 <tr style={{backgroundColor: 'rgba(34, 197, 94, 0.05)'}}>
-                  <td colSpan={selectedColumns.length + 1} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
+                  <td colSpan={selectedColumns.length + 3} style={{padding: '0.5rem 1rem 0.5rem 3rem', textAlign: 'left', borderBottom: '1px solid var(--border-color)'}}>
                     <div style={{display: 'inline-flex', gap: '1.5rem', alignItems: 'center'}}>
                         <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
                             <span style={{fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)'}}>N° Extrait pour cette ligne:</span>
@@ -857,7 +860,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
       })}
       {reglements.length === 0 && !loading && (
         <tr>
-          <td colSpan={selectedColumns.length + 1} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
+          <td colSpan={selectedColumns.length + 3} style={{textAlign: 'center', padding: '2rem'}}>Aucun règlement trouvé</td>
         </tr>
       )}
     </tbody>
@@ -1262,6 +1265,8 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                 <table style={{minWidth: '1000px', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto'}}>
                 <thead>
                   <tr>
+                    <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '0.75rem 0.25rem' }}></th>
+                    <th style={{ width: '40px', minWidth: '40px', textAlign: 'center', padding: '0.75rem 0.25rem' }}></th>
                     {selectedColumns.map(key => {
                       const col = availableColumns.find(c => c.key === key);
                       if (!col) return null;
@@ -1335,7 +1340,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         </th>
                       );
                     })}
-                    <th style={{ width: '220px', minWidth: '220px', textAlign: 'center' }}>Actions</th>
+                    <th style={{ width: '100px', minWidth: '100px', textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 {tableBodyMemo}
@@ -1357,7 +1362,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                 <option value={10}>10</option>
                 <option value={25}>25</option>
                 <option value={50}>50</option>
-                <option value={10000}>Tout</option>
+                <option value={100}>100</option>
               </select>
             </span>
             <button 
