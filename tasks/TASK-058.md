@@ -71,6 +71,37 @@ implémentation :
    `A_EMAIL`) — si la table persistée réintroduit un filtre par dépôt, coordonner avec ce point pour
    ne pas dupliquer ou contredire la décision prise.
 
+## Décision PO — 2026-09-29 (go d'application)
+
+Fait générateur : constat PO d'une lenteur "très très lente" en usage réel sur le filtre
+`SoldeFiltre` (Metabase) dès qu'une sélection différente de `'Tous'` est faite (`Soldé`/`Non
+Soldé`, `Solde BETWEEN -20 AND 20`). Diagnostic : `Solde` est une expression calculée dans le
+`SELECT` final de `vMetaRecouvrementBL` (dépend de `r.TotalReglement` — fenêtrage FIFO — et de
+`e.EC_Solde` — agrégat `RT_ECHEANCE`), non sargable et non indexable dans le modèle vue actuel ;
+le filtre s'applique après matérialisation complète du pipeline, sans réduire son coût déjà connu
+(~3-4 min, cf. section « Incident — temps d'exécution » de TASK-056.md). C'est la même cause
+racine déjà cadrée ici, pas un nouveau bug.
+
+**Go explicite du PO pour l'application de `SQL_008_TASK-058_TablePersistee.sql`** — la table
+persistée expose `Solde` comme colonne physique indexée (`IX_FG_MetaRecouvrementBL_A_Solde` /
+`_B_Solde`), ce qui rend ce filtre à nouveau sargable quel que soit le volume sélectionné.
+
+**Reste à faire avant application effective (hors périmètre d'exécution directe de
+l'architecte — SQL sur base ERP partagée) :**
+1. Validation de l'impact du job avec l'admin GOCOM (contrainte déjà actée pour les index de
+   TASK-056 — tables ERP partagées, saisie commerciale continue).
+2. Exécution de `SQL_008` section par section (tables `_A`/`_B` + index → synonym → procédure →
+   `ALTER VIEW` → job SQL Agent) sur `GR_GOCOM`.
+3. Premier run manuel de `usp_RefreshFG_MetaRecouvrementBL`, vérification que `FG_MetaRecouvrementBL_Live`
+   pointe bien sur la table remplie.
+4. Confirmation en usage réel Metabase que le filtre `SoldeFiltre` redevient rapide.
+
+**Reste ouvert dans le cadrage** (inchangé par ce go — le SQL déjà rédigé y répond en pratique
+mais la note formelle correspondante n'a pas été rédigée séparément) : forme de table/index
+(point 1), portée du recalcul (point 3, tranché de facto par SQL_008 en full rebuild), migration
+de la vue (point 5, tranché de facto par SQL_008). Point 6 (sécurité/périmètre dépôt) inchangé :
+`DE_No` reste exposé sans filtre, comme actuellement.
+
 ## Décision PO — 2026-07-16 (mécanisme + fraîcheur tranchés)
 
 - **Mécanisme de rafraîchissement retenu : job planifié (SQL Agent)**, toutes les 15-30 min.
@@ -142,7 +173,14 @@ filtre, comme dans la vue actuelle.
 - [x] Tolérance de fraîcheur obtenue du PO — 15-30 min (2026-07-16)
 - [x] Mécanisme de rafraîchissement tranché avec le PO — job planifié SQL Agent, bouton Metabase
       écarté (2026-07-16)
-- [ ] Note de cadrage rédigée (forme de table, index, portée du recalcul, migration de la vue) —
-      points 1, 3, 5, 6 encore ouverts
-- [ ] Décision PO explicite : go / no-go / variante, tracée dans ce fichier
-- [ ] Si go : TASK(s) d'implémentation créées et liées à cette TASK
+- [x] Décision PO explicite : **GO** pour application de `SQL_008` (2026-09-29), déclenché par
+      constat réel de lenteur sur le filtre `SoldeFiltre` en usage Metabase — cf. section
+      « Décision PO — 2026-09-29 » ci-dessus
+- [ ] Note de cadrage formelle séparée — non rédigée à part, mais SQL_008 répond en pratique aux
+      points 1/3/5 (forme de table, full rebuild, migration de vue transparente)
+- [ ] Impact du job validé avec l'admin GOCOM (tables ERP partagées)
+- [ ] `SQL_008_TASK-058_TablePersistee.sql` appliqué en base (`GR_GOCOM`) section par section
+- [ ] Premier run manuel de `usp_RefreshFG_MetaRecouvrementBL` vérifié (table remplie, synonym bascule)
+- [ ] Filtre `SoldeFiltre` confirmé rapide en usage réel Metabase après bascule sur la table persistée
+- [ ] Aucune régression sur les valeurs `TotalReglement`/`Solde`/`Controle` vs la vue live (comparaison
+      sur quelques BL de test, dont un multi-`#` et un multi-client, cf. checklist TASK-056)
