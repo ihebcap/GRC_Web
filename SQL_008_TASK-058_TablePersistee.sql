@@ -25,6 +25,13 @@
 --   - Sécurité/périmètre dépôt (point 6) : inchangé, DE_No toujours exposé,
 --     filtrage toujours délégué au reporting Metabase (aucune régression).
 --
+-- MODIFIÉ 2026-09-29 : algorithme aligné sur SQL_007 v9 (TASK-056, Bug 4) --
+--   F_DOCLIGNE.DL_PieceBL n'est pas fiable comme numéro de BL pour une ligne issue
+--   d'une facture déjà éclatée (pseudo-numéro généré à la volée, différent par facture).
+--   La CTE BL des deux branches (_A et _B) filtre désormais sur la facture porteuse
+--   de la ligne (l.DO_Piece déjà connue de FG_BlFacture), pas sur DL_PieceBL -- ne
+--   capte plus que les vrais BL pas encore facturés. Cf. TASK-056.md § Bug 4.
+--
 -- MODE D'EMPLOI — section par section :
 --   1. Tables physiques _A / _B + index
 --   2. Synonym "vue active" (init sur _A)
@@ -135,6 +142,7 @@ BEGIN
             FROM GOCOM.dbo.F_DOCLIGNE l
             WHERE l.DO_Type IN (6,7)
               AND l.DL_PieceBL <> ''
+              AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece)
             GROUP BY l.DL_PieceBL, l.DE_No
         )
         , FA_BL AS (
@@ -242,6 +250,7 @@ BEGIN
             FROM GOCOM.dbo.F_DOCLIGNE l
             WHERE l.DO_Type IN (6,7)
               AND l.DL_PieceBL <> ''
+              AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece)
             GROUP BY l.DL_PieceBL, l.DE_No
         )
         , FA_BL AS (

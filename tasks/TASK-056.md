@@ -415,20 +415,35 @@ BL AS (
 )
 ```
 
-**Points à vérifier avant application** (non faits à ce stade) :
-- Confirmer qu'aucun **vrai** BL légitime (jamais facturé, `DL_PieceBL` = numéro de BL réel non
-  éclaté) n'est affecté par ce changement — le nouveau `NOT EXISTS` porte sur `l.DO_Piece` (la
-  facture), pas sur `l.DL_PieceBL`, donc un vrai BL non encore facturé (dont les lignes ont
-  `DO_Piece` = le BL lui-même, `DO_Type` BL) ne devrait pas être concerné, mais à confirmer par
-  une requête de non-régression sur quelques BL simples connus.
-- Revérifier si ce même problème de pseudo-numéro affecte aussi le calcul de `NbClients`/`DO_Tiers`
-  agrégés par `DL_PieceBL` dans la CTE `BL` (actuellement agrégés sur un identifiant qui n'est pas
-  toujours le vrai BL).
-- Répercuter le même correctif dans `SQL_008` (branches `_A`/`_B` de la table persistée TASK-058),
-  comme fait pour v8, si le fix est validé.
+### Validation PO et vérification en base (2026-09-29)
 
-**Statut : documenté, PAS appliqué.** Ampleur (88,5% des BL reconstruits, ~214M TTC) trop
-importante pour un correctif improvisé sans validation PO explicite — cf. checklist.
+Clarification PO du rôle exact de la source `BL` : elle ne doit capter **que les vrais BL pas
+encore facturés** — dès qu'un BL a été facturé (même partiellement), il doit sortir uniquement via
+`FG_DOCENTETE_SAUV`, jamais via `BL` reconstruit. Confirmé : les factures à `DO_Coord03` rempli
+(déjà exclues par v8) ne sont pas le sujet ici — le problème est uniquement le filtre de la CTE
+`BL`, qui testait le mauvais champ.
+
+**Vérifications exécutées en base avant application** (`sqlcmd`, lecture seule) :
+- **Aucune collision** : `FG_BlFacture.DO_NumFC` (jointe à `F_DOCLIGNE.DO_Piece`) ne matche **jamais**
+  une ligne de type autre que facture (6/7) — un vrai BL non-facturé n'est jamais confondu avec une
+  facture par ce filtre. Le nouveau filtre est sûr, aucun risque de faire disparaître un vrai BL en
+  attente de facturation.
+- **Effet mesuré** : le nombre de "BL" reconstruits par la CTE passe de **12 531 à 1 443** (-88,5 %),
+   **52 703 → 33 267 lignes** `F_DOCLIGNE`, montant total **359 360 546,55 → 145 190 898,43 TTC**.
+- **Cas `BLG2603983` confirmé résolu** : la ligne disparaît bien de la branche `BL` avec le nouveau
+  filtre (requête de vérification exécutée, résultat vide).
+
+**Fix appliqué (SQL_007 v9 + SQL_008 branches `_A`/`_B`)** : `NOT EXISTS (SELECT 1 FROM
+GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece)` ajouté à la CTE `BL`, en complément
+(pas en remplacement) du filtre existant dans `DocumentsRaw` (`NOT EXISTS (... DO_NumFC =
+b.DL_PieceBL)`, qui couvre un cas différent : `DL_PieceBL` lui-même déjà une facture connue).
+
+**Point non revérifié à ce stade** (mineur, à surveiller) : l'agrégation `NbClients`/`DO_Tiers` par
+`DL_PieceBL` dans la CTE `BL` reste construite sur cet identifiant non fiable pour les BL restants
+(1 443) — sans impact connu à ce jour, mais à garder à l'esprit si un écart apparaît sur `NbClients`
+en usage réel.
+
+**Statut : validé en base et appliqué (SQL_007 v9, SQL_008 branches `_A`/`_B`).**
 
 ## Précision PO 2026-07-16 — retrait complet du filtre dépôt en SQL (v6 → v7)
 
@@ -520,9 +535,12 @@ reporting.
 - [ ] Aucune facture "intermédiaire" d'éclatement (`DO_Coord03` renseigné) visible comme document
       autonome dans la vue après application de v8, quel que soit l'état d'archivage SAUV de son
       BL d'origine ou le traitement (ancien/nouveau) qui l'a générée
-- [ ] **Bug 4 (pseudo-numéros de BL, non appliqué) — décision PO explicite requise** : go/no-go sur
-      le fix proposé (`NOT EXISTS FG_BlFacture` sur `l.DO_Piece` au lieu de `l.DL_PieceBL` dans la
-      CTE `BL`), après vérification qu'aucun vrai BL non-facturé n'est affecté par le changement
-- [ ] Si go sur Bug 4 : `BLG2603983` (et l'exemple `BLG2602320`/`357-362`) confirmés absents comme
-      documents autonomes après application, montant retrouvé uniquement via le vrai BL d'origine
-- [ ] Si go sur Bug 4 : répercuté dans `SQL_008` (branches `_A`/`_B`, TASK-058) comme fait pour v8
+- [x] **Bug 4 (pseudo-numéros de BL) — GO PO explicite (2026-09-29)** : fix `NOT EXISTS
+      FG_BlFacture` sur `l.DO_Piece` (au lieu de `l.DL_PieceBL`) appliqué dans la CTE `BL`
+      (SQL_007 v9), vérifié en base — 0 collision avec un vrai BL non-facturé
+- [x] `BLG2603983` confirmé absent de la branche `BL` après application du filtre v9 (requête
+      de vérification exécutée en base, résultat vide)
+- [x] Répercuté dans `SQL_008` (branches `_A`/`_B`, TASK-058), même filtre ajouté aux 2 branches
+- [ ] `SQL_007` v9 et `SQL_008` (si TASK-058 appliquée) **pas encore rejoués en base** après cette
+      dernière modification — à faire avant clôture définitive (le fix a été validé par requêtes
+      de mesure séparées, pas encore par un nouvel `ALTER VIEW` suivi d'un test Metabase réel)

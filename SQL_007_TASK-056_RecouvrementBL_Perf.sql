@@ -97,6 +97,18 @@
 --   v5 (cf. TASK-056.md § Correctif v8 pour le détail et le point de vérification restant
 --   à faire en base avant application : confirmer qu'aucun BL d'origine ne disparaît
 --   totalement du recouvrement, cf. section 0(f) ci-dessous).
+--
+-- MODIFIÉ 2026-09-29 (v9) : 13. Bug 4 -- signalé par le PO après application de v8 en base
+--   (BLG2603983 encore visible) : F_DOCLIGNE.DL_PieceBL n'est PAS fiable comme numéro de
+--   BL pour une ligne issue d'une facture déjà éclatée -- confirmé en base, un même vrai
+--   BL éclaté en plusieurs factures produit un DL_PieceBL DIFFÉRENT par facture (pseudo-
+--   numéro généré à la volée, jamais retrouvé comme document réel dans FG_DOCENTETE_SAUV/
+--   F_DOCENTETE/FG_BlFacture). Décision PO explicite : la CTE BL ne doit capter QUE les
+--   vrais BL pas encore facturés -- filtre changé de "DL_PieceBL déjà une facture connue"
+--   à "la facture PORTEUSE de la ligne (DO_Piece) déjà connue de FG_BlFacture". Vérifié en
+--   base : 0 collision (aucun vrai BL non-facturé n'est jamais un DO_NumFC), filtre sûr.
+--   Effet : 12531 -> 1443 "BL" reconstruits (-88,5%), 359M -> 145M TTC, cf. TASK-056.md
+--   § Bug 4 pour le détail complet et les mesures.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -251,6 +263,16 @@ AS
    est RETIRÉ ici aussi (décision PO 2026-07-16, même traitement que SAUV/F_DOCENTETE) :
    toutes les lignes sortent, DE_No exposé, filtrage dépôt entièrement délégué au
    reporting. Plus aucune branche de DocumentsRaw ne filtre par dépôt.
+   CORRECTIF v9 (Bug 4, 2026-09-29) : DL_PieceBL n'est PAS fiable comme numéro de BL
+   pour une ligne issue d'une facture déjà éclatée — confirmé en base : un même vrai BL
+   éclaté en plusieurs factures produit un DL_PieceBL DIFFÉRENT par facture (pseudo-numéro
+   généré à la volée, jamais retrouvé comme document réel). Cette CTE ne doit capter que
+   les vrais BL PAS ENCORE facturés (décision PO explicite) : filtre ajouté sur l.DO_Piece
+   (la facture porteuse de la ligne), pas sur DL_PieceBL — si cette facture est déjà connue
+   de FG_BlFacture comme DO_NumFC, son montant est déjà compté via le vrai BL d'origine
+   (source FG_DOCENTETE_SAUV) et la ligne est exclue ici. Vérifié en base : aucun vrai BL
+   non-facturé n'est jamais un DO_NumFC de FG_BlFacture (0 collision mesurée) — filtre sûr.
+   Effet mesuré : 12531 -> 1443 "BL" reconstruits (-88,5%), 359M -> 145M TTC.
 =========================== */
 WITH BL AS (
     SELECT
@@ -263,6 +285,7 @@ WITH BL AS (
     FROM GOCOM.dbo.F_DOCLIGNE l
     WHERE l.DO_Type IN (6,7)
       AND l.DL_PieceBL <> ''
+      AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = l.DO_Piece)
     GROUP BY l.DL_PieceBL, l.DE_No
 )
 
@@ -308,6 +331,9 @@ WITH BL AS (
 
     UNION ALL
 
+    -- Filtre historique (DL_PieceBL lui-même déjà une facture connue) conservé en complément
+    -- du nouveau filtre v9 posé dans la CTE BL (sur l.DO_Piece, la facture porteuse de la ligne)
+    -- — les deux couvrent des cas différents, aucun n'est redondant avec l'autre.
     SELECT b.DL_PieceBL AS DO_Piece, b.DO_Date, b.DO_Tiers, b.DE_No, b.DO_TotalTTC, b.NbClients, 3 AS Prio
     FROM BL b
     WHERE NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = b.DL_PieceBL)
