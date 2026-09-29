@@ -50,24 +50,14 @@ qui existe et est fonctionnelle mais n'est pas affichée par défaut.
 Rendre le filtre par `MV_Numero` immédiatement disponible pour l'utilisateur, sans qu'il ait besoin
 de connaître l'existence du sélecteur de colonnes ni la distinction technique `no`/`numero`.
 
-**Décision à prendre avec le PO avant implémentation** (ne pas trancher seul, cf. règle "ne jamais
-improviser un contexte manquant") :
+**Décision PO (2026-09-29) : on garde les deux colonnes.** "N°" (`MV_Id`) reste affichée telle
+quelle, "Numéro" (`MV_Numero`) est ajoutée à côté, par défaut, sans rien retirer. C'est l'option A
+ci-dessous — validée, à implémenter telle quelle.
 
-- **Option A** — Ajouter `'numero'` à `DEFAULT_COLUMNS` (`utils.tsx:15`), pour que la colonne
-  "Numéro" (`MV_Numero`) apparaisse par défaut aux côtés de "N°" (`MV_Id`). Changement minimal,
-  aucune ambiguïté technique introduite, les deux colonnes coexistent avec des libellés déjà
+- **Option A (retenue)** — Ajouter `'numero'` à `DEFAULT_COLUMNS` (`utils.tsx:15`), pour que la
+  colonne "Numéro" (`MV_Numero`) apparaisse par défaut aux côtés de "N°" (`MV_Id`). Changement
+  minimal, aucune ambiguïté technique introduite, les deux colonnes coexistent avec des libellés déjà
   distincts.
-- **Option B** — Si le PO juge que la colonne technique "N°" (`MV_Id`) n'a aucune valeur pour
-  l'utilisateur final et ne doit pas être visible du tout, la retirer de `DEFAULT_COLUMNS` (et/ou de
-  `getAvailableColumns`) au profit de "Numéro" (`MV_Numero`) seul — changement plus large, à valider
-  explicitement car `no`/`MV_Id` est aussi utilisé comme clé de tri par défaut et de navigation
-  interne (cf. `ReglementService.cs`, tri `ThenBy(r => r.No)` partout) ; retirer la colonne de
-  l'affichage n'empêche pas son usage interne, mais à confirmer qu'aucun autre usage utilisateur n'en
-  dépend (ex. recherche d'un règlement précis lors d'un appui client par son "N°" affiché
-  aujourd'hui).
-
-Sauf avis contraire du PO, l'**option A** est recommandée : c'est le changement le plus sûr, réversible,
-qui ne supprime aucune fonctionnalité existante et résout directement le besoin exprimé.
 
 ## Fichiers concernés
 
@@ -76,17 +66,17 @@ qui ne supprime aucune fonctionnalité existante et résout directement le besoi
 
 ## Étapes d'implémentation
 
-1. Confirmer l'option (A ou B) avec le PO.
-2. **Option A** : ajouter `'numero'` dans le tableau `DEFAULT_COLUMNS` (`utils.tsx:15`), à la position
-   jugée pertinente (ex. juste après `'no'`).
-3. Vérifier que les utilisateurs ayant déjà une préférence de colonnes sauvegardée en `localStorage`
+1. Ajouter `'numero'` dans le tableau `DEFAULT_COLUMNS` (`utils.tsx:15`), à la position jugée
+   pertinente (ex. juste après `'no'`) — ne pas retirer `'no'`, les deux colonnes coexistent (décision
+   PO 2026-09-29).
+2. Vérifier que les utilisateurs ayant déjà une préférence de colonnes sauvegardée en `localStorage`
    (clé `gocom_table_columns`, cf. `App.tsx:291-305`) ne sont pas bloqués sur l'ancien jeu de colonnes
    — `DEFAULT_COLUMNS` ne s'applique qu'en absence de préférence sauvegardée, donc les utilisateurs
    existants ne verront PAS la nouvelle colonne apparaître automatiquement. Documenter ce point dans
    le VERIFY et informer le PO : à communiquer aux utilisateurs (ajout manuel via le sélecteur de
    colonnes), ou prévoir une migration de la préférence sauvegardée si le PO veut que ça s'applique
    aussi aux postes déjà configurés.
-4. Test réel : vérifier que la colonne "Numéro" apparaît par défaut sur un poste sans préférence
+3. Test réel : vérifier que la colonne "Numéro" apparaît par défaut sur un poste sans préférence
    sauvegardée, que son filtre (`<ExcelFilter>` mode liste) fonctionne, et que le résultat filtré
    correspond bien à `MV_Numero` (comparer avec une valeur connue en base, ex. `RC26070370`).
 
@@ -102,8 +92,8 @@ qui ne supprime aucune fonctionnalité existante et résout directement le besoi
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] Option A ou B confirmée par le PO avant implémentation (citer la confirmation)
-- [ ] Colonne "Numéro" visible par défaut sur un poste sans préférence `localStorage` préexistante
+- [ ] Colonne "Numéro" visible par défaut aux côtés de "N°" (les deux coexistent, aucune supprimée)
+  sur un poste sans préférence `localStorage` préexistante
 - [ ] Filtre liste sur "Numéro" fonctionnel, valeurs distinctes correctes, résultat filtré vérifié
   contre une valeur réelle de `MV_Numero` en base
 - [ ] Impact sur les postes ayant déjà une préférence de colonnes sauvegardée documenté et communiqué
