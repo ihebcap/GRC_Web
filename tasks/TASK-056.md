@@ -307,6 +307,36 @@ f.DO_Coord03)` ajouté à la branche `F_DOCENTETE` de `DocumentsRaw`. Pas de nou
 `FG_DOCENTETE_SAUV` ne fait que 1 328 lignes → hash anti-join bon marché, contrairement au CTE
 `account` (des millions de lignes côté build) qui avait causé l'incident perf plus haut.
 
+### Correctif v8 (2026-09-29) — v5 incomplet : ne couvrait que le BL d'origine déjà archivé en SAUV
+
+Signalé par le PO : le fix v5 n'exclut la facture éclatée que si son BL d'origine (`DO_Coord03`)
+existe **déjà** dans `FG_DOCENTETE_SAUV`. Si le BL d'origine est encore dans `F_DOCENTETE`/`BL`
+reconstruit (pas encore archivé en SAUV au moment de la lecture), le `NOT EXISTS` ne matche rien
+→ la facture éclatée n'est pas exclue, et le dédoublonnage par `ROW_NUMBER` (clé `DO_Piece`) ne
+joue pas non plus puisque le BL d'origine et la facture éclatée ont deux `DO_Piece` distincts →
+double comptage résiduel, hors du périmètre des 51 factures mesurées en v5 (qui ne couvrait que
+le sous-cas SAUV).
+
+Règle métier clarifiée par le PO : **toute** facture portant un `DO_Coord03` renseigné est une
+facture intermédiaire issue d'un éclatement de BL — elle ne doit jamais apparaître comme document
+autonome dans le recouvrement, indépendamment de l'état d'archivage (SAUV ou non) de son BL
+d'origine. Seul le BL d'origine (via `FG_DOCENTETE_SAUV`, `F_DOCENTETE` sans `DO_Coord03`, ou `BL`
+reconstruit) doit être visible.
+
+**Fix appliqué (SQL_007 v8, remplace le `NOT EXISTS` v5)** : condition simplifiée et généralisée
+`AND ISNULL(f.DO_Coord03,'') = ''` sur la branche `F_DOCENTETE` de `DocumentsRaw` — n'importe quelle
+facture avec `DO_Coord03` renseigné est exclue de cette branche, quel que soit l'état de son BL
+d'origine ailleurs dans `DocumentsRaw`. Plus besoin du `NOT EXISTS` sur `FG_DOCENTETE_SAUV`, retiré.
+
+⚠️ **Point non revérifié en base à ce stade** (à faire avant application) : en v5, 22 294 factures
+avaient `DO_Coord03` renseigné dont 22 293 pointaient vers un BL déjà en SAUV — reste 1 facture dont
+le BL d'origine n'était pas en SAUV à la date de la mesure. Avec v8, cette facture est également
+exclue de la branche `F_DOCENTETE`, ce qui est l'effet recherché **à condition que son BL d'origine
+soit bien capté par une autre branche** (`FG_DOCENTETE_SAUV` si archivé depuis, ou `BL` reconstruit
+depuis `F_DOCLIGNE` sinon) — sinon ce document disparaîtrait entièrement du recouvrement au lieu
+d'être simplement dédoublonné. À confirmer par une requête de vérification avant application (cf.
+checklist).
+
 ## Précision PO 2026-07-16 — retrait complet du filtre dépôt en SQL (v6 → v7)
 
 Clarification PO en 2 temps après tests demandés en base :
@@ -391,3 +421,10 @@ reporting.
 - [ ] Filtrage par dépôt reconfiguré côté Metabase (report du filtre SQL v4 retiré) —
       **bloquant fonctionnel si non fait avant mise en prod** : sans filtre reporting, tous
       les dépôts verraient tous les BL/factures de tous les dépôts
+- [ ] Bug 3 révisé (v8) validé : requête de vérification exécutée en base — pour chaque facture
+      `F_DOCENTETE` avec `DO_Coord03` renseigné, son BL d'origine apparaît bien dans une autre
+      branche de `DocumentsRaw` (SAUV ou `BL` reconstruit), aucun document ne disparaît
+      totalement du recouvrement (cf. requête de diagnostic ajoutée à `SQL_007` section 0)
+- [ ] Aucune facture "intermédiaire" d'éclatement (`DO_Coord03` renseigné) visible comme document
+      autonome dans la vue après application de v8, quel que soit l'état d'archivage SAUV de son
+      BL d'origine

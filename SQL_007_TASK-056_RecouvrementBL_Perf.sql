@@ -85,6 +85,18 @@
 --   (contrairement à SAUV, ici le filtre avait un impact réel -- volume repasse de
 --   23697 à 37365 lignes dans DocumentsRaw pour cette branche). BL/F_DOCLIGNE : impact
 --   déjà mesuré en v4 (704/27359 lignes, 2,6%), désormais réintégré.
+--
+-- MODIFIÉ 2026-09-29 (v8) : 12. Bug 3 (DO_Coord03) révisé -- signalé par le PO : le fix
+--   v5 (NOT EXISTS FG_DOCENTETE_SAUV sur DO_Coord03) ne couvrait que le cas où le BL
+--   d'origine est déjà archivé en SAUV. Si le BL d'origine est encore dans F_DOCENTETE/BL
+--   reconstruit (pas encore archivé), la facture éclatée n'était PAS exclue -> double
+--   comptage résiduel non couvert par les 51 factures mesurées en v5. Règle métier
+--   clarifiée : TOUTE facture avec DO_Coord03 renseigné est une facture intermédiaire
+--   d'éclatement, à exclure systématiquement, quel que soit l'état d'archivage de son BL
+--   d'origine. Condition simplifiée `ISNULL(f.DO_Coord03,'') = ''` remplace le NOT EXISTS
+--   v5 (cf. TASK-056.md § Correctif v8 pour le détail et le point de vérification restant
+--   à faire en base avant application : confirmer qu'aucun BL d'origine ne disparaît
+--   totalement du recouvrement, cf. section 0(f) ci-dessous).
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -122,6 +134,22 @@ FROM sys.columns c
 JOIN sys.types t ON t.user_type_id = c.user_type_id
 WHERE (c.object_id = OBJECT_ID('RT_MOUVEMENT') AND c.name = 'MV_Reference')
    OR (c.object_id = OBJECT_ID('RT_ECHEANCE')  AND c.name = 'DO_Numero');
+GO
+
+-- (f) v8 (2026-09-29) — vérifie qu'aucun BL d'origine ne disparaît totalement du recouvrement
+--     une fois que TOUTE facture avec DO_Coord03 renseigné est exclue de la branche F_DOCENTETE :
+--     pour chaque DO_Coord03 distinct, le BL doit apparaître soit dans FG_DOCENTETE_SAUV, soit
+--     reconstruit depuis F_DOCLIGNE (BL). Un résultat non vide = BL orphelin à investiguer AVANT
+--     application de v8 (le document disparaîtrait du recouvrement au lieu d'être dédoublonné).
+SELECT DISTINCT f.DO_Coord03
+FROM GOCOM.dbo.F_DOCENTETE f
+WHERE f.DO_Type IN (6,7)
+  AND ISNULL(f.DO_Coord03,'') <> ''
+  AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_DOCENTETE_SAUV s WHERE s.DO_Piece = f.DO_Coord03)
+  AND NOT EXISTS (
+        SELECT 1 FROM GOCOM.dbo.F_DOCLIGNE l
+        WHERE l.DO_Type IN (6,7) AND l.DL_PieceBL = f.DO_Coord03
+      );
 GO
 
 
@@ -252,9 +280,12 @@ WITH BL AS (
    account/EXISTS RETIRÉ sur les 3 branches (décision PO 2026-07-16) : FG_DOCENTETE_SAUV
    redevient un scan intégral (tout dépôt/société confondus), périmètre délégué au
    sandbox Metabase — cf. TASK-056.md pour le risque signalé.
-   CORRECTIF v5 (bug DO_Coord03) : une facture F_DOCENTETE éclatée depuis un BL déjà
-   archivé dans FG_DOCENTETE_SAUV est exclue (sinon le même BL est compté 2 fois — une
-   fois via SAUV, une fois par facture éclatée). 51 factures concernées mesurées en base.
+   CORRECTIF v8 (bug DO_Coord03, révisé 2026-09-29) : toute facture F_DOCENTETE portant un
+   DO_Coord03 renseigné est une facture intermédiaire issue d'un éclatement de BL — exclue
+   systématiquement, quel que soit l'état d'archivage (SAUV ou non) de son BL d'origine.
+   Remplace le NOT EXISTS(FG_DOCENTETE_SAUV) de v5, qui ne couvrait que le cas où le BL
+   d'origine était déjà archivé (51 factures) et laissait passer le cas où il ne l'était
+   pas encore (double comptage résiduel non détecté par la mesure v5).
    CORRECTIF v6/v7 : plus aucune branche n'est filtrée par dépôt (décision PO) — toutes
    les lignes sortent, DE_No exposé sur les 3 sources pour filtrage côté reporting.
 =========================== */
@@ -269,9 +300,7 @@ WITH BL AS (
     WHERE f.DO_Type IN (6,7)
       AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = f.DO_Piece)
       AND NOT EXISTS (SELECT 1 FROM FA_BL WHERE FA_BL.DO_Piece = f.DO_Piece)
-      AND NOT EXISTS (
-          SELECT 1 FROM GOCOM.dbo.FG_DOCENTETE_SAUV s WHERE s.DO_Piece = f.DO_Coord03
-      )
+      AND ISNULL(f.DO_Coord03,'') = ''
 
     UNION ALL
 

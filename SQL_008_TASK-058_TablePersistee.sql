@@ -153,7 +153,7 @@ BEGIN
             WHERE f.DO_Type IN (6,7)
               AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = f.DO_Piece)
               AND NOT EXISTS (SELECT 1 FROM FA_BL WHERE FA_BL.DO_Piece = f.DO_Piece)
-              AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_DOCENTETE_SAUV s WHERE s.DO_Piece = f.DO_Coord03)
+              AND ISNULL(f.DO_Coord03,'') = ''
 
             UNION ALL
 
@@ -260,7 +260,7 @@ BEGIN
             WHERE f.DO_Type IN (6,7)
               AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_BlFacture bf WHERE bf.DO_NumFC = f.DO_Piece)
               AND NOT EXISTS (SELECT 1 FROM FA_BL WHERE FA_BL.DO_Piece = f.DO_Piece)
-              AND NOT EXISTS (SELECT 1 FROM GOCOM.dbo.FG_DOCENTETE_SAUV s WHERE s.DO_Piece = f.DO_Coord03)
+              AND ISNULL(f.DO_Coord03,'') = ''
 
             UNION ALL
 
