@@ -58,6 +58,18 @@ interface Reglement {
   info4: string | null;
 }
 
+function getModificationDisabledReason(reg: Reglement): string | null {
+  const reasons: string[] = [];
+  if (reg.isAnnule) reasons.push('règlement annulé');
+  if (reg.isComptabilise !== 0) reasons.push('règlement comptabilisé');
+  if (reg.isPointe) reasons.push('règlement pointé');
+  if (reg.isRemis !== 0) reasons.push('règlement remis en banque');
+  if (reg.isAffecte) reasons.push('règlement affecté');
+
+  if (reasons.length === 0) return null;
+  return `Modification impossible : ${reasons.join(', ')}`;
+}
+
 import { DEFAULT_COLUMNS, getAvailableColumns, renderSharedCell, getTypeReglementLabel, formatMoney, fixMojibake } from './utils';
 
 import ApercuComptabilisation from './ApercuComptabilisation';
@@ -738,6 +750,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
     <tbody>
       {reglements.map(reg => {
         const isSelected = selectedReglements[reg.no] !== undefined || selectedComptabilisation[reg.no] !== undefined;
+        const modifDisabledReason = getModificationDisabledReason(reg);
         const rowUI = (
         <tr 
           key={reg.no}
@@ -771,7 +784,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
           }}
         >
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
-            {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+            {!modifDisabledReason ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -783,6 +796,34 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
               >
                 <Edit size={13} color="#2563eb" />
               </button>
+            ) : (
+              <span
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed' }}
+                title={modifDisabledReason}
+              >
+                <button
+                  disabled
+                  tabIndex={-1}
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '4px 6px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.75rem',
+                    cursor: 'not-allowed',
+                    borderRadius: '4px',
+                    border: '1px solid #e5e7eb',
+                    color: '#9ca3af',
+                    backgroundColor: '#f3f4f6',
+                    opacity: 0.6,
+                    pointerEvents: 'none'
+                  }}
+                  aria-label={modifDisabledReason}
+                >
+                  <Edit size={13} color="#9ca3af" />
+                </button>
+              </span>
             )}
           </td>
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '40px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
