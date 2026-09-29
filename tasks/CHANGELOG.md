@@ -1,5 +1,36 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Blocage ressenti à la fermeture du modal Historique — diagnostic et clôture (TASK-094, APPROVE)
+
+### Contexte
+Remontée PO (2026-09-29) : « lorsque l'écran historique se lance après si je le ferme je sens qu'il
+est bloqué ». Log serveur du jour fourni par le PO ne couvre pas l'incident (un redémarrage d'appli
+seulement, aucune trace de `GET /api/reglements/{no}/historique`).
+
+### Analyse de code (aucune anomalie trouvée dans le modal)
+`HistoriqueReglementModal.tsx` et son point de montage `App.tsx:1504-1510` : fermeture synchrone
+(`onClose={() => setHistoryReglement(null)}`) sans effet de bord, aucun re-fetch déclenché,
+`isMounted` géré dans le `useEffect`, `tableBodyMemo` mémoïsé sans `historyReglement` dans ses
+dépendances (pas de reflow du tableau à l'ouverture/fermeture).
+
+### Diagnostic chiffré réel (`gocom-web/harness_task094.cjs`, Playwright CDP)
+- **Conditions post-TASK-091 (50 lignes paginées)** : ouverture 130 ms, fermeture 135-161 ms,
+  **0 long task**, latence RAF stable ~16 ms, démontage DOM immédiat.
+- **Conditions pré-TASK-091 (10 000 lignes, 7.1 Mo JSON)** : thread JS saturé par désérialisation +
+  150 000 nœuds DOM, timeout Playwright dépassé (> 15 s), gel complet de l'UI pendant la manipulation
+  du modal.
+- **Test A/B `backdropFilter: blur(2px)` vs `none`** : 64.50 ms vs 54.40 ms, écart ~10 ms sans long
+  task — piste écartée, pattern partagé sans incident par `ModifierReglementModal.tsx:191`.
+
+### Cause racine et clôture
+Cause **100% corrélée au payload non paginé de `GET /api/reglements`**, déjà corrigé par **TASK-091**
+(pagination SQL en amont des requêtes complémentaires, plafond `pageSize=100` côté front). Clôture de
+TASK-094 par renvoi direct vers TASK-091, sans duplication de code.
+
+### Preuves
+Build front (`npm run build`) et lint (`oxlint`) 0 erreur, horodatés 2026-09-29 09:52/09:55 UTC.
+Capture `screenshot_task094.png`. Rapport complet `tasks/VERIFY/TASK-094_verify.md` (archivé).
+
 ## 2026-09-29 — Indice visuel et infobulle différenciée pour le bouton « Modifier » du règlement (TASK-093, APPROVE)
 
 ### Contexte

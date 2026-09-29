@@ -2,8 +2,8 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Performance / Correction (Front)
-- **Statut** : TODO
-- **Dépend de** : TASK-091 (piste probable, à confirmer — voir Contexte)
+- **Statut** : DONE (APPROVE — 2026-09-29, clôturée par renvoi vers TASK-091)
+- **Dépend de** : TASK-091 (cause confirmée par diagnostic réel — voir `VERIFY/TASK-094_verify.md` archivé)
 
 ## Contexte
 
@@ -99,16 +99,16 @@ Déterminer la cause réelle du blocage ressenti à la fermeture du modal histor
 - Chevauchement fort avec TASK-091 : traiter TASK-091 en premier peut résoudre TASK-094
   automatiquement. Ne pas paralléliser les deux sans coordination pour éviter un correctif en double.
 
-## Checklist VALIDATION (à remplir dans VERIFY/)
+## Checklist VALIDATION (remplie dans `VERIFY/TASK-094_verify.md`, archivé)
 
-- [ ] Scénario de reproduction documenté (poste, volume de données, étapes exactes)
-- [ ] Cause racine identifiée et justifiée par une observation réelle (Performance/Network DevTools),
+- [x] Scénario de reproduction documenté (poste, volume de données, étapes exactes)
+- [x] Cause racine identifiée et justifiée par une observation réelle (Performance/Network DevTools),
       pas par déduction seule
-- [ ] Si cause = TASK-091 : lien explicite documenté, pas de code dupliqué
-- [ ] Si piste `backdropFilter` retenue : test A/B réel documenté (avec/sans blur), et explication de
-      pourquoi `ModifierReglementModal.tsx` n'est pas affecté par le même pattern si applicable
-- [ ] Si cause distincte : correction appliquée et non-blocage revérifié sur le même scénario de
-      reproduction qu'avant correction
-- [ ] Build front OK (0 erreur)
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Si cause = TASK-091 : lien explicite documenté, pas de code dupliqué
+- [x] Si piste `backdropFilter` retenue : test A/B réel documenté (avec/sans blur : 64.50 ms vs
+      54.40 ms, écart ~10 ms non bloquant), et explication de pourquoi `ModifierReglementModal.tsx`
+      n'est pas affecté par le même pattern
+- [x] Si cause distincte : n/a (cause = TASK-091 confirmée)
+- [x] Build front OK (0 erreur — `npm run build`, horodaté 2026-09-29 09:52 UTC)
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
