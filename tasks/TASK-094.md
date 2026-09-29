@@ -33,6 +33,27 @@ gros JSON) au moment où l'utilisateur ferme le modal, le thread JS principal pe
 donner une sensation de gel de l'interface, sans rapport causal direct avec l'ouverture/fermeture du
 modal historique. **Cette hypothèse doit être vérifiée par reproduction, pas supposée acquise.**
 
+**2e et 3e passages de revue architecte (2026-09-29) — deux pistes techniques supplémentaires
+examinées et leur statut :**
+
+- **`tableBodyMemo` est protégé, cette piste est écartée.** `historyReglement` est un state du
+  composant racine `App` (`App.tsx:328`) — son changement (ouverture ET fermeture du modal) force un
+  re-render de tout `App`. Mais le tableau de dépendances du `useMemo` qui produit `tableBodyMemo`
+  (`App.tsx:864`) **n'inclut ni `historyReglement` ni `editingReglement`** : React réutilise donc la
+  référence mémoïsée du corps de tableau sans le recalculer à l'ouverture/fermeture du modal. Pas de
+  reflow coûteux du tableau de règlements identifié par ce mécanisme.
+- **Piste secondaire non éliminée, à vérifier en second lieu si TASK-091 ne suffit pas à expliquer le
+  symptôme** : `HistoriqueReglementModal.tsx:97` utilise `backdropFilter: 'blur(2px)'` sur l'overlay
+  plein écran (`position: fixed`, couvre tout le viewport) — un filtre CSS connu pour son coût de
+  rendu GPU/CPU, en particulier à la fermeture où le navigateur peut recomposer le calque en dessous.
+  **Ce pattern est cependant partagé à l'identique par `ModifierReglementModal.tsx:191`**, modal sur
+  lequel le PO n'a signalé aucun blocage — ce qui affaiblit cette piste comme cause principale (si
+  c'était le `blur`, le modal Modifier serait probablement affecté aussi), sans l'éliminer totalement
+  (le PO n'a peut-être simplement pas encore refermé ce second modal dans des conditions comparables).
+  À vérifier en dernier recours si la reproduction infirme le lien avec TASK-091.
+- Pas de polling ni de `setInterval` trouvé dans `App.tsx` qui expliquerait une charge de fond
+  continue indépendante de l'ouverture du modal.
+
 ## Objectif
 
 Déterminer la cause réelle du blocage ressenti à la fermeture du modal historique, et la corriger.
@@ -54,10 +75,15 @@ Déterminer la cause réelle du blocage ressenti à la fermeture du modal histor
 3. Si l'hypothèse TASK-091 est confirmée (le blocage disparaît une fois TASK-091 corrigée) :
    documenter ce lien dans le VERIFY de TASK-094 et clore cette tâche par renvoi vers TASK-091,
    sans dupliquer la correction.
-4. Si l'hypothèse est infirmée : investiguer spécifiquement le cycle de vie du modal (montage/
-   démontage React, éventuel re-render de `tableBodyMemo` déclenché par le changement de
-   `historyReglement`, coût de `banquesMap` passé en prop) et corriger la cause réelle trouvée.
-5. Documenter précisément le scénario de reproduction (poste, volume de règlements affichés, nombre
+4. Si l'hypothèse TASK-091 est infirmée : tester spécifiquement la piste `backdropFilter: blur(2px)`
+   (`HistoriqueReglementModal.tsx:97`) en la retirant temporairement pour voir si le blocage
+   disparaît — en gardant à l'esprit que `ModifierReglementModal.tsx:191` partage exactement le même
+   pattern sans blocage signalé, donc ne pas s'arrêter à cette piste sans l'avoir confirmée par test
+   A/B réel plutôt que par déduction.
+5. Le re-render de `tableBodyMemo` à l'ouverture/fermeture du modal est déjà écarté par lecture de
+   code (`useMemo` dont les dépendances n'incluent pas `historyReglement`, cf. Contexte) — ne pas
+   reperdre de temps sur cette piste sauf si l'observation DevTools contredit cette lecture.
+6. Documenter précisément le scénario de reproduction (poste, volume de règlements affichés, nombre
    d'items dans l'historique) pour que la correction soit vérifiable.
 
 ## Contraintes
@@ -79,6 +105,8 @@ Déterminer la cause réelle du blocage ressenti à la fermeture du modal histor
 - [ ] Cause racine identifiée et justifiée par une observation réelle (Performance/Network DevTools),
       pas par déduction seule
 - [ ] Si cause = TASK-091 : lien explicite documenté, pas de code dupliqué
+- [ ] Si piste `backdropFilter` retenue : test A/B réel documenté (avec/sans blur), et explication de
+      pourquoi `ModifierReglementModal.tsx` n'est pas affecté par le même pattern si applicable
 - [ ] Si cause distincte : correction appliquée et non-blocage revérifié sur le même scénario de
       reproduction qu'avant correction
 - [ ] Build front OK (0 erreur)

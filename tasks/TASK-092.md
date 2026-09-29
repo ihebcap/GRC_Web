@@ -68,11 +68,24 @@ libellé texte), pour minimiser l'espace utilisé — au lieu d'être regroupés
 - Ne pas toucher au comportement fonctionnel de la modification ou de l'historique (endpoints,
   modals, contenu, condition d'affichage de Modifier) — uniquement la position et la présentation
   des boutons déclencheurs.
-- Ne pas casser le `colSpan` utilisé par la ligne d'édition inline du mode Rapprochement
-  (`App.tsx:825`, `colSpan={selectedColumns.length + 1}`) — avec l'ajout de 2 colonnes fixes en tête
-  (Modifier, Historique) en plus de la colonne « Actions » (Annuler) déjà existante en fin de
-  tableau, ce calcul doit devenir `selectedColumns.length + 3` (2 nouvelles colonnes + Actions).
-  Vérifier visuellement qu'il n'y a pas de décalage de bordure sur cette ligne après implémentation.
+- **Deux `colSpan` distincts à corriger, pas un seul** — vérifiés par grep exhaustif sur
+  `selectedColumns.length` dans `App.tsx` (3e passage de revue, 2026-09-29) :
+  - `App.tsx:825` (ligne d'édition inline du mode Rapprochement, `colSpan={selectedColumns.length + 1}`)
+  - `App.tsx:860` (message « Aucun règlement trouvé » quand la liste est vide,
+    `colSpan={selectedColumns.length + 1}`)
+  Avec l'ajout de 2 colonnes fixes en tête (Modifier, Historique) en plus de la colonne « Actions »
+  (Annuler) déjà existante en fin de tableau, ces deux calculs doivent devenir
+  `selectedColumns.length + 3` (2 nouvelles colonnes + Actions). Ne corriger que l'un des deux
+  serait une régression silencieuse (décalage de bordure visible uniquement quand la liste est vide
+  ou qu'une ligne est sélectionnée en mode Rapprochement — facile à manquer en test rapide).
+- Le rendu de ligne (`rowUI`, `App.tsx:734-864`) est mémoïsé via `useMemo` avec une liste de
+  dépendances explicite (`App.tsx:864` :
+  `[reglements, selectedReglements, selectedComptabilisation, isRapprochementMode,
+  isComptabilisationMode, rapprochementExtrait, rapprochementDate, selectedColumns, caissesMap,
+  modesMap, banquesMap, loading]`). Le déplacement des boutons ne nécessite l'ajout d'aucun nouvel
+  état ni prop externe : ne pas toucher à cette liste de dépendances. Si l'implémentation venait à
+  introduire un nouveau state ou une nouvelle donnée externe utilisée dans le rendu déplacé, il
+  faudrait l'ajouter à ce tableau — signal à surveiller, pas une action attendue par cette tâche.
 - Respecter `ARCHITECTURE.md` § Grilles de données si les colonnes s'intègrent au mécanisme
   `selectedColumns`/`ColumnDef` existant — sinon, des colonnes fixes hors `selectedColumns` (comme
   l'est déjà « Actions ») sont acceptables, à documenter dans le VERIFY.
@@ -84,8 +97,12 @@ libellé texte), pour minimiser l'espace utilisé — au lieu d'être regroupés
 - [ ] Clic sur Modifier ouvre toujours `ModifierReglementModal` pour la bonne ligne, condition
       d'affichage inchangée (vérifiée sur un règlement conditionnellement masqué et un affiché)
 - [ ] Clic sur Historique ouvre toujours `HistoriqueReglementModal` pour la bonne ligne
-- [ ] `colSpan` de la ligne d'édition inline (mode Rapprochement) mis à jour et cohérent après ajout
-      des 2 colonnes (vérifié visuellement, pas de décalage de bordure)
+- [ ] Les DEUX `colSpan` (`App.tsx:825` ligne d'édition inline mode Rapprochement, ET `App.tsx:860`
+      message « Aucun règlement trouvé ») mis à jour et cohérents après ajout des 2 colonnes
+      (vérifié visuellement sur les deux cas : une ligne sélectionnée en mode Rapprochement, et une
+      recherche/filtre qui ne retourne aucun résultat)
+- [ ] Tableau de dépendances du `useMemo` de `tableBodyMemo` (`App.tsx:864`) inchangé (aucun nouveau
+      state introduit par cette tâche)
 - [ ] Bouton Annuler toujours fonctionnel, inchangé dans la colonne Actions
 - [ ] Aucune dette technique silencieuse
 - [ ] Cohérent avec l'architecture
