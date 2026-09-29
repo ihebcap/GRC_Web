@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (Front, UX)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : — (chevauchement de fichier avec TASK-092 — même bloc JSX `App.tsx:770-816` ;
   traiter l'une après l'autre, pas en parallèle, pour éviter un conflit de merge)
 
@@ -116,16 +116,16 @@ Deux volets, à trancher avec le PO avant implémentation :
 
 ## Checklist VALIDATION (à remplir dans VERIFY/)
 
-- [ ] État réel du règlement à l'origine du signalement PO identifié (pas supposé)
-- [ ] Distinction citée dans le VERIFY entre garde PO actée (comptabilisé/affecté/annulé,
+- [x] État réel du règlement à l'origine du signalement PO identifié (pas supposé)
+- [x] Distinction citée dans le VERIFY entre garde PO actée (comptabilisé/affecté/annulé,
       `TASK-086.md:18-19`) et gardes internes DLL reportées côté front sans arbitrage PO dédié
       (pointé/remis)
-- [ ] Build front OK (0 erreur)
-- [ ] Indice visuel (volet 1) vérifié sur au moins un règlement dans chaque état bloquant
+- [x] Build front OK (0 erreur)
+- [x] Indice visuel (volet 1) vérifié sur au moins un règlement dans chaque état bloquant
       (comptabilisé, pointé, remis, affecté, annulé), message différencié par condition
-- [ ] Réponse PO consignée sur `isPointe`/`isRemis` uniquement (volet 2) si la question a été posée
-- [ ] Si volet 2 implémenté : gestion de l'échec applicatif `ReglementUpdate` pour les cas remis/
-      pointé prévue (pas seulement condition d'affichage retirée)
-- [ ] Confirmation qu'aucune modification n'a touché `isComptabilise`/`isAffecte`/`isAnnule`
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Réponse PO consignée sur `isPointe`/`isRemis` uniquement (volet 2) si la question a été posée
+- [x] Si volet 2 implémenté : gestion de l'échec applicatif `ReglementUpdate` pour les cas remis/
+      pointé prévue (non retenu par arbitrage PO, blocage maintenu avec indice visuel)
+- [x] Confirmation qu'aucune modification n'a touché `isComptabilise`/`isAffecte`/`isAnnule`
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture

@@ -1,5 +1,44 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-29 — Indice visuel et infobulle différenciée pour le bouton « Modifier » du règlement (TASK-093, APPROVE)
+
+### Contexte
+Remontée PO (2026-09-29) : « je trouve pas le bouton pour modifier un règlement » sur l'écran de
+liste des règlements (`App.tsx`). Le bouton (livré par TASK-086, repositionné par TASK-092) existait
+mais était masqué silencieusement dès que l'une de ces 5 conditions était vraie : `isAnnule`,
+`isComptabilise !== 0`, `isPointe`, `isRemis !== 0`, `isAffecte`. Aucun indice ne l'expliquait à
+l'utilisateur.
+
+### Distinction des gardes (rappel TASK-086)
+- **Garde PO actée et structurelle** (comptabilisé/affecté/annulé) : conditionne le contournement
+  par réflexion sur les setters privés du champ Client et dispense de synchroniser 3 tables annexes
+  (`RT_AFFECTATION`, `RT_ECHEANCE`, `RT_HISTOMVT`). Non retouchée dans cette tâche.
+- **Gardes internes DLL reportées côté front** (`isPointe`/`isRemis`, gardes internes de
+  `ReglementUpdate`) : jamais arbitrées par le PO jusqu'ici. Question posée : le PO a choisi de
+  **conserver le blocage** avec l'indice visuel explicite, sans assouplissement.
+
+### Modifications
+- **Front** (`App.tsx`) : ajout de `getModificationDisabledReason(reg: Reglement): string | null`
+  retournant un message différencié par condition bloquante (concaténé si plusieurs), `null` si
+  aucune. Rendu : bouton actif bleu si éligible ; sinon icône grisée (`#9ca3af`, fond `#f3f4f6`,
+  bordure `#e5e7eb`) dans un `<button disabled tabIndex={-1}>` avec `pointerEvents: 'none'`,
+  encapsulé dans un `<span>` porteur du `title` natif explicite — double verrouillage du clic en
+  plus du `stopPropagation` déjà présent sur la cellule (protection sélection de ligne en mode
+  Rapprochement).
+- Aucune modification des 5 conditions elles-mêmes : `isComptabilise`, `isAffecte`, `isAnnule`,
+  `isPointe`, `isRemis` restent strictement identiques à TASK-086/092.
+
+### Validation
+- Build (`tsc -b && vite build`) : 0 erreur. Lint (`oxlint`) : 0 erreur (warnings restants tous
+  pré-existants, aucun sur le code ajouté).
+- Tests Playwright E2E (`gocom-web/e2e_task093.cjs`, Chromium headless) : 7 scénarios PASSED —
+  éligible (bouton actif, modale s'ouvre), et les 5 conditions bloquantes individuelles + cas cumulé
+  (comptabilisé + pointé), chacun avec `disabled=true` et `title` différencié vérifié ; clic sur
+  bouton désactivé confirmé sans effet (aucune modale, aucun effet de bord).
+- Non-régression : suite `e2e_task092.cjs` rejouée, 100% PASSED.
+- Capture d'écran : `screenshot_task093.png`.
+- Rapport : `VERIFY/TASK-093_verify.md` (archivé lors de la clôture).
+
 ## 2026-09-29 — Boutons « Modifier »/« Historique » en premières colonnes, icônes seules (TASK-092, APPROVE)
 
 ### Contexte
