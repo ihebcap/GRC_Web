@@ -1,0 +1,80 @@
+{
+  "test_date": "2026-09-30T14:19:30Z",
+  "dll_behavior_before_guard": {
+    "payload": [
+      {
+        "ReglementId": 9682,
+        "ExtraitNum": "TEST_DLL",
+        "DateValeur": "2026-09-30T00:00:00"
+      }
+    ],
+    "response": {
+      "success": true,
+      "successCount": 1,
+      "errorCount": 0,
+      "errors": []
+    },
+    "finding": "La DLL legacy Tresorerie ne refuse PAS d'elle-même un règlement annulé lors de repo.Update(reg). La garde applicative reg.IsAnnule dans RapprocherManuel est donc strictement nécessaire et indispensable pour garantir l'étanchéité."
+  },
+  "guard_applied": "if (reg.IsAnnule) throw new InvalidOperationException($\"Le règlement {reg.No} est annulé et ne peut pas être rapproché.\");",
+  "s7_api_evidence_single_annule": {
+    "payload": [
+      {
+        "ReglementId": 9682,
+        "ExtraitNum": "TEST_S7",
+        "DateValeur": "2026-09-30T00:00:00"
+      }
+    ],
+    "response": {
+      "success": false,
+      "successCount": 0,
+      "errorCount": 1,
+      "errors": [
+        "Règlement 9682: Le règlement 9682 est annulé et ne peut pas être rapproché."
+      ]
+    },
+    "db_state_after": {
+      "MV_Id": 9682,
+      "MV_Annule": 1,
+      "MV_Point": 0,
+      "isPointe": false
+    }
+  },
+  "s7_api_evidence_mixed_lot": {
+    "payload": [
+      {
+        "ReglementId": 48470,
+        "ExtraitNum": "EXT48470",
+        "DateValeur": "2026-09-30T00:00:00"
+      },
+      {
+        "ReglementId": 9682,
+        "ExtraitNum": "EXT9682",
+        "DateValeur": "2026-09-30T00:00:00"
+      }
+    ],
+    "response": {
+      "success": false,
+      "successCount": 1,
+      "errorCount": 1,
+      "errors": [
+        "Règlement 9682: Le règlement 9682 est annulé et ne peut pas être rapproché."
+      ]
+    },
+    "db_state_after": {
+      "item_48470": {
+        "MV_Id": 48470,
+        "MV_Annule": 0,
+        "MV_Point": 1,
+        "MV_ExtraitNum": "EXT48470",
+        "isPointe": true
+      },
+      "item_9682": {
+        "MV_Id": 9682,
+        "MV_Annule": 1,
+        "MV_Point": 0,
+        "isPointe": false
+      }
+    }
+  }
+}

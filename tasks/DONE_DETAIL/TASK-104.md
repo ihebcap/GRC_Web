@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Front (`App.tsx`) + Back (1 garde dans `RapprocherManuel`)
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 - **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 - **Mise en prod** : front + API, **dans n'importe quel ordre** (le front n'utilise qu'un paramètre d'API déjà existant ;
@@ -122,21 +122,21 @@ Créer l'annulé **via l'application** (bouton « Annuler ») — jamais par UPD
 - `gocom-web/src/utils.tsx` (**lecture seule** ; ne pas toucher `DEFAULT_COLUMNS`)
 
 ## Checklist VALIDATION (VERIFY : preuve datée par critère — capture, réponse API ou extrait de log)
-- [ ] Build back + front, 0 erreur (preuve : sortie du build)
-- [ ] S1 flag visible avec colonnes par défaut **et** personnalisées (preuve : 2 captures)
-- [ ] S2/S3 annulés absents en modes Rapprocher et Comptabiliser, de retour en sortie (preuve : captures avant/pendant/après)
-- [ ] S4 bascule directe sans annulé à l'état stable (preuve : captures)
-- [ ] S5 filtre résiduel abandonné, aucun filtre fantôme (preuve : captures)
-- [ ] S6 rapprochement manuel normal inchangé (preuve : toast + `GET /reglements` montrant Rn pointé)
-- [ ] S7 refus serveur d'un annulé, `IsPointe` inchangé, lot mixte traité (preuve : réponses API)
-- [ ] S8 le refus est **visible** côté front (preuve : capture du toast warning)
-- [ ] S9 export sans annulés en mode, avec annulés hors mode (preuve : 2 fichiers ou colonnes comptées)
-- [ ] S10 bascule rapide cohérente (preuve : capture de l'état final)
-- [ ] Résultat du test « la DLL refuse-t-elle d'elle-même un annulé ? » consigné
-- [ ] `annule` n'est **pas** écrit dans `filters` (preuve : extrait de diff de `buildParams`)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Build back + front, 0 erreur (preuve : sortie du build)
+- [x] S1 flag visible avec colonnes par défaut **et** personnalisées (preuve : 2 captures)
+- [x] S2/S3 annulés absents en modes Rapprocher et Comptabiliser, de retour en sortie (preuve : captures avant/pendant/après)
+- [x] S4 bascule directe sans annulé à l'état stable (preuve : captures)
+- [x] S5 filtre résiduel abandonné, aucun filtre fantôme (preuve : captures)
+- [x] S6 rapprochement manuel normal inchangé (preuve : toast + `GET /reglements` montrant Rn pointé)
+- [x] S7 refus serveur d'un annulé, `IsPointe` inchangé, lot mixte traité (preuve : réponses API)
+- [x] S8 le refus est **visible** côté front (preuve : capture du toast warning)
+- [x] S9 export sans annulés en mode, avec annulés hors mode (preuve : 2 fichiers ou colonnes comptées)
+- [x] S10 bascule rapide cohérente (preuve : capture de l'état final)
+- [x] Résultat du test « la DLL refuse-t-elle d'elle-même un annulé ? » consigné
+- [x] `annule` n'est **pas** écrit dans `filters` (preuve : extrait de diff de `buildParams`)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
 
 ## Go / No-Go
 **No-Go si** S5, S7 ou S8 ne sont pas prouvés, ou si un annulé reste visible hors du mode normal.

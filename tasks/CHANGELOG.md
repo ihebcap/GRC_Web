@@ -1,5 +1,17 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-30 — Liste des règlements : annulés visibles avec flag, masqués en modes Rapprocher/Comptabiliser (TASK-104, APPROVE)
+
+### Contexte
+Règle PO 2026-09-30 : l'annulation vaut suppression ; la liste est le seul écran qui montre un annulé. La DLL accepte de pointer un annulé : garde applicative nécessaire.
+
+### Changement
+- Front (`App.tsx`) : flag visuel « Annulé » indépendant des colonnes ; `annule=false` dérivé du mode (grille et export) ; filtre verrouillé en mode ; gardes de clic ; résultat de `POST /api/rapprochement` affiché (toast warning si refus).
+- Back (`RapprocherManuel`) : refus explicite d'un règlement annulé.
+
+### Validation
+Banc Playwright S1–S10, API/SQL sur base de test (annulé refusé, lot mixte partiellement traité), builds back et front 0 erreur.
+
 ## 2026-09-30 — Comptabilisation : les règlements annulés ne sont plus proposés (TASK-103, APPROVE)
 
 ### Contexte
