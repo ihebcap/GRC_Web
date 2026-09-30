@@ -67,7 +67,7 @@ namespace GRC.Infrastructure.Services
 
             // Filtrer les règlements éligibles au rapprochement bancaire (uniquement si demandé)
             if (eligibleRappBancaire)
-                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
+                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis, r.IsAnnule)).ToList();
 
             // Application des filtres dynamiques
             if (!string.IsNullOrEmpty(clientFilter)) {
@@ -411,7 +411,7 @@ namespace GRC.Infrastructure.Services
 
             // Filtrer les règlements éligibles au rapprochement bancaire (uniquement si demandé)
             if (eligibleRappBancaire)
-                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis)).ToList();
+                allReglements = allReglements.Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis, r.IsAnnule)).ToList();
 
             var clients = allReglements.Where(r => !string.IsNullOrEmpty(r.ClientIntitule)).Select(r => r.ClientIntitule).Distinct().OrderBy(x => x).ToList();
             var numeros = allReglements.Where(r => !string.IsNullOrEmpty(r.Numero)).Select(r => r.Numero).Distinct().OrderBy(x => x).ToList();

@@ -165,7 +165,7 @@ namespace GRC.API.Controllers
             var reglementsFiltered = allReglements
                 .Where(r => !r.IsPointe)
                 .Where(r => request.BanqueId == null || request.BanqueId == 0 || r.BanqueNo == request.BanqueId)
-                .Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis))
+                .Where(r => GRC.Application.Services.ReglementEligibilityHelper.EstEligibleRappBancaire((int)r.Type, (int)r.IsRemis, r.IsAnnule))
                 .ToList();
 
             var reglementsGrc = reglementsFiltered.Select(r => new GrcReglementDto
@@ -269,6 +269,11 @@ namespace GRC.API.Controllers
                             request.LigneReleveId, request.MvId, conflitInfo);
                         return StatusCode(409, new { message = "Ligne ou règlement déjà réservé.", detail = conflitInfo });
                     }
+                }
+                catch (ReglementAnnuleException ex)
+                {
+                    _logger.LogWarning("RÉSERVATION refusée (règlement annulé) : userId={UserId}, ligneReleveId={LigneReleveId}, mvId={MvId}", userId, request.LigneReleveId, request.MvId);
+                    return StatusCode(409, new { message = ex.Message });
                 }
                 catch (System.UnauthorizedAccessException ex)
                 {

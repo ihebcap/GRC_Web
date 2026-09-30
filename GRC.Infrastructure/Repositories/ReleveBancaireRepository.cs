@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
@@ -326,6 +327,27 @@ namespace GRC.Infrastructure.Repositories
             }
         }
 
+        // TASK-098 : Lecture groupée des règlements annulés (RT_MOUVEMENT.MV_Annule = 1)
+        private async Task<HashSet<int>> GetMvIdsAnnulesAsync(SqlConnection connection, IEnumerable<int> mvIds, IDbTransaction? transaction = null)
+        {
+            var idsList = mvIds?.Distinct().ToList() ?? new List<int>();
+            if (idsList.Count == 0) return new HashSet<int>();
+
+            var result = new HashSet<int>();
+            foreach (var chunk in idsList.Chunk(2000))
+            {
+                var annules = await connection.QueryAsync<int>(
+                    "SELECT MV_Id FROM dbo.RT_MOUVEMENT WHERE MV_Id IN @Ids AND MV_Annule = 1",
+                    new { Ids = chunk },
+                    transaction);
+                foreach (var id in annules)
+                {
+                    result.Add(id);
+                }
+            }
+            return result;
+        }
+
         // TASK-037 : la lettre est CALCULEE cote serveur (la lettre proposee par le client est ignoree).
         // Calcul + ecriture serialises par releve via sp_getapplock dans une transaction (pas de check-then-act).
         public async Task<ReleveBancaireLigne?> ReserverLigneAsync(int ligneReleveId, int mvId, int userId, bool isAdmin = false)
@@ -340,6 +362,15 @@ namespace GRC.Infrastructure.Repositories
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                // TASK-098 — Garde règlement annulé : refus immédiat sans verrou ni UPDATE (admins compris)
+                var annules = await GetMvIdsAnnulesAsync(connection, new[] { mvId });
+                if (annules.Contains(mvId))
+                {
+                    _logger.LogWarning("RÉSERVATION refusée (règlement annulé) : ligne={LigneReleveId}, mv={MvId}", ligneReleveId, mvId);
+                    throw new ReglementAnnuleException(mvId);
+                }
+
                 using (var transaction = connection.BeginTransaction())
                 {
                     try
@@ -448,6 +479,11 @@ namespace GRC.Infrastructure.Repositories
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
+
+                // TASK-098 — Calculer l'ensemble des annulés en un seul SELECT groupé (pour admins aussi)
+                var mvIds = items.Select(i => i.MvId).Distinct().ToList();
+                var annulesSet = await GetMvIdsAnnulesAsync(connection, mvIds);
+
                 using (var transaction = connection.BeginTransaction())
                 {
                     try
@@ -501,6 +537,14 @@ namespace GRC.Infrastructure.Repositories
 
                         foreach (var item in items)
                         {
+                            // TASK-098 : si règlement annulé, échec immédiat sans consommer de lettre
+                            if (annulesSet.Contains(item.MvId))
+                            {
+                                _logger.LogWarning("RÉSERVATION LOT refusée (règlement annulé) : ligne={LigneReleveId}, mv={MvId}", item.LigneReleveId, item.MvId);
+                                resultats.Add(new ReserveBatchItemResultDto { LigneReleveId = item.LigneReleveId, MvId = item.MvId, Success = false });
+                                continue;
+                            }
+
                             if (!enteteParLigne.TryGetValue(item.LigneReleveId, out var enteteId))
                             {
                                 resultats.Add(new ReserveBatchItemResultDto { LigneReleveId = item.LigneReleveId, MvId = item.MvId, Success = false });
@@ -728,6 +772,12 @@ namespace GRC.Infrastructure.Repositories
                         throw new InvalidOperationException($"Le règlement {reg.No} est déjà pointé et ne peut pas être rapproché à nouveau.");
                     }
 
+                    // TASK-098 — Garde règlement annulé lors de la validation
+                    if (reg.IsAnnule)
+                    {
+                        throw new InvalidOperationException($"Le règlement {reg.No} est annulé et ne peut pas être rapproché.");
+                    }
+
                     if (pair.DateOperation.HasValue)
                     {
                         var dateOp = pair.DateOperation.Value;
@@ -899,6 +949,19 @@ namespace GRC.Infrastructure.Repositories
                 ";
                 return await connection.QueryFirstOrDefaultAsync<ReleveLigneGenerationDto>(sql, new { Id = ligneReleveId });
             }
+        }
+    }
+
+    // TASK-098 : Exception levée lors d'une tentative de réservation d'un règlement annulé
+    public class ReglementAnnuleException : Exception
+    {
+        public ReglementAnnuleException(int mvId)
+            : base($"Le règlement n°{mvId} est annulé : il ne peut pas être rapproché.")
+        {
+        }
+
+        public ReglementAnnuleException(string message) : base(message)
+        {
         }
     }
 
