@@ -11,6 +11,7 @@
     "test:e2e-097": "node e2e_task097.cjs",
     "test:e2e-104": "node e2e_task104.cjs",
     "test:e2e-100": "node e2e_task100.cjs",
+    "test:e2e-101": "node e2e_task101.cjs",
     "test:e2e-106": "node e2e_task106.cjs",
     "test:e2e-106-compare": "node e2e_task106_compare.cjs",
     "test:e2e-106-mock": "node e2e_task106_mock.cjs",

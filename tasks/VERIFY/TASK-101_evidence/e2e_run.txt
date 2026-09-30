@@ -1,0 +1,70 @@
+U1 = Admin (id 1, admin=true) ; base GR_GOCOM@DESKTOP-2VCUE93
+IDS {"R1":1277,"R2":1278,"L":{"a1":6583,"a2":6584,"a3":6585,"a4":6586,"b1":6587,"b2":6588,"b3":6589,"b4":6590},"reglements":[{"id":27059,"montant":"3651.000000","numero":"126263"},{"id":27072,"montant":"10082.000000","numero":"126264"},{"id":27080,"montant":"5503.000000","numero":"126268"},{"id":27081,"montant":"9565.700000","numero":"126269"}],"reserve":[200,200]}
+Règlements : banque/type = 27059|1|3|3651.000000|126263|2026-04-15 ; 27072|1|3|10082.000000|126264|2026-04-15 ; 27080|1|3|5503.000000|126268|2026-04-15 ; 27081|1|3|9565.700000|126269|2026-04-15
+
+--- S1 : Relevé mono ---
+  OK : nom Export_Releve_2026-09-30.xlsx, feuille Releve
+  OK : 4 lignes = compteur (4)
+  OK : en-têtes ["Repère","Date Op.","Date Val.","Libellé","Référence","Code","Crédit"] (pas de « Relevé »)
+  OK : repère = lettre nue sur la ligne réservée : ["A","","",""]
+  OK : dates jj/mm/aaaa : 14/04/2026,13/04/2026,14/04/2026,15/04/2026
+  OK : Crédit 1234.56 = nombre (t=n)
+  OK : libellé « =SOMME(1+1) » = texte (t=s, f=undefined)
+
+--- S7 : grille vide ---
+  OK : Relevé vide : désactivé, infobulle « Aucune ligne à exporter »
+  OK : aucun téléchargement (Relevé vide)
+  OK : GRC vide : désactivé + infobulle
+  OK : aucun téléchargement (GRC vide)
+
+--- S8 : date locale à 23:30 ---
+  OK : horloge 23:30 local → Export_Releve_2026-04-15.xlsx (attendu Export_Releve_2026-04-15.xlsx)
+
+--- S9 : erreur de génération ---
+  OK : toast « Erreur lors de l'export. » affiché
+  OK : écran utilisable après erreur
+
+--- S2 : Relevé multi ---
+  OK : « Relevé » en tête : ["Relevé","Repère","Date Op.","Date Val.","Libellé","Référence","Code","Crédit"]
+  OK : 8 lignes = compteur
+  OK : libellés titre (#id) : T101-R1 23:48:02 (#1277) | T101-R2 23:48:02 (#1278)
+  OK : repères préfixés : ["1277-A","1278-A"]
+  OK : ordre des lignes = écran
+
+--- S3 : Relevé filtré + trié ---
+  OK : uniquement J2 : 3 lignes
+  OK : tri décroissant sur Crédit : [10082,5503,2222.22]
+  OK : même ordre que l'écran
+
+--- S4 : GRC valeurs lisibles ---
+  colonnes disponibles : Repère | N° | Client | Date | Montant Devise | Solde | Code Caisse | Intitulé Caisse | Banque | Banque Client | Mode Rég. | Type Rég. | Pointé | Comptabilisé | Remis | Impaye | Annulé | Pièce | Extrait | Numéro | Référence | Libellé | Code Banque | Info 2 | N°BL (Ecalt.) | Info 4
+  en-têtes GRC : ["Repère","N°","Numéro","Client","Code Caisse","Intitulé Caisse","Mode Rég.","Date","Montant Devise","Pointé","Comptabilisé","Banque","Type Rég."]
+  OK : S4 : en-têtes = écran (casse CSS ignorée) (["Repère","N°","Numéro","Client","Code Caisse","Intitulé Caisse","Mode Rég.","Date","Montant Devise","Pointé","Comptabilisé","Banque","Type Rég."])
+  OK : S4 : 273 lignes = écran = compteur
+  OK : S4 : valeurs identiques à l'écran (0 écart)
+  OK : réservé non pointé → « NON » (5 ligne(s) réservée(s))
+  OK : Banque/Type lisibles (ex. Banque = ["BCP"], Type Rég. = ["Virement"])
+  OK : OUI/NON partout
+
+--- S5 : repères GRC ---
+  règlements réservés : {"g1":"126264","r1":"A","g2":"126268","r2":"1278-A"}
+  OK : R1 seul : règlement réservé sur R1 → lettre nue (A)
+  OK : R1 seul : règlement réservé sur R2 → « 1278-A » (réservé ailleurs)
+  OK : R1+R2 : repères préfixés (1277-A, 1278-A)
+  OK : R1+R2 : aucun repère nu
+
+--- S6 : GRC = écran (colonne masquée, déplacée, filtre date, tri) ---
+  en-têtes GRC (S6) : ["Repère","N°","Numéro","Montant Devise","Client","Code Caisse","Intitulé Caisse","Mode Rég.","Date","Pointé","Banque","Type Rég."]
+  OK : colonne masquée absente du fichier
+  OK : colonne déplacée : Montant avant Client
+  OK : S6 : en-têtes = écran (casse CSS ignorée) (["Repère","N°","Numéro","Montant Devise","Client","Code Caisse","Intitulé Caisse","Mode Rég.","Date","Pointé","Banque","Type Rég."])
+  OK : S6 : 178 lignes = écran = compteur
+  OK : S6 : valeurs identiques à l'écran (0 écart)
+
+--- S10 : non-régression (sélection) ---
+  (chargement initial : rendus= 0 console= 2 )
+  (1re sélection GRC : rendus de GrcTableRow = 0 )
+  OK : sélection d'un règlement : 273 lignes inchangées
+  OK : sélection relevé + GRC sans erreur (pageerror = 0)
+
+TASK-101 E2E : TOUT OK

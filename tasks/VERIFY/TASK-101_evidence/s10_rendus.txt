@@ -1,0 +1,9 @@
+--- S10 : non-régression (sélection) ---
+  (chargement initial : rendus= 273 console= 275 )
+  (1re sélection GRC : rendus de GrcTableRow = 1 )
+  OK : S10/TASK-099-S7 : 1 sélection sur 273 lignes → 1 rendu(s) de GrcTableRow (chargement initial : 273 rendus)
+  OK : sélection d'un règlement : 273 lignes inchangées
+  OK : sélection relevé + GRC sans erreur (pageerror = 0)
+  (autre ligne sélectionnée : rendus = 0 )
+
+TASK-101 E2E : TOUT OK

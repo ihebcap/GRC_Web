@@ -2,11 +2,12 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { API_BASE } from './api';
-import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2, XCircle } from 'lucide-react';
+import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2, XCircle, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
 import { CheckboxDropdown } from './CheckboxDropdown';
-import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, matchAmount, matchDateRange } from './utils';
+import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, matchAmount, matchDateRange, getTypeReglementLabel } from './utils';
 import { Settings, X } from 'lucide-react';
 
 interface LigneReleve {
@@ -1166,6 +1167,84 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         return r[key as keyof typeof r];
     };
 
+    // TASK-101 : export = valeurs AFFICHÉES à l'écran (mapping calqué sur renderSharedCell, pas sur getGrcCellValue qui sert au tri/filtre)
+    const isoVersJourFr = (raw: any) => {
+        const d = String(raw || '').slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.split('-').reverse().join('/') : '';
+    };
+    const dateDuJour = () => {
+        const n = new Date();
+        const p = (v: number) => String(v).padStart(2, '0');
+        return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}`;
+    };
+    const getGrcExportValue = (r: any, key: string) => {
+        switch (key) {
+            case 'no': return Number(r.no || r.mv_Id) || '';
+            case 'client': return r.clientIntitule || '';
+            case 'caisseCode': return caissesMap[r.caisseNo] ? caissesMap[r.caisseNo].code : (r.caisseNo ?? '');
+            case 'caisseIntitule': return caissesMap[r.caisseNo] ? caissesMap[r.caisseNo].intitule : '';
+            case 'banque': return banquesMap[r.banqueNo]?.code ?? (r.banqueNo ?? '');
+            case 'banqueClient': return r.banqueTier || r.ribClient || '';
+            case 'mode': return modesMap[r.modeReglementNo] ? `${modesMap[r.modeReglementNo].code} - ${modesMap[r.modeReglementNo].intitule}` : (r.modeReglementNo ?? '');
+            case 'typeReglement': return getTypeReglementLabel(modesMap[r.modeReglementNo]?.typeNo);
+            case 'date': return isoVersJourFr(r.date);
+            case 'montant': return Number(r.montantDeviseSociete || r.montant) || 0;
+            case 'solde': return Number(r.soldeDeviseSociete) || 0;
+            case 'pointe': return r.isPointe ? 'OUI' : 'NON';
+            case 'comptabilise': return r.isComptabilise > 0 ? 'OUI' : 'NON';
+            case 'remis': return r.isRemis > 0 ? 'OUI' : 'NON';
+            case 'impaye': return r.isImpaye > 0 ? 'OUI' : 'NON';
+            case 'annule': return r.isAnnule ? 'OUI' : 'NON';
+            case 'piece': return r.pieceNumero || '';
+            case 'extrait': return r.extraitNum || '';
+            case 'lettrage': return getGrcCellValue(r, 'lettrage') || '';
+            default: {
+                const v = r[key];
+                return v !== null && v !== undefined && typeof v !== 'object' ? v : '';
+            }
+        }
+    };
+
+    const telechargerXlsx = (rows: any[], feuille: string, prefixeFichier: string) => {
+        try {
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, feuille);
+            XLSX.writeFile(wb, `${prefixeFichier}_${dateDuJour()}.xlsx`);
+        } catch {
+            showToast("Erreur lors de l'export.", 'error');
+        }
+    };
+
+    const handleExportReleve = () => {
+        const rows = sortedLignes.map(l => {
+            const o: any = {};
+            if (showPrefix) o['Relevé'] = releveLabels[l.releveEnteteId] ?? '';
+            o['Repère'] = formatRepere(l.releveEnteteId, l.lettrage, showPrefix);
+            o['Date Op.'] = isoVersJourFr(l.dateOperationRaw);
+            o['Date Val.'] = isoVersJourFr(l.dateValeurRaw);
+            o['Libellé'] = l.libelle ?? '';
+            o['Référence'] = l.reference ?? '';
+            o['Code'] = l.code ?? '';
+            o['Crédit'] = Number(l.credit) || 0;
+            return o;
+        });
+        telechargerXlsx(rows, 'Releve', 'Export_Releve');
+    };
+
+    const handleExportGrc = () => {
+        const colDefs = [{key: 'lettrage', label: 'Repère'}, ...availableColumns];
+        const rows = sortedReglements.map(r => {
+            const o: any = {};
+            for (const colKey of selectedColumns) {
+                const label = (colDefs.find(c => c.key === colKey) || {label: colKey}).label;
+                o[label] = getGrcExportValue(r, colKey);
+            }
+            return o;
+        });
+        telechargerXlsx(rows, 'Reglements GRC', 'Export_Reglements_GRC');
+    };
+
     // Filtre "lettrés" (front uniquement) : une ligne n'est considérée lettrée que si
     // son lettrage existe des DEUX côtés (règlement GRC apparié avec une ligne relevé).
     // Indépendant de isPointe (rapprochement final en base).
@@ -1377,9 +1456,20 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             <div className="grids-wrapper">
                 {/* GRILLE DROITE : RELEVE EXCEL (Maintenant en haut) */}
                 <div className="grid-panel">
-                    <div className="grid-header">
-                        <h3>Relevé Bancaire</h3>
-                        <span className="badge">Filtre: Encaissements (Crédit)</span>
+                    <div className="grid-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+                            <h3>Relevé Bancaire</h3>
+                            <span className="badge">Filtre: Encaissements (Crédit)</span>
+                        </div>
+                        <button
+                            className="btn"
+                            title={sortedLignes.length === 0 ? 'Aucune ligne à exporter' : 'Exporter les lignes affichées (Excel)'}
+                            disabled={sortedLignes.length === 0}
+                            onClick={handleExportReleve}
+                            style={{padding: '0.25rem 0.6rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
+                        >
+                            <Download size={14} /> Exporter
+                        </button>
                     </div>
                     <div className="table-container">
                         {loadingReleve && (
@@ -1490,6 +1580,15 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                 Au
                                 <input type="date" value={dateFin} min={dateDebut || undefined} onChange={(e) => setDateFin(e.target.value)} />
                             </label>
+                            <button
+                                className="btn"
+                                title={sortedReglements.length === 0 ? 'Aucune ligne à exporter' : 'Exporter les règlements affichés (Excel)'}
+                                disabled={sortedReglements.length === 0}
+                                onClick={handleExportGrc}
+                                style={{padding: '0.25rem 0.6rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
+                            >
+                                <Download size={14} /> Exporter
+                            </button>
                             <button
                                 className="btn"
                                 title="Recharger les règlements GRC avec la période saisie"
