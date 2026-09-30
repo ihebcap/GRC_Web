@@ -95,6 +95,11 @@ alors que sa ligne de relevé reste lettrée. **Chemin de secours** : cliquer su
 libère la paire (`delettrerByLettrage`, `RapprochementBancaire.tsx:708`, indépendant de la grille GRC) — mais
 **seul le réservataire** peut libérer, et **pas une ligne déjà validée** (`UPDATE … WHERE ReservePar_UserId=@UserId AND DateValidation IS NULL` :
 `ReleveBancaireRepository.cs:608` pour `release-batch` utilisé par le front, `:555` pour `release`).
+**Constaté en prod** (lecture seule, 2026-09-30, analyse de TASK-100) : **1** réservation en cours sur un règlement
+annulé — ligne de relevé 19291, relevé 154, réservataire = utilisateur 186, non validée. **Avant la mise en prod
+(à faire par le PO, pas par le worker)** : re-mesurer avec la requête ci-dessous, puis faire libérer la ligne par son
+réservataire (clic sur la ligne lettrée du relevé). Sans cela, le règlement disparaît de la grille et la ligne reste
+lettrée, libérable seulement par l'utilisateur 186.
 Comptage à consigner dans le VERIFY (ou « non vérifié : pas d'accès à la base ») — **ne bloque pas la clôture** :
 ```sql
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -146,6 +151,9 @@ annulé du périmètre du rapprochement est un **virement** (type 3) : le bouton
   (petite, back seul). Si TASK-100 est fusionnée en premier, la version fusionnée de `GenererPropositions` doit
   **conserver** le filtre d'éligibilité avec `r.IsAnnule` (aucun annulé proposé) et **S3 est à rejouer** après fusion.
 - TASK-101 (export) et TASK-102 (filtres de date) : aucun recouvrement (front ; la grille GRC est déjà filtrée côté serveur).
+- **Hors périmètre** : l'exception d'index unique `UX_RAPP_Ligne_MVID` si deux utilisateurs réservent le même règlement au
+  même instant (signalée par l'analyse de TASK-100, non reproduite) sera traitée dans la réécriture de TASK-100 ; ne pas
+  y toucher ici.
 
 ## Contraintes
 - Ne jamais bypasser une règle de sécurité ni une DLL métier GRC. Aucun UPDATE SQL sur une table métier GRC.

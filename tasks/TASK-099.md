@@ -50,7 +50,8 @@ Conséquence à connaître : les chèques et traites éligibles au rapprochement
 ils n'auront donc **jamais** le bouton. Seuls les **virements** l'auront — c'est voulu (règle de la liste).
 
 ## Étapes d'implémentation
-1. `App.tsx:983` : passer `showConfirm={showConfirm}` à `RapprochementBancaire` ; l'ajouter aux props du composant.
+1. `App.tsx:983` : passer `showConfirm={showConfirm}` à `RapprochementBancaire` ; l'ajouter à l'interface `Props`
+   (`RapprochementBancaire.tsx:213-220`) et à la destructuration du composant (`:222`).
    **Ne pas dupliquer** le composant de confirmation.
 2. Compléter `ReglementGrc` (`:27-38`) avec les champs optionnels utilisés (`isAnnule`, `isPointe`, `isComptabilise`, `isRemis`, `isAffecte`).
 3. Handler `handleAnnulerReglementGrc` : copie fidèle de `handleAnnulerReglement` (`App.tsx:659-670`), suivi de
