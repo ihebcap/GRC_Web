@@ -7,6 +7,7 @@
 - **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 - **Mise en prod** : front + API, **dans n'importe quel ordre** (le front n'utilise qu'un paramètre d'API déjà existant ;
   la garde back ne change pas le contrat). Aucun script SQL, aucune config. Retour arrière = redéployer les builds précédents.
+- **Références de ligne** : état du dépôt au commit `12f2dc0` (2026-09-30). Si un fichier a bougé (autre TASK fusionnée avant), se repérer par le **nom de la fonction**, pas par le numéro.
 
 ## Contexte
 Règle PO (2026-09-30) : **l'annulation d'un règlement vaut suppression.** La liste des règlements est

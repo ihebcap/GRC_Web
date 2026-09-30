@@ -7,6 +7,7 @@
 - **Complément serveur** : TASK-105 (refus côté serveur d'annuler un règlement réservé/pointé ; peut être livrée avant ou après,
   le message du refus est affiché tel quel)
 - **Mise en prod** : front seul, aucun script SQL, aucune config. Retour arrière = redéployer le front précédent.
+- **Références de ligne** : état du dépôt au commit `12f2dc0` (2026-09-30). Si un fichier a bougé (autre TASK fusionnée avant), se repérer par le **nom de la fonction**, pas par le numéro.
 
 ## Contexte
 Demande PO (2026-09-30) : pouvoir annuler un règlement sans quitter l'écran de rapprochement. Règle PO liée :
@@ -83,8 +84,12 @@ ils n'auront donc **jamais** le bouton. Seuls les **virements** l'auront — c'e
 ## Risques et points d'attention
 - Le risque principal est la **régression de performance** de la grille (voir mémoïsation) : S7 est obligatoire.
 - Ne pas modifier la couleur/forme des lignes lettrées ni le cadenas de réservation.
-- TASK-100 (multi-relevés) et TASK-101 (export) touchent aussi cette grille : en cas de fusion, conserver la colonne
-  « Sel. » en 1ʳᵉ position et la liste `propsToCompare` à jour.
+- **Coordination** : livrer TASK-099 **avant** TASK-100/101/102. TASK-100 (RISK HIGH) modifie aussi `GrcTableRow`,
+  l'interface `ReglementGrc` (ajout de `releveEnteteId`) et `pairedLettrages` : elle devra reprendre la colonne d'action,
+  `propsToCompare` et le handler stable. TASK-102 modifie l'en-tête (`<thead>`) : conflit de fusion possible, sans impact
+  fonctionnel. En cas de fusion, conserver « Sel. » en 1ʳᵉ colonne et la liste `propsToCompare` à jour.
+- La colonne d'action, comme « Sel. », n'est **pas** dans `selectedColumns` : elle n'apparaît ni dans le choix de colonnes,
+  ni dans l'export de TASK-101.
 
 ## Contraintes
 - Ne jamais bypasser une règle de sécurité ou une DLL métier GRC (aucun UPDATE SQL, aucune modification backend :

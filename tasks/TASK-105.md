@@ -8,6 +8,7 @@
 - **Mise en prod** : API + front, **dans n'importe quel ordre** (ancien front + nouvelle API : le refus s'affiche via le
   `message` serveur ; nouveau front + ancienne API : le bouton est simplement masqué). Aucun script SQL, aucune config.
   Retour arrière = redéployer les builds précédents.
+- **Références de ligne** : état du dépôt au commit `12f2dc0` (2026-09-30). Si un fichier a bougé (autre TASK fusionnée avant), se repérer par le **nom de la fonction**, pas par le numéro.
 
 ## Contexte
 Décision PO (2026-09-30) : **on ne peut pas annuler un règlement réservé ou pointé.** L'annulation valant
@@ -29,7 +30,8 @@ et figurent dans le VERIFY.
 **Ce qu'est « réservé »** : une ligne de `dbo.RAPP_ReleveBancaire_Ligne` porte `MV_ID = n° du règlement` (réservation en
 cours **ou** ligne déjà validée ; la libération remet `MV_ID` à NULL, `ReleveBancaireRepository.cs:553-555`). Le DTO de
 `GET /reglements` expose déjà cette information (`lettrage`, `reservePar_UserId`, `dateReservation`, lus par
-`SELECT ... FROM RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids`, `ReglementService.cs:301`).
+`SELECT ... FROM RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids`, `ReglementService.cs:301` ; propriétés `ReglementClientDto.Lettrage`
+et `ReservePar_UserId`, `:1540-1543`, sérialisées en camelCase par défaut : `lettrage`, `reservePar_UserId`).
 
 ## Comportements attendus (contrat)
 | Situation | Résultat attendu |

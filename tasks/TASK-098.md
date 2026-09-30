@@ -6,6 +6,7 @@
 - **Dépend de** : —
 - **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 - **Mise en prod** : aucun script SQL, aucune config, aucun changement de schéma ; **API seule** (le front n'est pas touché). Retour arrière = redéployer l'API précédente.
+- **Références de ligne** : état du dépôt au commit `12f2dc0` (2026-09-30). Si un fichier a bougé (autre TASK fusionnée avant), se repérer par le **nom de la fonction**, pas par le numéro.
 
 ## Contexte
 Règle PO (2026-09-30) : **l'annulation d'un règlement vaut suppression.** Un règlement annulé
@@ -108,7 +109,7 @@ WHERE m.MV_Annule = 1;
 Créer les annulés **via l'application** (bouton « Annuler », TASK-085/096) — jamais par UPDATE SQL. En pratique un
 annulé du périmètre du rapprochement est un **virement** (type 3) : le bouton « Annuler » n'est proposé que si
 `isRemis = 0` (`App.tsx:829`), alors que chèques et traites ne sont éligibles que remis (`isRemis = 2`).
-- Banque de test B, cinq lignes de relevé **libres** L1…L5, de montants M1…M5 tous **différents** (chaque montant unique des deux côtés).
+- Banque de test B, cinq lignes de relevé **libres en crédit** L1…L5 (règle PO : seul le sens crédit est dans le périmètre), de montants M1…M5 tous **différents** (chaque montant unique des deux côtés).
 - Virements non pointés sur B : **R1** (M1, libre), **R2** (M2, **annulé**), **R3** (M3, libre), **R4** (M4, libre, réservé au scénario S6).
 - L5 (M5) sert au scénario S7 (aucun règlement libre de montant M5 n'est nécessaire).
 
@@ -138,6 +139,13 @@ annulé du périmètre du rapprochement est un **virement** (type 3) : le bouton
 - **Course résiduelle** : une annulation survenant entre la garde et l'UPDATE conditionnel (quelques ms) reste possible ;
   acceptée, à mentionner dans le VERIFY (TASK-105 l'interdit ensuite dès que la ligne est réservée).
 - **Journalisation** : messages en français, préfixes cohérents avec l'existant (`RÉSERVATION`, `APPROBATION`) — ils servent au diagnostic en prod.
+
+## Coordination avec les autres TASKs du rapprochement
+- **TASK-100 (multi-relevés)** modifie aussi `ReleveBancaireController.GenererPropositions` (union des lignes libres de
+  plusieurs relevés) et `ReglementService.cs` (~`:291-354`, SELECT des réservations). **Ordre conseillé : TASK-098 d'abord**
+  (petite, back seul). Si TASK-100 est fusionnée en premier, la version fusionnée de `GenererPropositions` doit
+  **conserver** le filtre d'éligibilité avec `r.IsAnnule` (aucun annulé proposé) et **S3 est à rejouer** après fusion.
+- TASK-101 (export) et TASK-102 (filtres de date) : aucun recouvrement (front ; la grille GRC est déjà filtrée côté serveur).
 
 ## Contraintes
 - Ne jamais bypasser une règle de sécurité ni une DLL métier GRC. Aucun UPDATE SQL sur une table métier GRC.
