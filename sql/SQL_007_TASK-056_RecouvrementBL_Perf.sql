@@ -1,4 +1,10 @@
 -- =============================================================================
+-- /!\ OBSOLETE POUR LA VUE (2026-09-30) : la definition de vMetaRecouvrementBL de ce
+-- fichier (v13) est REMPLACEE par SQL_010_vMetaRecouvrementBL_v14_multi_depots.sql.
+-- NE PAS rejouer la section 'ALTER VIEW' ici : elle ecraserait la v14 en prod.
+-- Ce fichier est conserve pour l'historique : diagnostic, index, analyse perf.
+-- =============================================================================
+-- =============================================================================
 -- SQL_007 — vMetaRecouvrementBL : recouvrement par BL correct + perf Metabase
 -- Base : GR_GOCOM
 -- Contexte : demande PO 2026-07-16 (lenteur Metabase + recouvrement faux). Voir
