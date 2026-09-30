@@ -929,6 +929,25 @@ namespace GRC.Infrastructure.Services
             // TASK-085 (Étape 1) — Garde commune non-comptabilisé / non-affecté / non-annulé
             ValiderGardeCommune(reg, "annulé");
 
+            // TASK-105 — Garde serveur : refus si pointé ou réservé sur une ligne de relevé
+            if (reg.IsPointe)
+            {
+                _logger.LogWarning("GARDE ANNULATION refusée (pointé) : reglementNo={ReglementNo}", reg.No);
+                throw new InvalidOperationException($"Le règlement [{reg.Numero}] est pointé (rapproché) et ne peut pas être annulé.");
+            }
+
+            using (var connection = new System.Data.SqlClient.SqlConnection(_dbFactory.GetConnectionString()))
+            {
+                connection.Open();
+                string sqlLignes = "SELECT COUNT(1) FROM dbo.RAPP_ReleveBancaire_Ligne WHERE MV_ID = @No";
+                int count = Dapper.SqlMapper.ExecuteScalar<int>(connection, sqlLignes, new { No = reg.No });
+                if (count > 0)
+                {
+                    _logger.LogWarning("GARDE ANNULATION refusée (réservé) : reglementNo={ReglementNo}", reg.No);
+                    throw new InvalidOperationException($"Le règlement [{reg.Numero}] est réservé par un rapprochement bancaire et ne peut pas être annulé. Libérez d'abord la ligne du relevé.");
+                }
+            }
+
             // TASK-085 (Étape 3) — Résolution et appel natif DLL de CaisseManager.ReglementClientAnnuler
             var caisseManager = _kernel.Resolve<global::Tresorerie.Core.Services.CaisseManager>();
             caisseManager.SocieteManager = _kernel.GroupeService.SocieteManager;

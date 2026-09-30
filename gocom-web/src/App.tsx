@@ -39,6 +39,7 @@ interface Reglement {
   ribClient: string | null;
   modeReglementNo: number;
   isPointe: boolean;
+  lettrage?: string | null;
   datePointage: string | null;
   isComptabilise: number;
   isRemis: number;
@@ -836,7 +837,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                     </button>
                   </span>
                 )}
-                {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+                {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && !reg.lettrage && reg.isRemis === 0 && !reg.isAffecte) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
