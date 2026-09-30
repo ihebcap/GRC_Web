@@ -32,16 +32,38 @@ inventer un autre.**
    mono-requête. Avec N relevés : N requêtes `/ReleveBancaire/{id}/lignes` en parallèle, invalidées
    ensemble par un compteur de séquence unique (un ancien lot n'est jamais appliqué).
 
+## Décision PO (2026-09-30) — principe directeur
+**Pour l'utilisateur, plusieurs relevés se traitent comme un seul relevé sur son écran.** Aucune
+notion de « relevé courant » à gérer : une seule grille Relevé (union), une seule grille GRC, les
+boutons Auto / Approuver / Dérapprocher / Générer règlement / Exporter agissent sur l'ensemble.
+L'identifiant du relevé n'est qu'un **point technique** : il est ajouté **devant la lettre**
+(repère affiché `<idRelevé>-<lettre>`, ex. `12-A`, `15-A`) pour rendre le repère unique, sans que
+l'utilisateur ait à raisonner en relevés.
+
+Arbitrage de conception (retenu, à respecter) :
+- **Stockage inchangé** : la colonne `Lettrage` de `RAPP_ReleveBancaire_Ligne` garde la lettre nue
+  (« A ») — pas de migration, pas de changement de `LettrageGenerator`, données existantes intactes,
+  attribution serveur par relevé (TASK-037) inchangée.
+- Le préfixe est **composé côté front** avec `enteteId` : la ligne relevé le porte déjà ; pour le
+  règlement GRC, `ReglementService.cs:~301` lit déjà `Lettrage` dans la même table : **ajouter
+  `ReleveBancaireEnteteId` à ce SELECT** et l'exposer dans le DTO (`releveEnteteId`).
+- **Affichage** : préfixe visible seulement si **> 1 relevé** sélectionné ; avec 1 seul relevé
+  l'écran reste strictement identique à aujourd'hui (lettre nue).
+- La clé d'appariement interne est `(enteteId, lettre)` partout (`pairedLettrages`, tri,
+  `delettrerByLettrage`, `currentLettrageIndex`, filtre « Repère »).
+
 ## Objectif
 - Le combo « Relevé associé… » devient multi-sélection (cases à cocher + recherche + « Tout
-  sélectionner »), libellé compact du type « 2 relevés » si > 1.
-- Par défaut à la sélection de la banque : **comportement actuel conservé** (seul le 1er relevé est
+  sélectionner »), libellé compact « 2 relevés » si > 1.
+- Par défaut à la sélection de la banque : comportement actuel conservé (seul le 1er relevé est
   coché — évite de charger des milliers de lignes par surprise).
-- La grille Relevé affiche l'union des lignes ; nouvelle colonne **« Relevé »** (titre) pour
-  distinguer l'origine ; filtres/tri existants opérationnels sur l'union.
+- Grille Relevé = union des lignes ; colonne **« Relevé »** (titre) + filtre liste ; filtres/tri
+  existants opérationnels sur l'union.
+- Colonne « Repère » des DEUX grilles affiche `12-A` (si > 1 relevé) ; le filtre « Repère » liste ces
+  valeurs préfixées.
+- Auto, Approuver, Dérapprocher, Générer règlement (par `LigneReleveId`), compteurs et export
+  (TASK-101) fonctionnent sur l'union sans régression, sans que l'utilisateur choisisse un relevé.
 - Aucun appariement possible en croisant deux relevés par la lettre.
-- Auto, Approuver (`/validate`), Dérapprocher (`release-batch`), Générer règlement (par
-  `LigneReleveId`) fonctionnent sur l'union sans régression.
 
 ## Fichiers concernés
 - `gocom-web/src/RapprochementBancaire.tsx` (état, fetch lignes, `pairedLettrages`, tri,
@@ -49,20 +71,20 @@ inventer un autre.**
 - `gocom-web/src/ApercuComptabilisation.tsx` (`CheckboxDropdown` — extraire dans un fichier partagé
   *sans changer son rendu*, ou l'importer)
 - `GRC.API/Controllers/ReleveBancaireController.cs` (`AutoReconcileRequest`, `GenererPropositions`)
-- DTO de proposition (ajout `enteteId`) — lecture avant modification
+- `GRC.Infrastructure/Services/ReglementService.cs` (~l.291-354, SELECT réservations + `ReglementMapper` : ajout `releveEnteteId`) et DTO de proposition (ajout `enteteId`) — lecture avant modification
 
 ## Étapes d'implémentation
 1. Lire `reserve-batch`, `release-batch`, `validate` : confirmer qu'ils portent l'entête par ligne
    (sinon l'ajouter au DTO). **Signaler dans le VERIFY toute hypothèse non confirmée.**
 2. Extraire/réutiliser `CheckboxDropdown`.
 3. `selectedReleveId` → `selectedReleveIds: number[]` ; fetch parallèle + agrégation, séquence unique.
-4. Clé composite `(enteteId, lettrage)` partout où la lettre seule est comparée.
+4. Clé composite `(enteteId, lettrage)` partout où la lettre seule est comparée ; helper unique `formatRepere(enteteId, lettre, multi)` pour l'affichage.
 5. Adapter `/auto-reconcile` (liste d'entêtes, union, `enteteId` dans la réponse).
 6. Colonne « Relevé » + filtre liste.
 
 ## Scénarios de test obligatoires (RISK HIGH — le VERIFY doit les rejouer)
 1. 1 relevé sélectionné : comportement identique à avant (non-régression).
-2. 2 relevés, rapprochement manuel sur chacun : lettre « A » sur les deux → aucune fausse paire.
+2. 2 relevés, rapprochement manuel sur chacun : repères `12-A` et `15-A` distincts sur les deux grilles → aucune fausse paire ; avec 1 seul relevé, lettre nue « A ».
 3. Auto sur 2 relevés : 1=1 sur l'union ; un même règlement jamais proposé deux fois.
 4. Dérapprocher sur un relevé n'affecte pas l'autre.
 5. Approuver avec des paires venant de 2 relevés.
