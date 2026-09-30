@@ -147,6 +147,36 @@ namespace GRC.Infrastructure.Repositories
             }
         }
 
+        // TASK-100 : lignes CRÉDIT non approuvées de plusieurs relevés en une seule requête (le débit est hors périmètre).
+        // GetAllLignesExcelAsync reste inchangée (GET /{id}/lignes).
+        public async Task<List<ReleveBancaireLigne>> GetLignesCreditNonValideesAsync(IReadOnlyCollection<int> enteteIds)
+        {
+            if (enteteIds == null || enteteIds.Count == 0) return new List<ReleveBancaireLigne>();
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                // Mesuré TASK-100 S20 : « IN @Ids » (≥ ~100 paramètres), « OPENJSON + ORDER BY » et « OPENJSON + jointure P_UTILISATEUR/COALESCE »
+                // coûtent chacun ~25 s (plan / mémoire de tri) ; OPENJSON seul = ~50 ms. On lit donc les lignes seules, puis les noms
+                // des réservataires (quelques identifiants) dans une 2e requête, et on trie (DateOperation, Id) ici.
+                var lignes = (await connection.QueryAsync<ReleveBancaireLigne>(
+                    @"SELECT l.* FROM [dbo].[RAPP_ReleveBancaire_Ligne] l
+                      WHERE l.ReleveBancaireEnteteId IN (SELECT CAST([value] AS int) FROM OPENJSON(@EnteteIdsJson)) AND l.DateValidation IS NULL AND l.Credit > 0",
+                    new { EnteteIdsJson = System.Text.Json.JsonSerializer.Serialize(enteteIds) })).ToList();
+
+                var userIds = lignes.Where(l => l.ReservePar_UserId.HasValue).Select(l => l.ReservePar_UserId!.Value).Distinct().ToList();
+                if (userIds.Count > 0)
+                {
+                    var noms = (await connection.QueryAsync<(int Id, string? Nom)>(
+                        @"SELECT u.UT_Id AS Id, COALESCE(NULLIF(LTRIM(RTRIM(ISNULL(u.UT_Nom, '') + ' ' + ISNULL(u.UT_Prenom, ''))), ''), u.UT_Login) AS Nom
+                          FROM [dbo].[P_UTILISATEUR] u WHERE u.UT_Id IN @Ids", new { Ids = userIds })).ToDictionary(x => x.Id, x => x.Nom);
+                    foreach (var l in lignes)
+                        if (l.ReservePar_UserId.HasValue && noms.TryGetValue(l.ReservePar_UserId.Value, out var nom)) l.ReservePar_UserName = nom;
+                }
+                return lignes.OrderBy(l => l.DateOperation).ThenBy(l => l.Id).ToList();
+            }
+        }
+
         public async Task<List<LigneEtatRapprochementDto>> GetEtatRapprochementAsync(int enteteId)
         {
             var paires = new List<LigneEtatRapprochementDto>();
@@ -265,6 +295,35 @@ namespace GRC.Infrastructure.Repositories
                     _logger.LogWarning("AUTORISATION RELEVÉ refusée : enteteId={EnteteId} hors du périmètre société societeId={SocieteId}.", enteteId, societeId);
                     throw new UnauthorizedAccessException($"Vous n'êtes pas autorisé à accéder au relevé n°{enteteId}.");
                 }
+            }
+        }
+
+        // TASK-100 — Pré-contrôle d'autorisation de plusieurs relevés en une requête.
+        // Retourne les identifiants de banque distincts des relevés ; lève si un relevé est inconnu ou hors société.
+        public async Task<List<int>> VerifierAutorisationReleveEntetesAsync(IReadOnlyCollection<int> enteteIds, int societeId)
+        {
+            var ids = (enteteIds ?? new List<int>()).Distinct().ToList();
+            if (ids.Count == 0 || ids.Any(i => i <= 0) || societeId <= 0)
+            {
+                _logger.LogWarning("AUTORISATION RELEVÉS refusée : paramètres invalides entêtes={Ids}, societeId={SocieteId}.", string.Join(",", ids), societeId);
+                throw new UnauthorizedAccessException("Paramètres d'accès invalides pour les relevés demandés.");
+            }
+
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                await connection.OpenAsync();
+                string sql = @"
+                    SELECT e.Id, e.BanqueId
+                    FROM [dbo].[RAPP_ReleveBancaire_Entete] e
+                    INNER JOIN [dbo].[vBanque] b ON b.No = e.BanqueId
+                    WHERE e.Id IN (SELECT CAST([value] AS int) FROM OPENJSON(@IdsJson)) AND b.SocieteNo = @SocieteNo";
+                var trouves = (await connection.QueryAsync<(int Id, int BanqueId)>(sql, new { IdsJson = System.Text.Json.JsonSerializer.Serialize(ids), SocieteNo = societeId })).ToList();
+                if (trouves.Select(t => t.Id).Distinct().Count() != ids.Count)
+                {
+                    _logger.LogWarning("AUTORISATION RELEVÉS refusée : entêtes={Ids} hors du périmètre société societeId={SocieteId}.", string.Join(",", ids), societeId);
+                    throw new UnauthorizedAccessException("Vous n'êtes pas autorisé à accéder à l'un des relevés demandés.");
+                }
+                return trouves.Select(t => t.BanqueId).Distinct().ToList();
             }
         }
 
@@ -443,6 +502,13 @@ namespace GRC.Infrastructure.Repositories
                         transaction.Commit();
                         return result;
                     }
+                    catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
+                    {
+                        // TASK-100 : conflit d'unicité MV_ID (course inter-relevés sous RCSI) → 409 côté contrôleur.
+                        _logger.LogInformation("RÉSERVATION : conflit d'unicité sur MV_ID (réservé entre-temps par une autre transaction) ligne={LigneReleveId}, mv={MvId}", ligneReleveId, mvId);
+                        transaction.Rollback();
+                        return null;
+                    }
                     catch (System.Exception ex)
                     {
                         _logger.LogError(ex, "RÉSERVATION rollback sur exception : ligne={LigneReleveId}, mvId={MvId}, userId={UserId}", ligneReleveId, mvId, userId);
@@ -496,7 +562,9 @@ namespace GRC.Infrastructure.Repositories
                             .ToDictionary(x => x.LigneId, x => x.EnteteId);
 
                         // 2. Verrou applock par enteteId distinct, pris une seule fois (tenu pour la transaction).
-                        var entetesDistincts = enteteParLigne.Values.Distinct().ToList();
+                        // TASK-100 : ordre croissant, identique pour tous les appelants (évite l'interblocage multi-relevés).
+                        var entetesDistincts = enteteParLigne.Values.Distinct().OrderBy(x => x).ToList();
+                        _logger.LogInformation("RÉSERVATION LOT : verrous entêtes pris dans l'ordre {Entetes}", string.Join(",", entetesDistincts));
                         var maxIndexParEntete = new Dictionary<int, int>();
                         foreach (var enteteId in entetesDistincts)
                         {
@@ -554,13 +622,24 @@ namespace GRC.Infrastructure.Repositories
                             int nextIndex = maxIndexParEntete[enteteId] + 1;
                             string lettreServeur = GRC.Application.Services.LettrageGenerator.GetLettrage(nextIndex);
 
-                            var result = await connection.QuerySingleOrDefaultAsync<ReleveBancaireLigne>(sql, new
+                            ReleveBancaireLigne? result;
+                            try
                             {
-                                Lettrage = lettreServeur,
-                                MvId = item.MvId,
-                                UserId = userId,
-                                LigneReleveId = item.LigneReleveId
-                            }, transaction);
+                                result = await connection.QuerySingleOrDefaultAsync<ReleveBancaireLigne>(sql, new
+                                {
+                                    Lettrage = lettreServeur,
+                                    MvId = item.MvId,
+                                    UserId = userId,
+                                    LigneReleveId = item.LigneReleveId
+                                }, transaction);
+                            }
+                            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
+                            {
+                                // TASK-100 : sous RCSI, le NOT EXISTS ne voit pas la réservation non validée d'une autre transaction ;
+                                // l'index unique UX_RAPP_Ligne_MVID tranche → simple conflit sur cette paire.
+                                _logger.LogInformation("RÉSERVATION LOT : conflit d'unicité sur MV_ID (réservé entre-temps par une autre transaction) ligne={LigneReleveId}, mv={MvId}", item.LigneReleveId, item.MvId);
+                                result = null;
+                            }
 
                             if (result == null)
                             {
@@ -629,7 +708,9 @@ namespace GRC.Infrastructure.Repositories
                             .ToDictionary(x => x.LigneId, x => x.EnteteId);
 
                         // 2. Verrou applock par enteteId distinct, pris une seule fois (tenu pour la transaction).
-                        var entetesDistincts = enteteParLigne.Values.Distinct().ToList();
+                        // TASK-100 : ordre croissant, identique pour tous les appelants (évite l'interblocage multi-relevés).
+                        var entetesDistincts = enteteParLigne.Values.Distinct().OrderBy(x => x).ToList();
+                        _logger.LogInformation("LIBÉRATION LOT : verrous entêtes pris dans l'ordre {Entetes}", string.Join(",", entetesDistincts));
                         foreach (var enteteId in entetesDistincts)
                         {
                             var lockResult = await connection.ExecuteScalarAsync<int>(

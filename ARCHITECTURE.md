@@ -21,3 +21,9 @@ colonnes, ou un filtre texte/plage sans accord PO préalable.
 **Écarts actés** : si le PO juge le mode `list` inutilisable sur une colonne à forte
 cardinalité (montant, date), documenter l'écart dans le VERIFY — ne pas revenir en arrière
 silencieusement (cf. TASK-063).
+
+## Sélecteur à cases à cocher
+
+Toute liste déroulante multi-sélection DOIT réutiliser `gocom-web/src/CheckboxDropdown.tsx`
+(recherche, « (TOUT SÉLECTIONNER) », prop optionnelle `disabled`) — extrait d'`ApercuComptabilisation`
+(TASK-100). **Interdit** d'en inventer un autre (même esprit que § Grilles de données).

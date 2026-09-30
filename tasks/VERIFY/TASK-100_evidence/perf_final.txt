@@ -1,0 +1,5 @@
+banque 1: 141 relevés | POST /lignes : 200, 2391 lignes, 925 Ko, 628 ms | 141 × GET : 4733 lignes, 1796 Ko, 52719 ms | charge ÷ 1.9
+banque 2: 17 relevés | POST /lignes : 200, 336 lignes, 139 Ko, 38 ms | 17 × GET : 685 lignes, 264 Ko, 425529 ms | charge ÷ 1.9
+banque 3: 1 relevés | POST /lignes : 200, 36 lignes, 13 Ko, 33 ms | 1 × GET : 37 lignes, 14 Ko, 192 ms | charge ÷ 1.0
+banque 4: 1 relevés | POST /lignes : 200, 44 lignes, 18 Ko, 34 ms | 1 × GET : 49 lignes, 20 Ko, 11 ms | charge ÷ 1.1
+banque 5: 1 relevés | POST /lignes : 200, 24 lignes, 9 Ko, 33 ms | 1 × GET : 47 lignes, 17 Ko, 17 ms | charge ÷ 1.9

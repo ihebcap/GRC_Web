@@ -5,6 +5,7 @@ import { API_BASE } from './api';
 import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2, XCircle } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
+import { CheckboxDropdown } from './CheckboxDropdown';
 import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate, matchAmount } from './utils';
 import { Settings, X } from 'lucide-react';
 
@@ -72,6 +73,7 @@ interface GrcTableBodyProps {
     banquesMap: Record<number, any>;
     currentUserId: number;
     loadedMvIds: Set<number>;
+    showPrefix: boolean;
 }
 
 const getLettrageColor = (lettrage: string | null) => {
@@ -184,14 +186,14 @@ const areEqual = (prevProps: any, nextProps: any) => {
 
 const GrcTableRowMemo = React.memo(GrcTableRow, areEqual);
 
-const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId, loadedMvIds }: GrcTableBodyProps) => {
+const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId, loadedMvIds, showPrefix }: GrcTableBodyProps) => {
     // console.log(`[RENDER] GrcTableBody with ${rows.length} rows.`);
     return (
     <tbody>
         {rows.map(row => {
             // TASK-106 — primitives calculées par ligne (compatibles avec la mémoïsation)
             const reservedElsewhere = !!row.lettrage && !loadedMvIds.has(row.mv_Id);
-            const repere = formatRepere(row.releveEnteteId, row.lettrage, reservedElsewhere);
+            const repere = formatRepere(row.releveEnteteId, row.lettrage, showPrefix || reservedElsewhere);
             return (
             <GrcTableRowMemo
                 key={row.mv_Id}
@@ -218,13 +220,16 @@ interface ReleveTableBodyProps {
     onSelect: (id: number) => void;
     currentUserId: number;
     onGenererReglement: (row: LigneReleve) => void;
+    showPrefix: boolean;
+    showReleveCol: boolean;
+    releveLabels: Record<number, string>;
 }
 
-const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId, onGenererReglement }: any) => {
+const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId, onGenererReglement, repere, showReleveCol, releveLabel }: any) => {
     // releveRowRenderCount++;
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
     return (
-    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(row.lettrage) } : {}}>
+    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(repere) } : {}}>
         <td>
             {isLockedByOther ? (
                 <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={`Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}`}>
@@ -239,7 +244,8 @@ const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId, o
                 />
             )}
         </td>
-        <td className="lettrage-cell">{row.lettrage}</td>
+        {showReleveCol && <td title={releveLabel} style={{whiteSpace: 'nowrap', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis'}}>{releveLabel}</td>}
+        <td className="lettrage-cell">{repere}</td>
         <td>{row.dateOperation}</td>
         <td>{row.dateValeur}</td>
         <td>{row.libelle}</td>
@@ -273,7 +279,7 @@ const ReleveTableRow = React.memo(({ row, isSelected, onSelect, currentUserId, o
     );
 });
 
-const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, currentUserId, onGenererReglement }: ReleveTableBodyProps) => (
+const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, currentUserId, onGenererReglement, showPrefix, showReleveCol, releveLabels }: ReleveTableBodyProps) => (
     <tbody>
         {rows.map(row => (
             <ReleveTableRow
@@ -283,6 +289,9 @@ const ReleveTableBody = React.memo(({ rows, selectedReleveLigneId, onSelect, cur
                 onSelect={onSelect}
                 currentUserId={currentUserId}
                 onGenererReglement={onGenererReglement}
+                repere={formatRepere(row.releveEnteteId, row.lettrage, showPrefix)}
+                showReleveCol={showReleveCol}
+                releveLabel={releveLabels[row.releveEnteteId] ?? `Relevé #${row.releveEnteteId}`}
             />
         ))}
     </tbody>
@@ -303,7 +312,11 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     // rbRenderCount++;
     // console.log(`[RENDER] RapprochementBancaire (Total: ${rbRenderCount})`);
     const [releves, setReleves] = useState<any[]>([]);
-    const [selectedReleveId, setSelectedReleveEnteteId] = useState<number | ''>('');
+    // TASK-100 : sélection multiple de relevés (traités comme un seul relevé par l'utilisateur).
+    // Déclarés ici, avant tout effet/mémo/callback qui les cite (zone morte temporelle masquée par @ts-nocheck).
+    const [selectedReleveIds, setSelectedReleveIds] = useState<number[]>([]);
+    const selectedReleveIdsKey = [...selectedReleveIds].sort((a, b) => a - b).join(',');
+    const showPrefix = selectedReleveIds.length > 1;
     const [lignesReleve, setLignesReleve] = useState<LigneReleve[]>([]);
     const [reglementsGrc, setReglementsGrc] = useState<ReglementGrc[]>([]);
     const [loadingGrc, setLoadingGrc] = useState(false);
@@ -323,6 +336,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         return m;
     }, [banques]);
     const [selectedBanqueId, setSelectedBanqueId] = useState<number | ''>('');
+    const selectedBanqueIdRef = React.useRef<number | ''>('');
+    selectedBanqueIdRef.current = selectedBanqueId;
+    const releveLabels = React.useMemo(() => {
+        const m: Record<number, string> = {};
+        releves.forEach((r: any) => { m[r.id] = `${r.titre} (#${r.id})`; });
+        return m;
+    }, [releves]);
     const [currentLettrageIndex, setCurrentLettrageIndex] = useState(1); // 1 = 'A'
 
     // Filtre de date — 2 niveaux :
@@ -380,6 +400,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const fetchGrcSeqRef = React.useRef(0);
     const fetchRelevesSeqRef = React.useRef(0);
     const fetchLignesReleveSeqRef = React.useRef(0);
+    const refreshRelevesSeqRef = React.useRef(0);
     const isFetchingRelevesRef = React.useRef(false);
     // Synchronisation synchrone pendant le render (valeurs toujours à jour avant callbacks)
     selectedGrcIdRef.current = selectedGrcId;
@@ -656,6 +677,16 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
     };
 
+    // TASK-100 : remise à zéro des sélections et des filtres « Repère » / « Relevé » (changement de banque ou de sélection).
+    // Retourne `prev` si rien à retirer, pour ne pas provoquer de rendus inutiles.
+    const resetSelectionEtFiltres = () => {
+        setSelectedGrcId(null);
+        setSelectedReleveLigneId(null);
+        setPendingReservation(null);
+        setReleveFilters(prev => { if (!prev.lettrage && !prev.releveEnteteId) return prev; const next = { ...prev }; delete next.lettrage; delete next.releveEnteteId; return next; });
+        setGrcFilters(prev => { if (!prev.lettrage) return prev; const next = { ...prev }; delete next.lettrage; return next; });
+    };
+
     // Chargement des relevés bancaires — dépend uniquement de la banque (indépendant de la période)
     React.useEffect(() => {
         const seq = ++fetchRelevesSeqRef.current;
@@ -665,14 +696,16 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         if (!selectedBanqueId) {
             isFetchingRelevesRef.current = false;
             setReleves([]);
-            setSelectedReleveEnteteId('');
+            setSelectedReleveIds([]);
+            resetSelectionEtFiltres();
             setLignesReleve([]);
             setLoadingReleve(false);
             return;
         }
 
         isFetchingRelevesRef.current = true;
-        setSelectedReleveEnteteId('');
+        setSelectedReleveIds([]);
+        resetSelectionEtFiltres();
         setLignesReleve([]);
         setLoadingReleve(true);
 
@@ -682,9 +715,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 isFetchingRelevesRef.current = false;
                 setReleves(res.data);
                 if (res.data && res.data.length > 0) {
-                    setSelectedReleveEnteteId(res.data[0].id);
+                    setSelectedReleveIds([res.data[0].id]);
                 } else {
-                    setSelectedReleveEnteteId('');
+                    setSelectedReleveIds([]);
                     setLignesReleve([]);
                     setLoadingReleve(false);
                 }
@@ -697,18 +730,20 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             });
     }, [selectedBanqueId]);
 
+    // TASK-100 : une seule requête pour l'union des relevés cochés (tout ou rien), un seul jeton de séquence.
     React.useEffect(() => {
         const seq = ++fetchLignesReleveSeqRef.current;
-        if (!selectedReleveId) {
+        resetSelectionEtFiltres();
+        if (selectedReleveIds.length === 0) {
             setLignesReleve([]);
             if (!isFetchingRelevesRef.current) {
                 setLoadingReleve(false);
             }
             return;
         }
-        
+
         setLoadingReleve(true);
-        axios.get(`${API_BASE}/ReleveBancaire/${selectedReleveId}/lignes`)
+        axios.post(`${API_BASE}/ReleveBancaire/lignes`, { releveBancaireEnteteIds: [...selectedReleveIds].sort((a, b) => a - b) })
             .then(res => {
                 if (seq !== fetchLignesReleveSeqRef.current) return;
                 setLignesReleve(res.data.map((l: any) => ({
@@ -732,12 +767,14 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             .catch(err => {
                 if (seq !== fetchLignesReleveSeqRef.current) return;
                 console.error(err);
+                setLignesReleve([]);
+                showToast(err.response?.status === 403 ? "Accès refusé à l'un des relevés sélectionnés." : "Impossible de charger les lignes des relevés sélectionnés.", 'error');
             })
             .finally(() => {
                 if (seq === fetchLignesReleveSeqRef.current) setLoadingReleve(false);
             });
 
-    }, [selectedReleveId]);
+    }, [selectedReleveIdsKey]);
 
     // Recalculer l'index de départ du lettrage quand le relevé est chargé
     React.useEffect(() => {
@@ -754,7 +791,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     }, [lignesReleve.length]);
 
     const handleAutoReconcile = async () => {
-        if (!selectedReleveId) {
+        if (selectedReleveIds.length === 0) {
             showToast("Veuillez sélectionner un relevé bancaire.", "warning");
             return;
         }
@@ -763,7 +800,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             const user = userStr ? JSON.parse(userStr) : {};
             // Même périmètre que la grille GRC : les dates appliquées (Du/Au)
             const response = await axios.post(`${API_BASE}/ReleveBancaire/auto-reconcile`, {
-                releveBancaireEnteteId: Number(selectedReleveId),
+                releveBancaireEnteteIds: selectedReleveIds,
                 banqueId: selectedBanqueId ?? 0,
                 dateDebut: appliedDateDebut || null,
                 dateFin: appliedDateFin ? `${appliedDateFin}T23:59:59` : null
@@ -1019,6 +1056,22 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
     };
 
+    // TASK-100 : relit la liste des relevés après une approbation (un relevé 100 % approuvé disparaît du combo).
+    // Compteur DÉDIÉ, et vérification de la banque au retour (ne jamais écraser la liste d'une autre banque).
+    const refreshReleves = React.useCallback(() => {
+        const banque = selectedBanqueIdRef.current;
+        if (!banque || isFetchingRelevesRef.current) return;
+        const seq = ++refreshRelevesSeqRef.current;
+        axios.get(`${API_BASE}/ReleveBancaire?banqueId=${banque}&nonRapprochesSeulement=true`)
+            .then(res => {
+                if (seq !== refreshRelevesSeqRef.current || banque !== selectedBanqueIdRef.current) return;
+                const liste = res.data || [];
+                setReleves(liste);
+                setSelectedReleveIds(prev => { const next = prev.filter(id => liste.some((r: any) => r.id === id)); return next.length === prev.length ? prev : next; });
+            })
+            .catch(err => console.error(err));
+    }, []);
+
     const handleApprouver = async () => {
         // TASK-106 : appariement par MV_ID ; seules MES réservations sont envoyées, seules les paires APPROUVÉES sont retirées.
         const currentUserId = Number(user?.no) || 0;
@@ -1059,6 +1112,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             const mvApprouves = new Set<number>(approuvees.map(p => Number(p.grcReglementId)));
             setLignesReleve(prev => prev.filter(l => !idsApprouves.has(l.id)));
             setReglementsGrc(prev => prev.filter(r => !mvApprouves.has(Number(r.mv_Id))));
+            if (approuvees.length > 0) refreshReleves();
 
             // Toast unique (3 s) : le message « sans règlement » est ajouté au résultat, jamais un second showToast.
             const suffixe = sansReglement.length > 0 ? `\n\n${msgSansReglement}` : '';
@@ -1108,7 +1162,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         if (key === 'extrait') return r.extraitNum;
         if (key === 'montant') return r.montantDeviseSociete || r.montant;
         if (key === 'solde') return r.soldeDeviseSociete;
-        if (key === 'lettrage') return formatRepere(r.releveEnteteId, r.lettrage, !!r.lettrage && !loadedMvIds.has(r.mv_Id));
+        if (key === 'lettrage') return formatRepere(r.releveEnteteId, r.lettrage, showPrefix || (!!r.lettrage && !loadedMvIds.has(r.mv_Id)));
         return r[key as keyof typeof r];
     };
 
@@ -1146,7 +1200,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [reglementsGrc, lettrageFilter, grcFilters, isPaired, loadedMvIds]);
+    }), [reglementsGrc, lettrageFilter, grcFilters, isPaired, loadedMvIds, showPrefix]);
 
     const filteredLignes = React.useMemo(() => lignesReleve.filter(l => {
         // Partie Encaissement : n'afficher que les lignes en crédit (credit > 0)
@@ -1154,7 +1208,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         if (lettrageFilter === 'oui' && !l.lettrage) return false;
         for (const [key, filter] of Object.entries(releveFilters)) {
             if (filter.type === 'list' && Array.isArray(filter.value) && filter.value.length > 0) {
-                if (!filter.value.includes(String(l[key as keyof LigneReleve]))) return false;
+                const affiche = key === 'lettrage' ? formatRepere(l.releveEnteteId, l.lettrage, showPrefix) : String(l[key as keyof LigneReleve]);
+                if (!filter.value.includes(affiche)) return false;
             } else if (filter.type === 'text' && filter.value) {
                 if (key === 'credit') {
                     if (!matchAmount(l.credit, filter.value)) return false;
@@ -1165,7 +1220,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [lignesReleve, lettrageFilter, releveFilters, isPaired]);
+    }), [lignesReleve, lettrageFilter, releveFilters, isPaired, showPrefix]);
 
     const sortedReglements = React.useMemo(() => [...filteredReglements].sort((a, b) => {
         // TASK-106 : rang 0 = apparié ici, 1 = réservé ailleurs, 2 = libre
@@ -1191,13 +1246,14 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return grcSort.desc ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [filteredReglements, grcSort, loadedMvIds]);
+    }), [filteredReglements, grcSort, loadedMvIds, showPrefix]);
 
     const sortedLignes = React.useMemo(() => [...filteredLignes].sort((a, b) => {
         const aL = !!a.lettrage, bL = !!b.lettrage;
         if (aL !== bL) return aL ? -1 : 1;
-        if (aL && bL && a.lettrage !== b.lettrage) return String(a.lettrage).localeCompare(String(b.lettrage));
+        if (aL && bL) { const c = comparePairKey(a, b); if (c !== 0) return c; }
         if (!releveSort) return 0;
+        if (releveSort.key === 'lettrage') { const c = comparePairKey(a, b); return releveSort.desc ? -c : c; }
         const valA = (a as any)[releveSort.key];
         const valB = (b as any)[releveSort.key];
         if (valA === valB) return 0;
@@ -1208,7 +1264,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return releveSort.desc ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [filteredLignes, releveSort]);
+    }), [filteredLignes, releveSort, showPrefix]);
 
     // Mémoïsation des options de filtre GRC (indexées par colonne) pour éviter
     // de recalculer pour toutes les colonnes à chaque re-render (sélection de ligne, etc.)
@@ -1222,7 +1278,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reglementsGrc, availableColumns, loadedMvIds]);
+    }, [reglementsGrc, availableColumns, loadedMvIds, showPrefix]);
 
     const getGrcFilterOptions = React.useCallback((key: string) => {
         return grcFilterOptionsMap[key];
@@ -1230,14 +1286,21 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
     // Mémoïsation des options de filtre relevé
     const releveFilterOptionsMap = React.useMemo(() => {
-        const keys: (keyof LigneReleve)[] = ['lettrage', 'libelle', 'reference', 'code'];
+        const keys: (keyof LigneReleve)[] = ['libelle', 'reference', 'code'];
         const map: Record<string, {label: string, value: string}[] | undefined> = {};
         for (const key of keys) {
             const unique = Array.from(new Set(lignesReleve.map(l => l[key]))).filter(Boolean);
             map[key] = unique.map(u => ({label: String(u), value: String(u)})).sort((a,b) => a.label.localeCompare(b.label));
         }
+        // TASK-100 : repères = valeurs AFFICHÉES (préfixées si > 1 relevé), triées par (relevé, lettre) et non en texte.
+        const couples = new Map<string, any>();
+        lignesReleve.forEach(l => { if (l.lettrage) couples.set(`${l.releveEnteteId}|${l.lettrage}`, l); });
+        const repOptions = Array.from(new Set([...couples.values()].sort(comparePairKey).map(l => formatRepere(l.releveEnteteId, l.lettrage, showPrefix))));
+        map['lettrage'] = repOptions.map(v => ({label: v, value: v}));
+        const ids = Array.from(new Set(lignesReleve.map(l => l.releveEnteteId))).filter(id => id != null).sort((a, b) => a - b);
+        map['releveEnteteId'] = ids.map(id => ({label: releveLabels[id] ?? `Relevé #${id}`, value: String(id)}));
         return map;
-    }, [lignesReleve]);
+    }, [lignesReleve, showPrefix, releveLabels]);
 
     const getReleveFilterOptions = React.useCallback((key: keyof LigneReleve) => {
         if (key === 'dateOperation' || key === 'dateValeur' || key === 'credit') return undefined;
@@ -1274,17 +1337,13 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         ))}
                     </select>
 
-                    <select
-                        className="toolbar-select"
-                        value={selectedReleveId}
-                        onChange={(e) => setSelectedReleveEnteteId(e.target.value ? Number(e.target.value) : '')}
+                    <CheckboxDropdown
+                        options={releves.map(r => ({ value: String(r.id), label: `#${r.id} · ${r.titre} - ${new Date(r.dateImport).toLocaleDateString()}` }))}
+                        selectedValues={selectedReleveIds.map(String)}
+                        onChange={vals => setSelectedReleveIds(vals.map(Number))}
+                        placeholder="Relevé associé…"
                         disabled={!selectedBanqueId}
-                    >
-                        <option value="">Relevé associé…</option>
-                        {releves.map(r => (
-                            <option key={r.id} value={r.id}>{r.titre} - {new Date(r.dateImport).toLocaleDateString()}</option>
-                        ))}
-                    </select>
+                    />
 
                     <select
                         className="toolbar-select"
@@ -1327,7 +1386,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         )}
                         {selectedBanqueId && releves.length === 0 && !loadingReleve ? (
                             <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                                <p style={{ fontSize: '1.125rem', marginBottom: '8px' }}>Aucun relevé importé pour cette banque.</p>
+                                <p style={{ fontSize: '1.125rem', marginBottom: '8px' }}>Aucun relevé à rapprocher pour cette banque.</p>
                                 {onNavigateToImport && (
                                     <button className="btn btn-primary" onClick={onNavigateToImport} style={{ marginTop: '16px' }}>
                                         Aller à l'import de relevé
@@ -1339,6 +1398,12 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                             <thead>
                                 <tr>
                                     <th style={{width: '40px'}}>Sel.</th>
+                                    {showPrefix && (
+                                    <th>
+                                        <span onClick={() => handleReleveSort('releveEnteteId')} style={{cursor: 'pointer'}}>Relevé {renderSortIcon(releveSort, 'releveEnteteId')}</span>
+                                        <ExcelFilter columnKey="releveEnteteId" filterType="list" options={getReleveFilterOptions('releveEnteteId')} selectedValues={releveFilters['releveEnteteId']?.value || []} onChange={(val) => setReleveFilters(prev => ({...prev, releveEnteteId: {type: 'list', value: val}}))} />
+                                    </th>
+                                    )}
                                     <th>
                                         <span onClick={() => handleReleveSort('lettrage')} style={{cursor: 'pointer'}}>Repère {renderSortIcon(releveSort, 'lettrage')}</span>
                                         <ExcelFilter columnKey="lettrage" filterType="list" options={getReleveFilterOptions('lettrage')} selectedValues={releveFilters['lettrage']?.value || []} onChange={(val) => setReleveFilters(prev => ({...prev, lettrage: {type: 'list', value: val}}))} />
@@ -1372,7 +1437,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     </th>
                                 </tr>
                             </thead>
-                            <ReleveTableBody rows={sortedLignes} selectedReleveLigneId={selectedReleveLigneId} onSelect={handleSelectReleve} currentUserId={Number(user?.no) || 0} onGenererReglement={handleOpenGenererModal} />
+                            <ReleveTableBody rows={sortedLignes} selectedReleveLigneId={selectedReleveLigneId} onSelect={handleSelectReleve} currentUserId={Number(user?.no) || 0} onGenererReglement={handleOpenGenererModal} showPrefix={showPrefix} showReleveCol={showPrefix} releveLabels={releveLabels} />
                         </table>
                         )}
                     </div>
@@ -1491,7 +1556,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     })}
                                 </tr>
                             </thead>
-                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} onAnnuler={handleAnnulerReglementGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} loadedMvIds={loadedMvIds} />
+                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} onAnnuler={handleAnnulerReglementGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} loadedMvIds={loadedMvIds} showPrefix={showPrefix} />
                         </table>
                     </div>
                     <div style={{padding: '0.25rem 1rem', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)'}}>

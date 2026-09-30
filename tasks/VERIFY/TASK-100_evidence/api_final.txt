@@ -1,0 +1,72 @@
+  OK : login
+RCSI = 1 | base GR_GOCOM@DESKTOP-2VCUE93
+IDS {"RA":1221,"RB":1222,"RC":1223,"RE":1224,"RD":1225,"A1":6425,"A2":6426,"A3":6427,"A4":6428,"Ad":6429,"B1":6430,"B2":6431,"B3":6432,"C1":6433,"Cd":6434,"E1":6435,"E2":6436,"D1":6437,"G":{"G1":23080,"G2":23081,"G3":23084,"G4":23088,"G5":23089,"G6":23100,"G7":23108}}
+
+-- S1 lignes groupées --
+  OK : 200 et 7 lignes (reçu 200/7)
+  OK : ni Ad (débit), ni C1 (approuvée), ni Cd (débit)
+  OK : releveBancaireEnteteId ∈ {RA, RB}
+  OK : ordre DateOperation puis Id (mêmes dates → Id croissant)
+  OK : COUNT(*) SQL = 7
+  OK : même forme JSON (mV_ID, reservePar_UserName)
+  OK : ancien GET /{RA}/lignes inchangé : 5 lignes dont Ad
+
+-- S2 erreurs --
+  OK : lignes [] → 400 message exact
+  OK : lignes null → 400
+  OK : lignes [0] → 400
+  OK : lignes 1001 ids → 400
+  OK : lignes [RA, inexistant] → 403 sans donnée
+  OK : lignes sans jeton → 401
+  OK : auto-reconcile [] → 400 message exact
+  OK : auto-reconcile null → 400
+  OK : auto-reconcile [0] → 400
+  OK : auto-reconcile 1001 ids → 400
+  OK : auto-reconcile [RA, inexistant] → 403 sans donnée
+  OK : auto-reconcile sans jeton → 401
+  OK : auto [RA, RD] banques différentes → 400
+  OK : auto [RA] banqueId=2 → 400
+  (401 sans claim SocieteId : non simulable avec un jeton valide ; 401 sans jeton prouvé ci-dessus)
+
+-- S3 auto sur l'union --
+  OK : [RA,RB] = A1↔G1, A2↔G2, B1↔G3, B2↔G4 exactement (reçu 4)
+  OK : G5 jamais proposé sur l'union
+  OK : [RA] = 3 propositions dont A4↔G5
+  OK : [RB] = 3 propositions dont B3↔G5
+  OK : ancien corps {releveBancaireEnteteId:RA} = [RA] (même JSON)
+  OK : les deux champs → union sans doublon (= [RA,RB])
+  JSON [RA] : [{"ligneReleveId":6425,"reglementGrcId":23080,"montant":2803.82,"lettragePropose":"A"},{"ligneReleveId":6426,"reglementGrcId":23081,"montant":2337,"lettragePropose":"B"},{"ligneReleveId":6428,"reglementGrcId":23089,"montant":379,"lettragePropose":"C"}]
+
+-- S5 réservation par lot multi-relevés / S6 ordre des verrous --
+  OK : lot [B1→G3, A1→G1] : les deux success, lettre « A » chacun (["A","A"])
+  OK : SELECT : A1 et B1 Lettrage = A, entêtes différents
+  OK : second lot → « B » et « B » consécutives sans trou (["B","B"])
+  journal : 2026-09-30 18:49:34.031 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : verrous ent�tes pris dans l'ordre 1207
+2026-09-30 19:07:15.208 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : verrous ent�tes pris dans l'ordre 1221,1222
+2026-09-30 19:07:16.003 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : verrous ent�tes pris dans l'ordre 1221,1222
+  OK : release-batch des 4 lignes
+  journal : 2026-09-30 18:50:33.530 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository LIB�RATION LOT : verrous ent�tes pris dans l'ordre 1207,1208
+2026-09-30 18:50:58.636 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository LIB�RATION LOT : verrous ent�tes pris dans l'ordre 1207,1208
+2026-09-30 19:07:16.889 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository LIB�RATION LOT : verrous ent�tes pris dans l'ordre 1221,1222
+  OK : SELECT : tout libre
+
+-- rejeu 098 S3/S5 : règlement annulé dans un lot multi-relevés --
+  OK : annulé 48469 refusé, B1 reçoit « A » : lettre non consommée ([{"ligneReleveId":6427,"mvId":48469,"success":false,"lettrage":null},{"ligneReleveId":6430,"mvId":23084,"success":true,"lettrage":"A"}])
+  OK : unitaire sur annulé → 409 (409)
+
+-- S7 conflit d'unicité inter-relevés (RCSI) --
+  OK : RCSI = 1
+  durée 5680 ms ; réponse 200 [{"ligneReleveId":6432,"mvId":23089,"success":false,"lettrage":null},{"ligneReleveId":6430,"mvId":23084,"success":true,"lettrage":"A"}]
+  OK : la requête a bien attendu la transaction concurrente
+  OK : HTTP 200 : B3 success=false, B1 success=true
+  lettre B1 : A
+  SELECT : 6427|23089|Z|2 ; 6430|23084|A|1 ; 6432|NULL|NULL|NULL
+  journal : 2026-09-30 18:44:24.464 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6380, mv=23089
+2026-09-30 18:44:40.485 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6380, mv=23089
+2026-09-30 19:07:26.748 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6432, mv=23089
+  OK : unitaire B3→G5 pendant la transaction A → 409 (409 {"message":"Ligne ou règlement déjà réservé.","detail":{"ReservePar_UserId":2,"DateReservation":"2026-09-30T20:07:28.347"}}, 5598 ms)
+  journal : 2026-09-30 18:44:40.485 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6380, mv=23089
+2026-09-30 19:07:26.748 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION LOT : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6432, mv=23089
+2026-09-30 19:07:36.345 [INF] GRC.Infrastructure.Repositories.ReleveBancaireRepository R�SERVATION : conflit d'unicit� sur MV_ID (r�serv� entre-temps par une autre transaction) ligne=6432, mv=23089
+
+RÉSULTAT : PASS

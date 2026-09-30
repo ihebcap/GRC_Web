@@ -1,0 +1,97 @@
+U1 = Admin (id 1, admin=true) ; base GR_GOCOM@DESKTOP-2VCUE93 ; RCSI=1
+IDS {"J":{"RA":1226,"RB":1227,"RC":1228,"L":{"A1":6438,"A2":6439,"A3":6440,"A4":6441,"B1":6442,"B2":6443,"B3":6444},"G":[27059,27072,27080,27081,27088]},"J2":{"RA":1229,"RB":1230},"J3":{"RA":1232,"RB":1233},"J4":{"RA":1235,"RB":1236},"RD":1238,"RE":1239,"E1":6475,"E2":6476,"gE":[28676,28692]}
+
+--- S19 : combo ---
+  OK : combo désactivé (not-allowed) sans banque
+  OK : clic sans banque : le panneau ne s'ouvre pas
+  OK : seul le relevé le plus récent (RE #1239) est coché (#1239)
+  OK : RC #1228 (100 % approuvé + débit) n'est PAS listé
+  OK : RA et RB listés
+  OK : libellé « #id · titre - date » (#1239 · T100-RE 20:08:14 - 30/09/2026)
+  OK : recherche filtre la liste
+  OK : « (TOUT SÉLECTIONNER) » sur le résultat filtré (118 cochés)
+  OK : panneau entièrement visible (non rogné) : {"x":800.078125,"y":58,"width":220,"height":280}
+
+--- S8 : non-régression mono (RA seul) ---
+  OK : pas de colonne « Relevé » (1 seul relevé)
+  OK : 4 lignes crédit (A1..A4) — pas de Ad débit (4)
+  compteur : [ '4 élément(s) affiché(s)', '82 élément(s) affiché(s)' ]
+  OK : réservation manuelle mono : lettre « A »
+  OK : repère nu « A » (sans préfixe) côté relevé
+  OK : repère nu « A » côté GRC
+  OK : Dérapprocher mono : libre
+  OK : Auto mono [RA] : 3 correspondances (A1,A2,A4)
+  OK : corps auto = releveBancaireEnteteIds:[RA] ({"releveBancaireEnteteIds":[1226],"banqueId":1,"dateDebut":"2026-04-15","dateFin":"2026-04-15T23:59:59"})
+
+--- S11 : manuel sur 2 relevés (RA + RB) / S16 colonne Relevé ---
+  OK : union : 7 lignes (7)
+  OK : colonne « Relevé » visible (en-tête)
+  OK : libellé de colonne « titre (#id) » :  T100-RA 20:07:39 (#1226) 30/09/2026 30/09/2026 T100 A1 A1 A1 3 651,00 MAD Générer règleme
+  OK : repères relevé 1226-A / 1227-A
+  OK : mêmes repères préfixés côté GRC
+  couleurs de fond : A1=rgba(249, 168, 212, 0.25) B1=rgba(253, 164, 175, 0.25) (distinctes)
+  OK : filtre « Repère » : valeurs préfixées listées
+  OK : clic A1 → release-batch [A1] seul (release-batch [{"ligneReleveId":6438}])
+  OK : SELECT : A1 libre, B1/G3 intacts (6438:-/- 6442:A/27080)
+
+--- S15 : décocher RB avec des réservations en cours ---
+  OK : les lignes de RB disparaissent
+  OK : RA seul : lettre nue « A »
+  OK : G3 « réservé ailleurs » : cadenas #1227, repère 1227-A
+  OK : clic sur G3 : aucun appel
+  OK : SELECT : B1 toujours réservée
+  OK : RB recoché : G3 de nouveau apparié (case cochée, sans cadenas)
+
+--- S12 : Auto + Dérapprocher sur 2 relevés ---
+  OK : toast « 4 correspondance(s) »
+  OK : corps auto = 2 relevés ({"releveBancaireEnteteIds":[1226,1227],"banqueId":1,"dateDebut":"2026-04-15","dateFin":"2026-04-15T23:59:59"})
+  OK : A3, A4, B3 restent libres ; G5 attribué à personne
+  repères : 1226-A 1226-B 1227-A 1227-B
+  OK : repères RA-A, RA-B, RB-A, RB-B
+  OK : Dérapprocher : tout libre (SELECT)
+
+--- S16 : colonne Relevé / filtres remis à zéro ---
+  OK : filtre liste « Relevé » : libellés titre (#id)
+  OK : retour à 1 relevé : colonne « Relevé » disparue
+
+--- S9 : sélections rapides, jamais de lot périmé ---
+  OK : après toutes les réponses : lignes de RA ET RB (7 lignes)
+  OK : décocher RB pendant un chargement : affichage final = RA seul (4 lignes)
+
+--- S10 : échec de chargement ---
+  OK : 500 : grille vidée + toast « Impossible de charger… »
+  OK : 403 : grille vidée + toast « Accès refusé… »
+  OK : retour à une sélection valide : rechargement normal (7 lignes)
+
+--- S13 : Approuver sur l'union (4 paires) ---
+  OK : corps validate = 4 paires (2 RA + 2 RB) : [[6447,27208],[6448,27226],[6451,27228],[6452,27232]]
+  OK : réponse validate successCount=4 ({"s":true,"ok":4,"ko":0})
+  OK : les 4 lignes et règlements disparaissent (reste 3 lignes : A3, A4, B3)
+  OK : RA et RB restent dans le combo (A3/A4/B3 non approuvées)
+  SQL : 6447:valide 6448:valide 6451:valide 6452:valide
+
+--- S13 variante : échec partiel (G2 pointé par ailleurs) ---
+  pointage externe de G2 : 200 {"success":true,"successCount":1,"errorCount":0,"errors":[]} | MV_Point = 1
+  OK : failedLigneIds = [A2] ([6457])
+  OK : B2↔G4 approuvée (retirée), A2 reste
+  OK : message d'erreur dans le toast
+  OK : RA reste listé
+
+--- S14 : relevé 100 % approuvé disparaît du combo sans rechargement ---
+  OK : RE seul : 2 lignes
+  OK : RE #1239 disparaît du combo (sans rechargement)
+  OK : et de la sélection
+  OK : grille Relevé vide, pas de message d'erreur
+  OK : RC jamais listé
+
+--- S17 : changement de banque ---
+  OK : banque 2 : sélection remise à zéro, seul RD #1238 coché
+  OK : aucune ligne de l'ancienne banque affichée
+  OK : retour banque 1 : un seul relevé coché (#1236, le plus récent)
+  OK : aucune ligne de RA affichée (RA non coché)
+
+--- S16 : ordre 9-A avant 12-A (mocks) ---
+  OK : grille Relevé : 9-A avant 12-A
+  OK : grille GRC : 9-A avant 12-A
+
+RÉSULTAT : PASS

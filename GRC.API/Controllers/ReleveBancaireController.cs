@@ -83,6 +83,41 @@ namespace GRC.API.Controllers
             }
         }
 
+        private const int MaxReleveIds = 1000;
+
+        // TASK-100 : liste dédoublonnée + contrôles de forme communs à POST lignes et auto-reconcile. Retourne le message d'erreur 400 ou null.
+        private static string? ValiderIdsReleves(List<int> ids)
+        {
+            if (ids.Count == 0) return "Aucun relevé sélectionné.";
+            if (ids.Any(i => i <= 0)) return "Identifiant de relevé invalide.";
+            if (ids.Count > MaxReleveIds) return "Trop de relevés demandés (maximum 1000).";
+            return null;
+        }
+
+        // TASK-100 : lignes crédit non approuvées de plusieurs relevés, en une requête (tout ou rien).
+        [HttpPost("lignes")]
+        public async Task<IActionResult> GetLignesMulti([FromBody] LignesReleveRequest request)
+        {
+            if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId))
+                return Unauthorized();
+
+            var ids = (request?.ReleveBancaireEnteteIds ?? new List<int>()).Distinct().ToList();
+            var erreur = ValiderIdsReleves(ids);
+            if (erreur != null) return BadRequest(new { message = erreur });
+
+            try
+            {
+                await _releveRepository.VerifierAutorisationReleveEntetesAsync(ids, societeId);
+                var lignes = await _releveRepository.GetLignesCreditNonValideesAsync(ids);
+                return Ok(lignes);
+            }
+            catch (System.UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "LIGNES refusé (autorisation) : societeId={SocieteId}, entêtes={Ids}", societeId, string.Join(",", ids));
+                return Forbid();
+            }
+        }
+
         [HttpGet("{id}/etat")]
         public async Task<IActionResult> GetEtatRapprochement(int id)
         {
@@ -130,7 +165,34 @@ namespace GRC.API.Controllers
         {
             if (!int.TryParse(User.FindFirst("SocieteId")?.Value, out int societeId)) return Unauthorized();
 
-            var toutesLesLignes = await _releveRepository.GetAllLignesExcelAsync(request.ReleveBancaireEnteteId);
+            // TASK-100 : union des relevés demandés (nouveau champ + ancien champ mono-relevé), sans doublon.
+            var ids = (request.ReleveBancaireEnteteIds ?? new List<int>()).ToList();
+            if (request.ReleveBancaireEnteteId > 0) ids.Add(request.ReleveBancaireEnteteId);
+            ids = ids.Distinct().ToList();
+            var erreurIds = ValiderIdsReleves(ids);
+            if (erreurIds != null) return BadRequest(new { message = erreurIds });
+
+            // Contrôle de société sur chaque relevé, AVANT toute lecture de données.
+            List<int> banquesReleves;
+            try
+            {
+                banquesReleves = await _releveRepository.VerifierAutorisationReleveEntetesAsync(ids, societeId);
+            }
+            catch (System.UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "AUTO-RAPPROCHEMENT refusé (autorisation) : societeId={SocieteId}, entêtes={Ids}", societeId, string.Join(",", ids));
+                return Forbid();
+            }
+
+            if (banquesReleves.Count > 1)
+                return BadRequest(new { message = "Les relevés sélectionnés n'appartiennent pas tous à la même banque." });
+            if (request.BanqueId.HasValue && request.BanqueId.Value > 0 && request.BanqueId.Value != banquesReleves[0])
+                return BadRequest(new { message = "Les relevés sélectionnés n'appartiennent pas à la banque demandée." });
+
+            _logger.LogInformation("AUTO-RAPPROCHEMENT entrée : societeId={SocieteId}, entêtes={Ids}, banqueId={BanqueId}, période={Debut:yyyy-MM-dd}→{Fin:yyyy-MM-dd}",
+                societeId, string.Join(",", ids), request.BanqueId, request.DateDebut, request.DateFin);
+
+            var toutesLesLignes = await _releveRepository.GetLignesCreditNonValideesAsync(ids);
             var lignesExcel = toutesLesLignes.Where(l => string.IsNullOrEmpty(l.Lettrage)).ToList();
             
             int startIndex = 1;
@@ -175,7 +237,9 @@ namespace GRC.API.Controllers
             }).ToList();
             
             var propositions = _reconciliationEngine.CalculerPropositions(lignesExcel, reglementsGrc, startIndex);
-            
+            _logger.LogInformation("AUTO-RAPPROCHEMENT sortie : {NbLignesLibres} ligne(s) libre(s), {NbReglements} règlement(s) candidat(s), {NbPropositions} proposition(s)",
+                lignesExcel.Count, reglementsGrc.Count, propositions.Count());
+
             return Ok(propositions);
         }
 
@@ -455,9 +519,16 @@ namespace GRC.API.Controllers
         }
     }
 
+    public class LignesReleveRequest
+    {
+        public List<int>? ReleveBancaireEnteteIds { get; set; }
+    }
+
     public class AutoReconcileRequest
     {
         public int ReleveBancaireEnteteId { get; set; }
+        // TASK-100 : multi-relevés (le champ mono-relevé ci-dessus reste accepté).
+        public List<int>? ReleveBancaireEnteteIds { get; set; }
         public int? BanqueId { get; set; }
         public System.DateTime? DateDebut { get; set; }
         public System.DateTime? DateFin { get; set; }

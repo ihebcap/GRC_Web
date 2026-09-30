@@ -1,0 +1,18 @@
+U1 = Admin (id 1, admin=true) ; base GR_GOCOM@DESKTOP-2VCUE93 ; RCSI=1
+IDS {"RA":1252,"RB":1253,"A3":6489,"B1":6490,"montant":"3042.76"}
+--- S18 : Generer reglement depuis union (RA + RB) ---
+  (chargement GRC : HTTP 500, nouvel essai 1)
+  (chargement GRC : HTTP 500, nouvel essai 2)
+  (chargement GRC : HTTP 500, nouvel essai 3)
+  (chargement GRC : HTTP 500, nouvel essai 4)
+  (chargement GRC : HTTP 500, nouvel essai 5)
+  OK : union RA+RB : 2 lignes (A3, B1)
+  OK : colonne « Relevé » visible
+  ul: IMONEY08 — CLIENT DE TEST (liste simulee)
+  réponse generer-reglement : 400 {"success":false,"reglementNo":null,"reglementNumero":null,"erreur":"Timeout expired.  The timeout period elapsed prior to completion of the operation or the server is not responding."}
+  OK : corps generer-reglement : ligneReleveId = A3 ({"ligneReleveId":6489,"clientCode":"IMONEY08","caisseCode":"AGENCE08","mvReference":"A3"}) — client « IMONEY08 — CLIENT DE TEST (liste simulee) »
+Sqlcmdÿ: erreurÿ: Microsoft ODBC Driver 17 for SQL Serverÿ: Impossible de terminer le processus de connexion en raison d'un retard dans l'ouverture de la connexion au serveur.
+  EXCEPTION Command failed: sqlcmd -I -S DESKTOP-2VCUE93 -U sa -C -d GR_GOCOM -W -h -1 -s | -Q SET NOCOUNT ON; SELECT COUNT(*) FROM RT_MOUVEMENT WHERE MV_Montant=3042.76
+Sqlcmdÿ: erreurÿ: Microsoft ODBC Driver 17 for SQL Serverÿ: Impossible de terminer le processus de connexion en raison d'un retard dans l'ouverture de la connexion au serveur.
+
+RESULTAT : 1 KO
