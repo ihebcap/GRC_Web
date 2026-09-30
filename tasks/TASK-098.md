@@ -4,12 +4,12 @@
 - **Domaine** : Correction (back : 1 helper + 3 gardes de 1 à 5 lignes ; front : vérification)
 - **Statut** : TODO
 - **Dépend de** : —
-- **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste)
+- **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 
 ## Contexte
-Règle PO (2026-09-30) : un règlement annulé n'apparaît **que dans la liste des règlements**, avec un
-flag (TASK-104). Il ne doit **ni apparaître ni être rapproché** dans l'écran Rapprochement, et ne doit
-pas être comptabilisé (TASK-103).
+Règle PO (2026-09-30) : **l'annulation d'un règlement vaut suppression.** Un règlement annulé n'apparaît
+**que dans la liste des règlements**, avec un flag (TASK-104). Il n'est **jamais proposé** : ni dans
+l'écran Rapprochement (cette TASK), ni dans la comptabilisation (TASK-103).
 
 La demande initiale (« 1 ligne front ») ne suffisait pas : l'analyse approfondie du 2026-09-30 montre
 que l'annulé est aussi éligible à l'auto-rapprochement, à la réservation et (indirectement) à la
@@ -65,9 +65,11 @@ front** : une règle unique, non contournable par un client.
    garde `IsPointe` (`:726`) ; l'exception est captée par le `catch` par élément existant.
 4. Front : lire comment le refus de réservation est affiché ; si le `message` serveur est ignoré,
    l'afficher tel quel (≤ 5 lignes), sinon le signaler dans le VERIFY. Ne pas toucher à `DEFAULT_COLUMNS`.
-5. **État des lieux (lecture seule, SELECT uniquement)** : nombre de lignes de relevé dont `MV_ID`
-   désigne un règlement `MV_Annule = 1` (réservées ou validées). Consigner le résultat dans le VERIFY.
-   **Aucun UPDATE de correction** ; si le résultat est > 0, le signaler au PO (voir « Points ouverts »).
+5. **État des lieux facultatif (lecture seule, SELECT uniquement)** : avant TASK-105, rien n'interdisait
+   d'annuler un règlement déjà réservé ou pointé. Compter les lignes de relevé dont `MV_ID` désigne un
+   règlement `MV_Annule = 1` (cas historiques). Consigner le nombre dans le VERIFY, ou « non vérifié
+   (pas d'accès à la base) » — cela ne bloque pas la clôture. **Aucun UPDATE de correction** ; si le
+   nombre est > 0, le signaler au PO.
 
 ## Contraintes
 - Ne jamais bypasser une règle de sécurité ou une DLL métier GRC. Aucun UPDATE SQL sur table métier.
@@ -75,13 +77,10 @@ front** : une règle unique, non contournable par un client.
 - **Aucun changement du moteur strict 1=1** (son refus de deviner est voulu) : on ne filtre que
   l'ensemble d'entrée.
 
-## Points ouverts (hors de cette TASK — décision PO requise)
-- **Annuler un règlement déjà réservé ou pointé** : `AnnulerReglement` (`ReglementService.cs:909`) et
-  `ValiderGardeCommune` (`:885`) ne testent ni la réservation ni le pointage. TASK-099 bloque le bouton
-  dans l'écran Rapprochement, la liste (`App.tsx:829`) ne le bloque que si pointé, pas si réservé.
-  Conséquence : ligne de relevé réservée sur un règlement annulé devenu invisible (lettrage orphelin).
-  Options : refuser côté serveur (recommandé) ou libérer automatiquement la ligne. À formaliser en TASK
-  après décision.
+## Décision PO liée (2026-09-30)
+Impossible d'annuler un règlement **réservé ou pointé** → traité dans **TASK-105** (garde serveur + bouton
+de la liste). Cela supprime à la source le risque de ligne de relevé réservée sur un règlement annulé
+devenu invisible ; seuls restent les cas historiques (étape 5).
 
 ## Checklist VALIDATION (à remplir dans VERIFY/, avec preuve datée par critère)
 - [ ] Build OK (back + front, 0 erreur)
@@ -94,7 +93,8 @@ front** : une règle unique, non contournable par un client.
       inchangée (vérifié en base), autres paires du lot réservées normalement ; vérifié aussi en admin
 - [ ] Validation (appel direct) d'une paire dont le règlement est annulé → refus, `IsPointe` inchangé
 - [ ] Moteur strict 1=1 : mêmes propositions qu'avant sur un jeu sans annulé
-- [ ] État des lieux SQL (lecture seule) consigné, avec le nombre de lignes concernées
+- [ ] État des lieux SQL (lecture seule) consigné avec le nombre de lignes concernées, ou « non vérifié »
+      avec la raison (facultatif, ne bloque pas la clôture)
 - [ ] Aucun credential/secret en dur introduit
 - [ ] Aucune dette technique silencieuse
 - [ ] Cohérent avec l'architecture

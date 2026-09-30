@@ -4,6 +4,8 @@
 - **Domaine** : Front (réutilisation d'un endpoint existant)
 - **Statut** : TODO
 - **Dépend de** : TASK-098 (le règlement annulé disparaît de la grille après l'action)
+- **Complément serveur** : TASK-105 (l'annulation d'un règlement réservé/pointé est refusée côté serveur ;
+  le message du refus est affiché tel quel, comme prévu ci-dessous)
 
 ## Contexte
 Demande PO (2026-09-30) : pouvoir annuler un règlement sans quitter l'écran de rapprochement.

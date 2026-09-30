@@ -1,43 +1,40 @@
-# TASK-103 — Comptabilisation : un règlement annulé n'est jamais listé ni comptabilisable (écran Comptabilisation)
+# TASK-103 — Comptabilisation : les règlements annulés ne sont jamais proposés (écran Comptabilisation)
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction (front, 1 ligne + vérification backend sans code)
 - **Statut** : TODO
 - **Dépend de** : —
-- **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste)
+- **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 
 ## Contexte
-Règle PO (2026-09-30) : un règlement annulé n'apparaît que dans la liste des règlements (avec un flag,
-TASK-104) ; il ne doit ni être rapproché (TASK-098) ni **apparaître dans l'écran de comptabilisation ni
-être comptabilisé**.
-
-Le **backend est déjà sûr** : la garde TASK-088 (`VerifierComptabilisable`,
-`ReglementService.cs:721-725`) refuse un annulé dans l'aperçu (`:1391`) comme dans la compta réelle
-(`:503`). Le défaut est dans **l'écran** : il charge les annulés, puis s'en trouve bloqué.
+Règle PO (2026-09-30) : **l'annulation d'un règlement vaut suppression.** Un règlement annulé n'est
+visible que dans la liste des règlements (avec un flag, TASK-104). Il n'est **jamais proposé** pour la
+comptabilisation, ni pour le rapprochement (TASK-098).
 
 ## Problème constaté
-1. `handleSimuler` (`ApercuComptabilisation.tsx:205-217`) appelle `GET /reglements` sans `annule`.
-   Le filtre `isComptabilise === 0` (`:219`) ne les écarte pas (un annulé n'est pas comptabilisé).
+L'écran Comptabilisation **propose aujourd'hui des règlements annulés** :
+1. `handleSimuler` (`ApercuComptabilisation.tsx:205-217`) appelle `GET /reglements` sans `annule`. Le
+   filtre `isComptabilise === 0` (`:219`) ne les écarte pas (un annulé n'est pas comptabilisé).
 2. Avec `includeEspeceEtAutreSiPointeFiltre: true`, les règlements de type 0 (Espèce) et 4 (Autre) sont
    **toujours inclus, pointés ou non** (`ReglementService.cs:112-114`) : tout annulé Espèce/Autre de la
-   période est donc chargé.
-3. Chaque annulé revient de l'aperçu en `hasError` (« règlement annulé »). Or `hasErrors` désactive le
-   bouton « Comptabiliser » pour **tout le lot** (`ApercuComptabilisation.tsx:302-305` et `:616`).
-   Conséquence : **un seul annulé dans la période bloque la comptabilisation de tous les autres règlements.**
+   période est donc proposé.
+3. Ils sont envoyés à l'aperçu, qui les affiche « Non comptabilisable » : c'est la garde TASK-088
+   (`ReglementService.cs:721-725`, appelée en `:1391` et `:503`) qui les arrête **après coup**. Elle
+   reste un filet de sécurité (rien de faux n'est écrit), mais un annulé n'a pas à être proposé.
+   *Symptôme secondaire, pas la raison d'être de la TASK* : leur présence désactive « Comptabiliser »
+   pour tout le lot (`ApercuComptabilisation.tsx:302-305`, `:616`).
 
-Le cas de la sélection venant de la liste (`handleSimulerPreselection`, `:257`) est traité dans
-**TASK-104** (les annulés ne sont plus sélectionnables) : `PreselectionItem` ne porte pas `isAnnule`,
-le filtre n'a pas sa place ici.
+La sélection venue de la liste (`handleSimulerPreselection`, `:257`) est couverte par TASK-104 (les
+annulés sont masqués en mode Comptabiliser).
 
 ## Objectif
-Aucun règlement `IsAnnule = true` dans les règlements chargés par l'écran Comptabilisation ; l'aperçu
-ne contient plus de ligne « Non comptabilisable » due à un annulé ; le bouton « Comptabiliser » n'est
-plus bloqué par eux. La garde TASK-088 reste en place (filet de sécurité).
+Aucun règlement annulé chargé ni affiché par l'écran Comptabilisation (ni dans la liste, ni dans
+l'aperçu). La garde TASK-088 reste en place.
 
 ## Étapes d'implémentation
 1. `handleSimuler` : ajouter `annule: false` aux `params` du `GET /reglements` (paramètre déjà supporté,
    `ReglementController.cs:45` ; même mécanique que `App.tsx:557`).
-   *Choix assumé* : paramètre explicite plutôt que règle serveur, car l'écran n'a pas de drapeau
+   *Choix assumé* : paramètre explicite plutôt que règle serveur, car cet écran n'a pas de drapeau
    d'éligibilité dédié (le coupler à `includeEspeceEtAutreSiPointeFiltre` serait implicite) et
    l'opposabilité est déjà assurée côté serveur par TASK-088.
 2. **Vérification sans code** : appeler directement `POST /reglements/apercu-comptabilisation` et
@@ -56,8 +53,8 @@ plus bloqué par eux. La garde TASK-088 reste en place (filet de sécurité).
 ## Checklist VALIDATION (à remplir dans VERIFY/, avec preuve datée par critère)
 - [ ] Build front OK (0 erreur)
 - [ ] Période contenant ≥ 1 annulé Espèce **et** ≥ 1 règlement comptabilisable : **avant** le correctif
-      le bouton est bloqué (capture/réponse), **après** l'annulé est absent et le bouton actif
-- [ ] L'annulé n'apparaît plus dans l'aperçu (ni en « Non comptabilisable »)
+      l'annulé est proposé (« Non comptabilisable ») et le bouton bloqué ; **après** il est absent de
+      l'aperçu et le bouton est actif (preuve : capture ou réponse API, datée)
 - [ ] Appel API direct `apercu-comptabilisation` et `comptabiliser` avec l'id d'un annulé : refus
       « annulé », aucune écriture créée (TASK-088 inchangée)
 - [ ] Non-régression : nombre de règlements listés = avant − nombre d'annulés ; filtres pointé/dates
