@@ -10,6 +10,9 @@
     "test:e2e-084": "node e2e_task084.cjs",
     "test:e2e-097": "node e2e_task097.cjs",
     "test:e2e-104": "node e2e_task104.cjs",
+    "test:e2e-106": "node e2e_task106.cjs",
+    "test:e2e-106-compare": "node e2e_task106_compare.cjs",
+    "test:e2e-106-mock": "node e2e_task106_mock.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

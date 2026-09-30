@@ -288,7 +288,7 @@ namespace GRC.Infrastructure.Services
                 : allReglements.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
             var reglementIds = pageSlice.Select(r => r.No).ToList();
-            var reservations = new Dictionary<int, (string? Lettrage, int? UserId, string? UserName, DateTime? Date)>();
+            var reservations = new Dictionary<int, (string? Lettrage, int? EnteteId, int? UserId, string? UserName, DateTime? Date)>();
             var affectesSet = new HashSet<int>();
             
             if (reglementIds.Any())
@@ -298,7 +298,7 @@ namespace GRC.Infrastructure.Services
                     connection.Open();
                     
                     // 1. Charger les réservations pour les règlements de la page demandée
-                    string sqlRes = "SELECT MV_ID, Lettrage, ReservePar_UserId, DateReservation FROM dbo.RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids";
+                    string sqlRes = "SELECT MV_ID, Lettrage, ReleveBancaireEnteteId, ReservePar_UserId, DateReservation FROM dbo.RAPP_ReleveBancaire_Ligne WHERE MV_ID IN @Ids";
                     string sqlAffectations = "SELECT DISTINCT MV_ID FROM dbo.RT_AFFECTATION WHERE MV_ID IN @Ids";
                     var userIds = new HashSet<int>();
                     
@@ -309,7 +309,7 @@ namespace GRC.Infrastructure.Services
                         {
                             if (row.MV_ID != null)
                             {
-                                reservations[(int)row.MV_ID] = ((string?)row.Lettrage, (int?)row.ReservePar_UserId, null, (DateTime?)row.DateReservation);
+                                reservations[(int)row.MV_ID] = ((string?)row.Lettrage, (int?)row.ReleveBancaireEnteteId, (int?)row.ReservePar_UserId, null, (DateTime?)row.DateReservation);
                                 if (row.ReservePar_UserId != null)
                                 {
                                     userIds.Add((int)row.ReservePar_UserId);
@@ -343,7 +343,7 @@ namespace GRC.Infrastructure.Services
                         var res = reservations[key];
                         if (res.UserId.HasValue && userNames.TryGetValue(res.UserId.Value, out var name))
                         {
-                            reservations[key] = (res.Lettrage, res.UserId, name, res.Date);
+                            reservations[key] = (res.Lettrage, res.EnteteId, res.UserId, name, res.Date);
                         }
                     }
                 }
@@ -351,7 +351,7 @@ namespace GRC.Infrastructure.Services
 
             var items = pageSlice.Select(r => {
                 var hasRes = reservations.TryGetValue(r.No, out var res);
-                var dto = ReglementMapper.Map(r, hasRes ? res.Lettrage : null, hasRes ? res.UserId : null, hasRes ? res.UserName : null, hasRes ? res.Date : null);
+                var dto = ReglementMapper.Map(r, hasRes ? res.Lettrage : null, hasRes ? res.UserId : null, hasRes ? res.UserName : null, hasRes ? res.Date : null, hasRes ? res.EnteteId : null);
                 dto.IsAffecte = affectesSet.Contains(r.No);
                 return dto;
             }).ToList();
@@ -1563,6 +1563,7 @@ namespace GRC.Infrastructure.Services
         public string? ReservePar_UserName { get; set; }
         public DateTime? DateReservation { get; set; }
         public string? Lettrage { get; set; }
+        public int? ReleveEnteteId { get; set; }
     }
 
     // TASK-086 — DTO pour la modification d'un règlement existant
@@ -1614,7 +1615,7 @@ namespace GRC.Infrastructure.Services
 
     public static class ReglementMapper
     {
-        public static ReglementClientDto Map(global::Tresorerie.Core.Models.ReglementClient source, string? lettrage, int? reserveParUserId, string? reserveParUserName, DateTime? dateReservation)
+        public static ReglementClientDto Map(global::Tresorerie.Core.Models.ReglementClient source, string? lettrage, int? reserveParUserId, string? reserveParUserName, DateTime? dateReservation, int? releveEnteteId = null)
         {
             return new ReglementClientDto
             {
@@ -1654,7 +1655,8 @@ namespace GRC.Infrastructure.Services
                 Lettrage = lettrage,
                 ReservePar_UserId = reserveParUserId,
                 ReservePar_UserName = reserveParUserName,
-                DateReservation = dateReservation
+                DateReservation = dateReservation,
+                ReleveEnteteId = releveEnteteId
             };
         }
     }

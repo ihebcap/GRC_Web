@@ -22,6 +22,9 @@ interface LigneReleve {
     reservePar_UserId?: number | null;
     reservePar_UserName?: string | null;
     dateReservation?: string | null;
+    // TASK-106 — clé d'appariement ligne ↔ règlement
+    releveEnteteId: number;
+    mvId: number | null;
 }
 
 interface ReglementGrc {
@@ -35,6 +38,7 @@ interface ReglementGrc {
     reservePar_UserId?: number | null;
     reservePar_UserName?: string | null;
     dateReservation?: string | null;
+    releveEnteteId?: number | null;
     // TASK-099 — champs nécessaires pour les règles d'affichage du bouton « Annuler »
     isAnnule?: boolean;
     isPointe?: boolean;
@@ -67,6 +71,7 @@ interface GrcTableBodyProps {
     modesMap: Record<number, any>;
     banquesMap: Record<number, any>;
     currentUserId: number;
+    loadedMvIds: Set<number>;
 }
 
 const getLettrageColor = (lettrage: string | null) => {
@@ -77,10 +82,25 @@ const getLettrageColor = (lettrage: string | null) => {
     return colors[Math.abs(hash) % colors.length] + '40';
 };
 
-const GrcTableRow = ({ row, isSelected, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: any) => {
+// TASK-106 — repère affiché : "<idRelevé>-<lettre>" si withPrefix, sinon la lettre nue.
+const formatRepere = (enteteId: number | null | undefined, lettre: string | null | undefined, withPrefix: boolean): string => {
+    if (!lettre) return '';
+    return withPrefix && enteteId != null ? `${enteteId}-${lettre}` : lettre;
+};
+
+// Ordre des paires : par relevé (numérique) puis par lettre — identique à l'existant au sein d'un même relevé.
+const comparePairKey = (a: any, b: any): number => {
+    const ea = a.releveEnteteId ?? 0, eb = b.releveEnteteId ?? 0;
+    if (ea !== eb) return ea - eb;
+    return String(a.lettrage ?? '').localeCompare(String(b.lettrage ?? ''));
+};
+
+const GrcTableRow = ({ row, isSelected, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId, reservedElsewhere, repere }: any) => {
     // grcRowRenderCount++;
     // console.log(`[RENDER] GrcTableRow: ${row.mv_Id}`);
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
+    // TASK-106 — réservé sur un autre relevé (aucune ligne chargée ne porte ce MV_ID) : verrouillé comme une réservation d'autrui
+    const isLocked = isLockedByOther || reservedElsewhere;
     const isReserved = !!(row.lettrage || row.reservePar_UserId);
 
     // Règles d'affichage du bouton « Annuler » (cohérentes avec App.tsx:839)
@@ -89,13 +109,13 @@ const GrcTableRow = ({ row, isSelected, onSelect, onAnnuler, selectedColumns, ca
     const annulerDisabled = isReserved;             // désactivé si réservé (lettré ou verrou utilisateur)
 
     return (
-    <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(row.lettrage) } : {}}>
+    <tr className={row.lettrage && !isLocked ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLocked ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(repere) } : {}}>
         {/* Colonne Sel. — case à cocher ou cadenas */}
         <td>
-            {isLockedByOther ? (
-                <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={`Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}`}>
+            {isLocked ? (
+                <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={isLockedByOther ? `Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}` : `Réservé sur le relevé #${row.releveEnteteId ?? '?'} (non affiché) — sélectionnez ce relevé pour le dérapprocher`}>
                     <Lock size={14} style={{color: '#999'}} />
-                    <span style={{fontSize: '0.75rem', color: '#999', maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{row.reservePar_UserName ?? row.reservePar_UserId}</span>
+                    <span style={{fontSize: '0.75rem', color: '#999', maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{isLockedByOther ? (row.reservePar_UserName ?? row.reservePar_UserId) : `#${row.releveEnteteId ?? '?'}`}</span>
                 </div>
             ) : (
                 <input
@@ -141,7 +161,7 @@ const GrcTableRow = ({ row, isSelected, onSelect, onAnnuler, selectedColumns, ca
         </td>
         {selectedColumns.map((key: string) => (
             <td key={key} className={key === 'montant' || key === 'solde' ? 'amount' : ''}>
-                {renderSharedCell(key, row, caissesMap, modesMap, banquesMap)}
+                {key === 'lettrage' ? <span className="lettrage-cell">{repere}</span> : renderSharedCell(key, row, caissesMap, modesMap, banquesMap)}
             </td>
         ))}
     </tr>
@@ -152,7 +172,7 @@ const areEqual = (prevProps: any, nextProps: any) => {
     let equal = true;
     const diffs: string[] = [];
     // TASK-099 : onAnnuler ajouté à la liste pour que React.memo le détecte correctement
-    const propsToCompare = ['row', 'isSelected', 'onSelect', 'onAnnuler', 'selectedColumns', 'caissesMap', 'modesMap', 'banquesMap', 'currentUserId'];
+    const propsToCompare = ['row', 'isSelected', 'onSelect', 'onAnnuler', 'selectedColumns', 'caissesMap', 'modesMap', 'banquesMap', 'currentUserId', 'reservedElsewhere', 'repere'];
     for (const key of propsToCompare) {
         if (prevProps[key] !== nextProps[key]) {
             // console.log(`[DEBUG] GrcTableRow ${prevProps.row.mv_Id} failed equality due to: ${key}`);
@@ -164,11 +184,15 @@ const areEqual = (prevProps: any, nextProps: any) => {
 
 const GrcTableRowMemo = React.memo(GrcTableRow, areEqual);
 
-const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: GrcTableBodyProps) => {
+const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId, loadedMvIds }: GrcTableBodyProps) => {
     // console.log(`[RENDER] GrcTableBody with ${rows.length} rows.`);
     return (
     <tbody>
-        {rows.map(row => (
+        {rows.map(row => {
+            // TASK-106 — primitives calculées par ligne (compatibles avec la mémoïsation)
+            const reservedElsewhere = !!row.lettrage && !loadedMvIds.has(row.mv_Id);
+            const repere = formatRepere(row.releveEnteteId, row.lettrage, reservedElsewhere);
+            return (
             <GrcTableRowMemo
                 key={row.mv_Id}
                 row={row}
@@ -180,8 +204,11 @@ const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, sel
                 modesMap={modesMap}
                 banquesMap={banquesMap}
                 currentUserId={currentUserId}
+                reservedElsewhere={reservedElsewhere}
+                repere={repere}
             />
-        ))}
+            );
+        })}
     </tbody>
 )});
 
@@ -335,6 +362,14 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const reglementsGrcRef = React.useRef<ReglementGrc[]>([]);
     const lignesReleveRef = React.useRef<LigneReleve[]>([]);
     const currentLettrageIndexRef = React.useRef(1);
+    // TASK-106 — MV_ID des règlements appariés à une ligne du relevé affiché. Calculé sur lignesReleve COMPLET
+    // (jamais sur la liste filtrée) : un filtre d'affichage ne doit pas rendre un règlement « réservé ailleurs ».
+    // Déclaré avant tout useMemo/useCallback qui le cite (zone morte temporelle).
+    const loadedMvIds = React.useMemo(() => {
+        const s = new Set<number>();
+        for (const l of lignesReleve) if (l.mvId != null) s.add(Number(l.mvId));
+        return s;
+    }, [lignesReleve]);
     // TASK-099 : ref vers showConfirm pour rendre handleAnnulerReglementGrc stable (deps=[])
     const showConfirmRef = React.useRef(showConfirm);
     const showToastRef = React.useRef(showToast);
@@ -547,6 +582,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                         ...r,
                         mv_Id: r.no,
                         lettrage: r.lettrage || null,
+                        releveEnteteId: r.releveEnteteId ?? null,
                         reservePar_UserId: r.reservePar_UserId,
                         reservePar_UserName: r.reservePar_UserName,
                         dateReservation: r.dateReservation
@@ -688,7 +724,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                     lettrage: l.lettrage || null,
                     reservePar_UserId: l.reservePar_UserId,
                     reservePar_UserName: l.reservePar_UserName,
-                    dateReservation: l.dateReservation
+                    dateReservation: l.dateReservation,
+                    releveEnteteId: l.releveBancaireEnteteId,
+                    mvId: l.mV_ID ?? null
                 })));
             })
             .catch(err => {
@@ -764,13 +802,17 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
             // Appliquer les propositions validées aux deux grilles avec la lettre RENVOYEE par le serveur,
             // matchée par Id de ligne (relevé) / MV_ID (règlement GRC).
+            // TASK-106 : Map (id → paire) plutôt que des find imbriqués ; mvId posé sur la ligne, releveEnteteId sur le règlement.
+            const propByLigne = new Map(validProps.map(p => [p.ligneReleveId, p]));
+            const propByMv = new Map(validProps.map(p => [p.reglementGrcId, p]));
+            const enteteByLigne = new Map(lignesReleveRef.current.map(l => [l.id, l.releveEnteteId]));
             setLignesReleve(prev => prev.map(l => {
-                const match = validProps.find(p => p.ligneReleveId === l.id);
-                return match ? { ...l, lettrage: match.assignedLetter, reservePar_UserId: currentUserId } : l;
+                const match = propByLigne.get(l.id);
+                return match ? { ...l, lettrage: match.assignedLetter, reservePar_UserId: currentUserId, mvId: match.reglementGrcId } : l;
             }));
             setReglementsGrc(prev => prev.map(r => {
-                const match = validProps.find(p => p.reglementGrcId === r.mv_Id);
-                return match ? { ...r, lettrage: match.assignedLetter, reservePar_UserId: currentUserId } : r;
+                const match = propByMv.get(r.mv_Id);
+                return match ? { ...r, lettrage: match.assignedLetter, reservePar_UserId: currentUserId, releveEnteteId: enteteByLigne.get(match.ligneReleveId) ?? null } : r;
             }));
 
             if (conflits > 0) {
@@ -785,44 +827,27 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     };
 
 
-    // Retire un lettrage (les 2 côtés de la paire) en le ciblant par sa lettre.
-    // Callback stable (deps=[]) : utilise uniquement des setters, jamais de state lu.
-    // TASK-066 : un seul appel release-batch au lieu d'une boucle séquentielle N appels /release.
-    // Traitement indépendant par ligne : seules les lignes effectivement confirmées (success=true) par le serveur sont libérées.
-    const delettrerByLettrage = React.useCallback(async (lettre: string) => {
-        const lignes = lignesReleveRef.current.filter(l => l.lettrage === lettre);
-        if (lignes.length === 0) {
-            setReglementsGrc(prev => prev.map(r => r.lettrage === lettre ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
-            return;
-        }
+    // Libère UNE ligne lettrée du relevé affiché et le règlement de même MV_ID (appariement par identifiant, jamais par lettre).
+    // TASK-106 : remplace delettrerByLettrage. Callback stable (deps=[]) : setters, showToast et valeurs passées en argument.
+    const delettrerLigne = React.useCallback(async (ligne: LigneReleve) => {
         try {
             const userStr = sessionStorage.getItem('gocom_user');
             const token = userStr ? JSON.parse(userStr).token : '';
             const resp = await axios.post(`${API_BASE}/ReleveBancaire/release-batch`,
-                lignes.map(l => ({ ligneReleveId: l.id })),
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            const results: Array<{ ligneReleveId: number; success: boolean }> = resp.data;
-            const releasedIds = new Set(results.filter(r => r.success).map(r => r.ligneReleveId));
-            const failedCount = results.length - releasedIds.size;
-
-            // 1. Mise à jour des lignes de relevé : STRICTEMENT celles dont le serveur a confirmé la libération
-            if (releasedIds.size > 0) {
-                setLignesReleve(prev => prev.map(l => releasedIds.has(l.id) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
-            }
-
-            // 2. Mise à jour côté règlement GRC : la lettre n'est libérée que si TOUTES les lignes de cette lettre ont été libérées
-            if (failedCount === 0) {
-                setReglementsGrc(prev => prev.map(r => r.lettrage === lettre ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
-            } else if (releasedIds.size > 0) {
-                showToast(`Dissociation partielle : ${releasedIds.size} ligne(s) libérée(s), ${failedCount} échec(s) (déjà validée ou verrouillée).`, "warning");
+                [{ ligneReleveId: ligne.id }], { headers: { Authorization: `Bearer ${token}` } });
+            const ok = (resp.data as Array<{ ligneReleveId: number; success: boolean }>)
+                .some(r => r.ligneReleveId === ligne.id && r.success);
+            if (ok) {
+                setLignesReleve(prev => prev.map(l => l.id === ligne.id
+                    ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null, mvId: null } : l));
+                if (ligne.mvId != null) {
+                    setReglementsGrc(prev => prev.map(r => r.mv_Id === ligne.mvId
+                        ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null, releveEnteteId: null } : r));
+                }
             } else {
                 showToast("Impossible de libérer la ligne (déjà libre, validée ou non autorisé).", "warning");
             }
-        } catch (e) {
-            console.error(e);
-            showToast("Erreur lors de la dissociation.", "error");
-        }
+        } catch (e) { console.error(e); showToast("Erreur lors de la dissociation.", "error"); }
     }, []);
 
     // Lettrage manuel — lit les refs (valeurs fraîches) pour éviter les stale closures
@@ -841,8 +866,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
             const assignedLetter: string = resp.data?.lettrage;
 
-            setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, lettrage: assignedLetter, reservePar_UserId: currentUserId } : r));
-            setLignesReleve(prev => prev.map(l => l.id === ligneId ? { ...l, lettrage: assignedLetter, reservePar_UserId: currentUserId } : l));
+            const ligne = lignesReleveRef.current.find(l => l.id === ligneId);
+            setReglementsGrc(prev => prev.map(r => r.mv_Id === grcId ? { ...r, lettrage: assignedLetter, reservePar_UserId: currentUserId, releveEnteteId: ligne?.releveEnteteId ?? null } : r));
+            setLignesReleve(prev => prev.map(l => l.id === ligneId ? { ...l, lettrage: assignedLetter, reservePar_UserId: currentUserId, mvId: grcId } : l));
             setPendingReservation(null);
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
@@ -921,7 +947,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         const grc = reglementsGrcRef.current.find(r => r.mv_Id === grcId);
         // Clic sur une ligne déjà lettrée -> on délettre la paire
         if (grc?.lettrage) {
-            delettrerByLettrage(grc.lettrage);
+            // TASK-106 : ligne appariée par MV_ID ; aucune ligne chargée ⇒ « réservé ailleurs » ⇒ rien
+            const ligne = lignesReleveRef.current.find(l => l.mvId === grc.mv_Id);
+            if (ligne) delettrerLigne(ligne);
             // console.timeEnd(`SelectGrc-${grcId}`);
             return;
         }
@@ -932,7 +960,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         // console.timeEnd(`SelectGrc-${grcId}`);
         // setTimeout(() => console.log(`[STATS] GrcRows Rendered: ${grcRowRenderCount}, ReleveRows Rendered: ${releveRowRenderCount}`), 100);
-    }, [delettrerByLettrage, applyManualLettrage]);
+    }, [delettrerLigne, applyManualLettrage]);
 
     // handleSelectReleve — ref pour selectedGrcId : même principe.
     const handleSelectReleve = React.useCallback((ligneId: number) => {
@@ -943,7 +971,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
 
         const rel = lignesReleveRef.current.find(l => l.id === ligneId);
         if (rel?.lettrage) {
-            delettrerByLettrage(rel.lettrage);
+            delettrerLigne(rel);
             // console.timeEnd(`SelectReleve-${ligneId}`);
             return;
         }
@@ -954,7 +982,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         // console.timeEnd(`SelectReleve-${ligneId}`);
         // setTimeout(() => console.log(`[STATS] GrcRows Rendered: ${grcRowRenderCount}, ReleveRows Rendered: ${releveRowRenderCount}`), 100);
-    }, [delettrerByLettrage, applyManualLettrage]);
+    }, [delettrerLigne, applyManualLettrage]);
 
     // Retire TOUS les lettrages en attente (non encore approuvés) des 2 grilles
     // TASK-066 : un seul appel release-batch au lieu d'une boucle séquentielle N appels /release.
@@ -974,23 +1002,10 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             );
             const results: Array<{ ligneReleveId: number; success: boolean }> = resp.data;
             const releasedIds = new Set(results.filter(r => r.success).map(r => r.ligneReleveId));
-            const unreleasedIds = new Set(results.filter(r => !r.success).map(r => r.ligneReleveId));
-
-            // Lettres dont au moins une ligne n'a pas pu être libérée côté serveur
-            const failedLettres = new Set(lignesToRelease.filter(l => unreleasedIds.has(l.id)).map(l => l.lettrage).filter(Boolean));
-
-            // Lettres dont des lignes ont été libérées ET aucune ligne n'a échoué
-            const releasedLignes = lignesToRelease.filter(l => releasedIds.has(l.id));
-            const fullyReleasedLettres = new Set(
-                releasedLignes
-                    .map(l => l.lettrage)
-                    .filter((lettre): lettre is string => Boolean(lettre) && !failedLettres.has(lettre))
-            );
-
-            // Côté GRC : libérer seulement les règlements dont l'intégralité des lignes associées a été libérée
-            setReglementsGrc(prev => prev.map(r => (r.lettrage && fullyReleasedLettres.has(r.lettrage)) ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null } : r));
-            // Côté Relevé : libérer STRICTEMENT les lignes retournées avec success=true
-            setLignesReleve(prev => prev.map(l => releasedIds.has(l.id) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null } : l));
+            // TASK-106 : les règlements libérés = ceux dont la LIGNE l'a été (même MV_ID), jamais par lettre
+            const releasedMvIds = new Set(lignesToRelease.filter(l => releasedIds.has(l.id) && l.mvId != null).map(l => Number(l.mvId)));
+            setLignesReleve(prev => prev.map(l => releasedIds.has(l.id) ? { ...l, lettrage: null, reservePar_UserId: null, dateReservation: null, mvId: null } : l));
+            setReglementsGrc(prev => prev.map(r => releasedMvIds.has(r.mv_Id) ? { ...r, lettrage: null, reservePar_UserId: null, dateReservation: null, releveEnteteId: null } : r));
             setSelectedGrcId(null);
             setSelectedReleveLigneId(null);
 
@@ -1005,11 +1020,15 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     };
 
     const handleApprouver = async () => {
+        // TASK-106 : appariement par MV_ID ; seules MES réservations sont envoyées, seules les paires APPROUVÉES sont retirées.
+        const currentUserId = Number(user?.no) || 0;
+        const grcParMvId = new Map(reglementsGrc.map(r => [Number(r.mv_Id), r]));
+        const candidates = lignesReleve.filter(l => l.lettrage && l.mvId != null && (!l.reservePar_UserId || Number(l.reservePar_UserId) === currentUserId));
         const pairs: any[] = [];
-        const letteredLignes = lignesReleve.filter(l => l.lettrage);
-        
-        for (const ligne of letteredLignes) {
-            const grc = reglementsGrc.find(r => r.lettrage === ligne.lettrage);
+        const sansReglement: number[] = [];
+
+        for (const ligne of candidates) {
+            const grc = grcParMvId.get(Number(ligne.mvId));
             if (grc) {
                 pairs.push({
                     releveLigneId: ligne.id,
@@ -1019,39 +1038,34 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                     libelle: ligne.libelle,
                     dateValeur: ligne.dateValeurRaw
                 });
+            } else {
+                sansReglement.push(ligne.id);
             }
         }
+        const msgSansReglement = `${sansReglement.length} ligne(s) réservée(s) n'ont pas de règlement dans la grille GRC (période ou filtre) : élargissez la période Du/Au puis réessayez.`;
 
         if (pairs.length === 0) {
-            showToast("Aucun rapprochement en cours à approuver.", "warning");
+            showToast(sansReglement.length > 0 ? msgSansReglement : "Aucun rapprochement en cours à approuver.", "warning");
             return;
         }
 
         try {
             const response = await axios.post(`${API_BASE}/ReleveBancaire/validate`, pairs);
             const data = response.data;
-            
-            if (data.success) {
-                showToast("Rapprochement validé avec succès !", "success");
-                setReglementsGrc(prev => prev.filter(r => !r.lettrage));
-                setLignesReleve(prev => prev.filter(l => !l.lettrage));
-            } else {
-                showToast(`Validation terminée avec des erreurs.\nSuccès: ${data.successCount}, Échecs: ${data.errorCount}.\n\nErreurs:\n${data.errors.join('\n')}`, "warning");
-                
-                const failedLigneIds = data.failedLigneIds || [];
 
-                setLignesReleve(prev => prev.filter(l => {
-                    if (!l.lettrage) return true;
-                    if (failedLigneIds.includes(l.id)) return true;
-                    return false;
-                }));
-                
-                setReglementsGrc(prev => prev.filter(r => {
-                    if (!r.lettrage) return true;
-                    const ligne = letteredLignes.find(l => l.lettrage === r.lettrage);
-                    if (ligne && failedLigneIds.includes(ligne.id)) return true;
-                    return false;
-                }));
+            const failed = new Set<number>(data.failedLigneIds || []);
+            const approuvees = pairs.filter(p => !failed.has(p.releveLigneId));
+            const idsApprouves = new Set<number>(approuvees.map(p => p.releveLigneId));
+            const mvApprouves = new Set<number>(approuvees.map(p => Number(p.grcReglementId)));
+            setLignesReleve(prev => prev.filter(l => !idsApprouves.has(l.id)));
+            setReglementsGrc(prev => prev.filter(r => !mvApprouves.has(Number(r.mv_Id))));
+
+            // Toast unique (3 s) : le message « sans règlement » est ajouté au résultat, jamais un second showToast.
+            const suffixe = sansReglement.length > 0 ? `\n\n${msgSansReglement}` : '';
+            if (data.success) {
+                showToast("Rapprochement validé avec succès !" + suffixe, sansReglement.length > 0 ? "warning" : "success");
+            } else {
+                showToast(`Validation terminée avec des erreurs.\nSuccès: ${data.successCount}, Échecs: ${data.errorCount}.\n\nErreurs:\n${data.errors.join('\n')}` + suffixe, "warning");
             }
         } catch (error: any) {
             console.error("Erreur de validation", error);
@@ -1094,7 +1108,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         if (key === 'extrait') return r.extraitNum;
         if (key === 'montant') return r.montantDeviseSociete || r.montant;
         if (key === 'solde') return r.soldeDeviseSociete;
-        if (key === 'lettrage') return r.lettrage;
+        if (key === 'lettrage') return formatRepere(r.releveEnteteId, r.lettrage, !!r.lettrage && !loadedMvIds.has(r.mv_Id));
         return r[key as keyof typeof r];
     };
 
@@ -1132,7 +1146,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [reglementsGrc, lettrageFilter, grcFilters, isPaired]);
+    }), [reglementsGrc, lettrageFilter, grcFilters, isPaired, loadedMvIds]);
 
     const filteredLignes = React.useMemo(() => lignesReleve.filter(l => {
         // Partie Encaissement : n'afficher que les lignes en crédit (credit > 0)
@@ -1154,9 +1168,11 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     }), [lignesReleve, lettrageFilter, releveFilters, isPaired]);
 
     const sortedReglements = React.useMemo(() => [...filteredReglements].sort((a, b) => {
-        const aL = !!a.lettrage, bL = !!b.lettrage;
-        if (aL !== bL) return aL ? -1 : 1;
-        if (aL && bL && a.lettrage !== b.lettrage) return String(a.lettrage).localeCompare(String(b.lettrage));
+        // TASK-106 : rang 0 = apparié ici, 1 = réservé ailleurs, 2 = libre
+        const rangA = a.lettrage ? (loadedMvIds.has(a.mv_Id) ? 0 : 1) : 2;
+        const rangB = b.lettrage ? (loadedMvIds.has(b.mv_Id) ? 0 : 1) : 2;
+        if (rangA !== rangB) return rangA - rangB;
+        if (rangA < 2) { const c = comparePairKey(a, b); if (c !== 0) return c; }
         if (!grcSort) return 0;
         const valA = getGrcCellValue(a, grcSort.key);
         const valB = getGrcCellValue(b, grcSort.key);
@@ -1175,7 +1191,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return grcSort.desc ? String(valB).localeCompare(String(valA)) : String(valA).localeCompare(String(valB));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }), [filteredReglements, grcSort]);
+    }), [filteredReglements, grcSort, loadedMvIds]);
 
     const sortedLignes = React.useMemo(() => [...filteredLignes].sort((a, b) => {
         const aL = !!a.lettrage, bL = !!b.lettrage;
@@ -1206,7 +1222,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
         }
         return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reglementsGrc, availableColumns]);
+    }, [reglementsGrc, availableColumns, loadedMvIds]);
 
     const getGrcFilterOptions = React.useCallback((key: string) => {
         return grcFilterOptionsMap[key];
@@ -1475,7 +1491,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     })}
                                 </tr>
                             </thead>
-                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} onAnnuler={handleAnnulerReglementGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} />
+                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} onAnnuler={handleAnnulerReglementGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} loadedMvIds={loadedMvIds} />
                         </table>
                     </div>
                     <div style={{padding: '0.25rem 1rem', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)'}}>

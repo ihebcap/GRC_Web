@@ -1,0 +1,93 @@
+{
+ "lignes": [
+  {
+   "txt": " A 30/09/2026 30/09/2026 T106 N1 T106 N1 T106 N1 1 986,97 MA",
+   "checked": true,
+   "lock": false
+  },
+  {
+   "txt": " B 30/09/2026 30/09/2026 T106 N2 T106 N2 T106 N2 680,00 MAD ",
+   "checked": true,
+   "lock": false
+  },
+  {
+   "txt": " C 30/09/2026 30/09/2026 T106 N3 T106 N3 T106 N3 2 170,62 MA",
+   "checked": true,
+   "lock": false
+  }
+ ],
+ "grc": [
+  {
+   "txt": "#48271 134361 IMONEY AI_BERKANE BD MED V",
+   "repere": "A",
+   "checked": true,
+   "lock": false
+  },
+  {
+   "txt": "#48242 134352 PAYX AI _FES MONFLEURI AGE",
+   "repere": "B",
+   "checked": true,
+   "lock": false
+  },
+  {
+   "txt": "#48171 134321 IMONEY AI_CHEFCHAOUN AGENC",
+   "repere": "C",
+   "checked": true,
+   "lock": false
+  },
+  {
+   "txt": "#47810 RC26070147 Caisse Operation Nador",
+   "repere": "6-MS",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47650 RC26070066 Caisse Regional Tanger",
+   "repere": "6-NQ",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47546 RC26070026 Caisse Operation Nador",
+   "repere": "6-NR",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47536 RC26070019 Caisse Regional Oujda ",
+   "repere": "6-NS",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47523 RC26070010 Caisse Operation Oujda",
+   "repere": "6-NT",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47537 RC26070020 Caisse Regional Oujda ",
+   "repere": "6-NV",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#47541 RC26070023 Caisse Operation Nador",
+   "repere": "6-NX",
+   "checked": false,
+   "lock": true
+  },
+  {
+   "txt": "#29721 RC26043514 Caisse Operation Oujda",
+   "repere": "",
+   "checked": false,
+   "lock": false
+  },
+  {
+   "txt": "#48092 RC26070289 Caisse Regional Kenitr",
+   "repere": "",
+   "checked": false,
+   "lock": false
+  }
+ ]
+}
