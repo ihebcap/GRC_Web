@@ -6,7 +6,7 @@ import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2, XC
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
 import { CheckboxDropdown } from './CheckboxDropdown';
-import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate, matchAmount } from './utils';
+import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, matchAmount, matchDateRange } from './utils';
 import { Settings, X } from 'lucide-react';
 
 interface LigneReleve {
@@ -368,8 +368,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const [lettrageFilter, setLettrageFilter] = useState<'non' | 'oui' | 'tous'>('non');
     
     // Filtres
-    const [grcFilters, setGrcFilters] = useState<Record<string, {type: 'list'|'text', value: any}>>({});
-    const [releveFilters, setReleveFilters] = useState<Record<string, {type: 'list'|'text', value: any}>>({});
+    const [grcFilters, setGrcFilters] = useState<Record<string, {type: 'list'|'text'|'date', value: any}>>({});
+    const [releveFilters, setReleveFilters] = useState<Record<string, {type: 'list'|'text'|'date', value: any}>>({});
 
     // Tris
     const [grcSort, setGrcSort] = useState<{key: string, desc: boolean} | null>(null);
@@ -1190,12 +1190,12 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
             } else if (filter.type === 'text' && filter.value) {
                 if (key === 'montant' || key === 'solde') {
                     if (!matchAmount(val, filter.value)) return false;
-                } else if (key === 'date') {
-                    const displayVal = formatDate(r.date);
-                    if (!displayVal.toLowerCase().includes(filter.value.toLowerCase())) return false;
                 } else {
                     if (!(val || '').toString().toLowerCase().includes(filter.value.toLowerCase())) return false;
                 }
+            } else if (filter.type === 'date' && filter.value) {
+                // TASK-102 : plage Du/Au sur la date brute yyyy-mm-dd (pas de chaîne localisée, pas de new Date)
+                if (!matchDateRange(r.date, filter.value)) return false;
             }
         }
         return true;
@@ -1216,6 +1216,10 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                 } else {
                     if (!(l[key as keyof LigneReleve] || '').toString().toLowerCase().includes(filter.value.toLowerCase())) return false;
                 }
+            } else if (filter.type === 'date' && filter.value) {
+                // TASK-102 : plage Du/Au sur la date brute yyyy-mm-dd
+                const raw = key === 'dateValeur' ? l.dateValeurRaw : (l.dateOperationRaw ?? l.dateOperation);
+                if (!matchDateRange(raw, filter.value)) return false;
             }
         }
         return true;
@@ -1410,11 +1414,11 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     </th>
                                     <th>
                                         <span onClick={() => handleReleveSort('dateOperation')} style={{cursor: 'pointer'}}>Date Op. {renderSortIcon(releveSort, 'dateOperation')}</span>
-                                        <ExcelFilter columnKey="dateOperation" filterType="text" textValue={releveFilters['dateOperation']?.value || ''} onChange={(val) => setReleveFilters(prev => ({...prev, dateOperation: {type: 'text', value: val}}))} />
+                                        <ExcelFilter columnKey="dateOperation" filterType="date" textValue={releveFilters['dateOperation']?.value || ''} onChange={(val) => setReleveFilters(prev => ({...prev, dateOperation: {type: 'date', value: val}}))} />
                                     </th>
                                     <th>
                                         <span onClick={() => handleReleveSort('dateValeur')} style={{cursor: 'pointer'}}>Date Val. {renderSortIcon(releveSort, 'dateValeur')}</span>
-                                        <ExcelFilter columnKey="dateValeur" filterType="text" textValue={releveFilters['dateValeur']?.value || ''} onChange={(val) => setReleveFilters(prev => ({...prev, dateValeur: {type: 'text', value: val}}))} />
+                                        <ExcelFilter columnKey="dateValeur" filterType="date" textValue={releveFilters['dateValeur']?.value || ''} onChange={(val) => setReleveFilters(prev => ({...prev, dateValeur: {type: 'date', value: val}}))} />
                                     </th>
                                     <th>
                                         <span onClick={() => handleReleveSort('libelle')} style={{cursor: 'pointer'}}>Libellé {renderSortIcon(releveSort, 'libelle')}</span>
@@ -1532,7 +1536,9 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     <th style={{width: '40px'}}></th>
                                     {selectedColumns.map(colKey => {
                                         const colDef = [{key: 'lettrage', label: 'Repère'}, ...availableColumns].find(c => c.key === colKey) || {key: colKey, label: colKey};
-                                        const isText = ['date', 'montant', 'solde'].includes(colKey);
+                                        const isDate = colKey === 'date';
+                                        const isText = ['montant', 'solde'].includes(colKey);
+                                        const ftype = isDate ? 'date' : isText ? 'text' : 'list';
                                         return (
                                             <th 
                                                 key={colKey}
@@ -1545,11 +1551,11 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                                 <span onClick={() => handleGrcSort(colKey)} style={{cursor: 'pointer'}}>{colDef.label} {renderSortIcon(grcSort, colKey)}</span>
                                                 <ExcelFilter 
                                                     columnKey={colKey} 
-                                                    filterType={isText ? 'text' : 'list'} 
-                                                    options={isText ? undefined : getGrcFilterOptions(colKey)} 
-                                                    selectedValues={grcFilters[colKey]?.type === 'list' ? grcFilters[colKey]?.value : []} 
-                                                    textValue={grcFilters[colKey]?.type === 'text' ? grcFilters[colKey]?.value : ''} 
-                                                    onChange={(val) => setGrcFilters(prev => ({...prev, [colKey]: {type: isText ? 'text' : 'list', value: val}}))} 
+                                                    filterType={ftype}
+                                                    options={ftype === 'list' ? getGrcFilterOptions(colKey) : undefined}
+                                                    selectedValues={grcFilters[colKey]?.type === 'list' ? grcFilters[colKey]?.value : []}
+                                                    textValue={grcFilters[colKey]?.type === ftype && ftype !== 'list' ? grcFilters[colKey]?.value : ''}
+                                                    onChange={(val) => setGrcFilters(prev => ({...prev, [colKey]: {type: ftype, value: val}}))}
                                                 />
                                             </th>
                                         );

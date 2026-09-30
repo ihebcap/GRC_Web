@@ -37,7 +37,19 @@ export const formatMoney = (amount: number) => {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'MAD' }).format(amount || 0);
 };
 
-export const matchAmount = (val: number | null | undefined, filterText: string): boolean => {
+// TASK-102 : filtre de plage "min~max" (yyyy-mm-dd) sur la date brute (10 premiers caractères).
+// Date absente/invalide exclue dès qu'une borne est active ; pas de new Date() (pas de décalage de fuseau).
+export const matchDateRange = (raw: string | null | undefined, range: string): boolean => {
+    const [min, max] = (range || '').split('~');
+    if (!min && !max) return true;
+    const d = (raw || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+    if (min && d < min) return false;
+    if (max && d > max) return false;
+    return true;
+};
+
+export const matchAmount =(val: number | null | undefined, filterText: string): boolean => {
   if (!filterText || !filterText.trim()) return true;
 
   const trimmed = filterText.trim();
