@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { API_BASE } from './api';
-import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2 } from 'lucide-react';
+import { Play, CheckCircle, Link2, Unlink, ArrowUp, ArrowDown, Lock, Loader2, XCircle } from 'lucide-react';
 import './RapprochementBancaire.css';
 import { ExcelFilter } from './ExcelFilter';
 import { renderSharedCell, DEFAULT_COLUMNS, formatMoney, formatDate, matchAmount } from './utils';
@@ -35,6 +35,12 @@ interface ReglementGrc {
     reservePar_UserId?: number | null;
     reservePar_UserName?: string | null;
     dateReservation?: string | null;
+    // TASK-099 — champs nécessaires pour les règles d'affichage du bouton « Annuler »
+    isAnnule?: boolean;
+    isPointe?: boolean;
+    isComptabilise?: number;
+    isRemis?: number;
+    isAffecte?: boolean;
 }
 
 interface Banque {
@@ -55,6 +61,7 @@ interface GrcTableBodyProps {
     rows: ReglementGrc[];
     selectedGrcId: number | null;
     onSelect: (id: number) => void;
+    onAnnuler: (row: ReglementGrc) => void;
     selectedColumns: string[];
     caissesMap: Record<number, any>;
     modesMap: Record<number, any>;
@@ -70,12 +77,20 @@ const getLettrageColor = (lettrage: string | null) => {
     return colors[Math.abs(hash) % colors.length] + '40';
 };
 
-const GrcTableRow = ({ row, isSelected, onSelect, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: any) => {
+const GrcTableRow = ({ row, isSelected, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: any) => {
     // grcRowRenderCount++;
     // console.log(`[RENDER] GrcTableRow: ${row.mv_Id}`);
     const isLockedByOther = row.reservePar_UserId && Number(row.reservePar_UserId) !== Number(currentUserId);
+    const isReserved = !!(row.lettrage || row.reservePar_UserId);
+
+    // Règles d'affichage du bouton « Annuler » (cohérentes avec App.tsx:839)
+    const isFree = !row.isAnnule && (row.isComptabilise ?? 0) === 0 && !row.isPointe && (row.isRemis ?? 0) === 0 && !row.isAffecte;
+    const showAnnulerBtn = isFree || isReserved;   // visible si libre OU réservé ; absent sinon
+    const annulerDisabled = isReserved;             // désactivé si réservé (lettré ou verrou utilisateur)
+
     return (
     <tr className={row.lettrage ? 'lettered-row' : (isSelected ? 'selected-row' : '')} style={isLockedByOther ? { opacity: 0.6, backgroundColor: '#f5f5f5' } : row.lettrage ? { backgroundColor: getLettrageColor(row.lettrage) } : {}}>
+        {/* Colonne Sel. — case à cocher ou cadenas */}
         <td>
             {isLockedByOther ? (
                 <div style={{display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center'}} title={`Réservé par ${row.reservePar_UserName ?? row.reservePar_UserId}`}>
@@ -90,6 +105,40 @@ const GrcTableRow = ({ row, isSelected, onSelect, selectedColumns, caissesMap, m
                 />
             )}
         </td>
+        {/* TASK-099 — Colonne action : bouton Annuler */}
+        <td style={{width: '40px', textAlign: 'center', padding: '0 4px'}}>
+            {showAnnulerBtn && (
+                annulerDisabled ? (
+                    <span title="Dérapprochez d'abord la ligne" style={{display: 'inline-flex'}}>
+                        <button
+                            disabled
+                            style={{
+                                padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.75rem', cursor: 'not-allowed', borderRadius: '4px',
+                                border: '1px solid #e5e7eb', color: '#9ca3af', backgroundColor: '#f3f4f6', opacity: 0.6,
+                                pointerEvents: 'none'
+                            }}
+                            aria-label="Annuler le règlement (désactivé)"
+                        >
+                            <XCircle size={13} color="#9ca3af" />
+                        </button>
+                    </span>
+                ) : (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onAnnuler(row); }}
+                        style={{
+                            padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px',
+                            border: '1px solid #fecaca', color: '#ef4444', backgroundColor: '#fef2f2'
+                        }}
+                        title="Annuler le règlement"
+                        aria-label="Annuler le règlement"
+                    >
+                        <XCircle size={13} color="#ef4444" />
+                    </button>
+                )
+            )}
+        </td>
         {selectedColumns.map((key: string) => (
             <td key={key} className={key === 'montant' || key === 'solde' ? 'amount' : ''}>
                 {renderSharedCell(key, row, caissesMap, modesMap, banquesMap)}
@@ -102,7 +151,8 @@ const GrcTableRow = ({ row, isSelected, onSelect, selectedColumns, caissesMap, m
 const areEqual = (prevProps: any, nextProps: any) => {
     let equal = true;
     const diffs: string[] = [];
-    const propsToCompare = ['row', 'isSelected', 'onSelect', 'selectedColumns', 'caissesMap', 'modesMap', 'banquesMap', 'currentUserId'];
+    // TASK-099 : onAnnuler ajouté à la liste pour que React.memo le détecte correctement
+    const propsToCompare = ['row', 'isSelected', 'onSelect', 'onAnnuler', 'selectedColumns', 'caissesMap', 'modesMap', 'banquesMap', 'currentUserId'];
     for (const key of propsToCompare) {
         if (prevProps[key] !== nextProps[key]) {
             // console.log(`[DEBUG] GrcTableRow ${prevProps.row.mv_Id} failed equality due to: ${key}`);
@@ -114,7 +164,7 @@ const areEqual = (prevProps: any, nextProps: any) => {
 
 const GrcTableRowMemo = React.memo(GrcTableRow, areEqual);
 
-const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: GrcTableBodyProps) => {
+const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, onAnnuler, selectedColumns, caissesMap, modesMap, banquesMap, currentUserId }: GrcTableBodyProps) => {
     // console.log(`[RENDER] GrcTableBody with ${rows.length} rows.`);
     return (
     <tbody>
@@ -124,6 +174,7 @@ const GrcTableBody = React.memo(({ rows, selectedGrcId, onSelect, selectedColumn
                 row={row}
                 isSelected={selectedGrcId === row.mv_Id}
                 onSelect={onSelect}
+                onAnnuler={onAnnuler}
                 selectedColumns={selectedColumns}
                 caissesMap={caissesMap}
                 modesMap={modesMap}
@@ -216,10 +267,12 @@ interface Props {
     availableColumns: any[];
     user: any;
     showToast: (msg: string, type?: 'success'|'error'|'warning') => void;
+    // TASK-099 : showConfirm transmis par App.tsx pour ne pas dupliquer le composant de confirmation
+    showConfirm: (message: string, onConfirm: () => void) => void;
     onNavigateToImport?: () => void;
 }
 
-export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, availableColumns, user, showToast, onNavigateToImport }) => {
+export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, availableColumns, user, showToast, showConfirm, onNavigateToImport }) => {
     // rbRenderCount++;
     // console.log(`[RENDER] RapprochementBancaire (Total: ${rbRenderCount})`);
     const [releves, setReleves] = useState<any[]>([]);
@@ -282,6 +335,10 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     const reglementsGrcRef = React.useRef<ReglementGrc[]>([]);
     const lignesReleveRef = React.useRef<LigneReleve[]>([]);
     const currentLettrageIndexRef = React.useRef(1);
+    // TASK-099 : ref vers showConfirm pour rendre handleAnnulerReglementGrc stable (deps=[])
+    const showConfirmRef = React.useRef(showConfirm);
+    const showToastRef = React.useRef(showToast);
+    const fetchReglementsGrcRef = React.useRef<() => void>(() => {});
 
     // Séquencement des requêtes (TASK-079) : seule la réponse de la DERNIÈRE requête émise est appliquée,
     // protégeant contre les réponses réseau qui arrivent dans le désordre (ex: changement rapide de banque ou de période).
@@ -295,6 +352,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     reglementsGrcRef.current = reglementsGrc;
     lignesReleveRef.current = lignesReleve;
     currentLettrageIndexRef.current = currentLettrageIndex;
+    showConfirmRef.current = showConfirm;
+    showToastRef.current = showToast;
 
     // Columns
     const [selectedColumns, setSelectedColumns] = useState<string[]>(() => {
@@ -506,8 +565,33 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
     }, [selectedBanqueId, appliedDateDebut, appliedDateFin]);
 
     React.useEffect(() => {
+        fetchReglementsGrcRef.current = fetchReglementsGrc;
         fetchReglementsGrc();
     }, [fetchReglementsGrc]);
+
+    // TASK-099 — Annulation de règlement depuis la grille GRC.
+    // Copie fidèle de handleAnnulerReglement (App.tsx:665), suivie d'un rechargement de la grille GRC.
+    // Référence stable (deps=[]) : lit showConfirmRef / showToastRef / fetchReglementsGrcRef pour
+    // éviter les stale closures sans recréer le callback à chaque rendu (mémoïsation des lignes).
+    const handleAnnulerReglementGrc = React.useCallback((reg: ReglementGrc) => {
+        showConfirmRef.current(
+            `Voulez-vous vraiment annuler le règlement [${reg.mv_Id}] d'un montant de ${formatMoney(reg.montant)} ? Cette opération est irréversible.`,
+            async () => {
+                try {
+                    await axios.post(`${API_BASE}/reglements/${reg.mv_Id}/annuler`);
+                    showToastRef.current(`Règlement [${reg.mv_Id}] annulé avec succès.`, 'success');
+                    // S5 : réinitialiser la sélection si le règlement annulé était sélectionné
+                    if (selectedGrcIdRef.current === reg.mv_Id) {
+                        setSelectedGrcId(null);
+                    }
+                    fetchReglementsGrcRef.current();
+                } catch (err: any) {
+                    const msg = err.response?.data?.message || err.response?.data?.title || err.response?.data || 'Erreur lors de l\'annulation du règlement.';
+                    showToastRef.current(typeof msg === 'string' ? msg : JSON.stringify(msg), 'error');
+                }
+            }
+        );
+    }, []);
 
     const handleConfirmGenererVersement = async () => {
         if (!modalLigne || !selectedClientCode || !selectedCaisseCode) return;
@@ -1363,6 +1447,8 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                             <thead>
                                 <tr>
                                     <th style={{width: '40px'}}>Sel.</th>
+                                    {/* TASK-099 : colonne action — ne fait pas partie de selectedColumns ni de l'export */}
+                                    <th style={{width: '40px'}}></th>
                                     {selectedColumns.map(colKey => {
                                         const colDef = [{key: 'lettrage', label: 'Repère'}, ...availableColumns].find(c => c.key === colKey) || {key: colKey, label: colKey};
                                         const isText = ['date', 'montant', 'solde'].includes(colKey);
@@ -1389,7 +1475,7 @@ export const RapprochementBancaire: React.FC<Props> = ({ caissesMap, modesMap, a
                                     })}
                                 </tr>
                             </thead>
-                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} />
+                            <GrcTableBody rows={sortedReglements} selectedGrcId={selectedGrcId} onSelect={handleSelectGrc} onAnnuler={handleAnnulerReglementGrc} selectedColumns={selectedColumns} caissesMap={caissesMap} modesMap={modesMap} banquesMap={banquesMap} currentUserId={Number(user?.no) || 0} />
                         </table>
                     </div>
                     <div style={{padding: '0.25rem 1rem', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)'}}>

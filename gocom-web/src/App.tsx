@@ -994,7 +994,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
         {currentView === 'releves' ? (
           <RelevesBancaires />
         ) : currentView === 'rapprochement' ? (
-          <RapprochementBancaire caissesMap={caissesMap} modesMap={modesMap} availableColumns={availableColumns} user={user} showToast={showToast} onNavigateToImport={() => setCurrentView('releves')} />
+          <RapprochementBancaire caissesMap={caissesMap} modesMap={modesMap} availableColumns={availableColumns} user={user} showToast={showToast} showConfirm={showConfirm} onNavigateToImport={() => setCurrentView('releves')} />
         ) : currentView === 'comptabilisation' ? (
           <ApercuComptabilisation user={user} showToast={showToast} caissesMap={caissesMap} modesMap={modesMap} preselection={comptaPreselection ?? undefined} onValidated={handleComptabilisationValidated} />
         ) : currentView === 'reglement-espece' ? (
