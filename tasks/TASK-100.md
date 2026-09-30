@@ -3,12 +3,14 @@
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Front + Back (chargement des lignes, auto-rapprochement, verrous) — **RISK HIGH** (écran le plus utilisé, mise en prod directe)
 - **Statut** : TODO
-- **Dépend de** : **TASK-106** (prérequis dur : appariement par identifiant, `formatRepere`, `comparePairKey`, `loadedMvIds`, `delettrerLigne`).
-  Ordre conseillé : TASK-098 → TASK-099 → TASK-106 → **TASK-100** → TASK-101 / TASK-102.
+- **Dépend de** : **TASK-106** (prérequis dur : appariement par identifiant, `formatRepere`, `comparePairKey`, `loadedMvIds`, `delettrerLigne`) — **approuvée et en place** (commit `7c18e8f`), ainsi que TASK-098 et TASK-099.
+  Ordre : TASK-098 ✔ → TASK-099 ✔ → TASK-106 ✔ → **TASK-100** → TASK-102 → TASK-101.
 - **Mise en prod** : API **et** front ensemble (un seul dossier `deploy\`, voir `DEPLOY.md`). **Ne jamais déployer le front seul** : il appelle le nouvel endpoint
   `POST /api/ReleveBancaire/lignes`. Ancien front + nouvelle API fonctionne (l'ancien champ mono-relevé et l'ancien endpoint restent acceptés). Aucun script SQL, aucune config,
   aucune migration. Retour arrière = redéployer le `deploy\` précédent.
-- **Références de ligne** : état du dépôt au commit `b07445e` (2026-09-30), **avant** TASK-098/099/106. Elles bougeront ; se repérer par le **nom de la fonction**, pas par le numéro.
+- **Références de ligne** : les numéros cités datent du commit `b07445e` (2026-09-30), **avant** TASK-098/099/106 (depuis fusionnées : tout a bougé, d'environ +30 lignes côté repository et +100 côté front). **Se repérer par le nom de la fonction**, jamais par le numéro. Noms vérifiés présents au commit `7c18e8f` : `GetEntetesByBanqueAsync`, `GetAllLignesExcelAsync`, `VerifierAutorisationReleveEnteteAsync`, `ReserverLigneAsync`, `ReserverLignesBatchAsync`, `LibererLignesBatchAsync`, `GenererPropositions`, `AutoReconcileRequest`, `loadedMvIds`, `formatRepere`, `comparePairKey`, `delettrerLigne`.
+- **Déjà fait par TASK-106 (ne pas refaire)** : `LigneReleve.releveEnteteId` et `mvId` et leur mapping dans l'effet de chargement des lignes ; `ReglementGrc.releveEnteteId` ; `GrcTableBody` calcule déjà `reservedElsewhere` et `repere` (à **compléter** ici par `showPrefix`, pas à réécrire) ; `propsToCompare` contient déjà `reservedElsewhere` et `repere` ; `sortedReglements` (rangs + `comparePairKey`) ; `getGrcCellValue('lettrage')`.
+- **Déjà fait par TASK-098 (à conserver)** : `GetMvIdsAnnulesAsync` / `annulesSet` / `ReglementAnnuleException` dans les réservations, filtre « annulé » dans `GenererPropositions`.
 
 ## Contexte
 Demande PO (2026-09-30) : sélectionner **plusieurs relevés** à la fois. Décision PO : **pour l'utilisateur, plusieurs relevés se traitent comme un seul relevé** — une seule grille Relevé (union),
@@ -138,7 +140,7 @@ Le PO **ne teste pas avant la mise en production** : toutes les preuves sont pro
    if (selectedReleveIds.length === 0) { setLignesReleve([]); if (!isFetchingRelevesRef.current) setLoadingReleve(false); return; }
    setLoadingReleve(true);
    axios.post(`${API_BASE}/ReleveBancaire/lignes`, { releveBancaireEnteteIds: [...selectedReleveIds].sort((a, b) => a - b) })
-     .then(res => { if (seq !== fetchLignesReleveSeqRef.current) return; setLignesReleve(res.data.map(/* mapping existant + releveEnteteId + mvId (TASK-106) */)); })
+     .then(res => { if (seq !== fetchLignesReleveSeqRef.current) return; setLignesReleve(res.data.map(/* mapping existant, déjà complété par TASK-106 (releveEnteteId, mvId) : ne pas le modifier */)); })
      .catch(err => { if (seq !== fetchLignesReleveSeqRef.current) return; console.error(err); setLignesReleve([]);
          showToast(err.response?.status === 403 ? "Accès refusé à l'un des relevés sélectionnés." : "Impossible de charger les lignes des relevés sélectionnés.", 'error'); })
      .finally(() => { if (seq === fetchLignesReleveSeqRef.current) setLoadingReleve(false); });
@@ -166,7 +168,7 @@ Le PO **ne teste pas avant la mise en production** : toutes les preuves sont pro
     (`refreshRelevesSeqRef` = nouveau `useRef(0)`.) L'appeler à la fin de `handleApprouver` **si au moins une paire a été approuvée**. Ne jamais modifier la sélection autrement (pas de re-sélection automatique).
     Dans le rendu, remplacer le texte de l'état vide (`:1228-1236`) « Aucun relevé importé pour cette banque. » par **« Aucun relevé à rapprocher pour cette banque. »** (le bouton « Aller à l'import de relevé » est conservé).
 12. **Repère préfixé** (s'appuie sur `formatRepere` de TASK-106) :
-    - `GrcTableBody` reçoit la prop `showPrefix` (l'ajouter à `GrcTableBodyProps`) et calcule `repere = formatRepere(row.releveEnteteId, row.lettrage, showPrefix || reservedElsewhere)` ; **la ligne ne reçoit que `repere` et `reservedElsewhere`** (déjà dans `propsToCompare`, TASK-106) : **ne pas passer `showPrefix` à `GrcTableRow`** ; quand `showPrefix` change, le corps se re-rend et seules les lignes dont `repere` a changé sont ré-affichées ;
+    - `GrcTableBody` reçoit la prop `showPrefix` (l'ajouter à `GrcTableBodyProps` **et** au JSX `<GrcTableBody … />` du rendu) ; le calcul existant de TASK-106 (`formatRepere(row.releveEnteteId, row.lettrage, reservedElsewhere)`) devient `repere = formatRepere(row.releveEnteteId, row.lettrage, showPrefix || reservedElsewhere)` ; **la ligne ne reçoit que `repere` et `reservedElsewhere`** (déjà dans `propsToCompare`, TASK-106) : **ne pas passer `showPrefix` à `GrcTableRow`** ; quand `showPrefix` change, le corps se re-rend et seules les lignes dont `repere` a changé sont ré-affichées ;
     - `ReleveTableBody` reçoit `showPrefix`, `showReleveCol`, `releveLabels` (objet) ; il calcule par ligne `repere = formatRepere(row.releveEnteteId, row.lettrage, showPrefix)` et `releveLabel` et les passe à `ReleveTableRow` (`React.memo` à comparaison superficielle : les props primitives suffisent) ;
     - `ReleveTableRow` : afficher `{repere}` dans la cellule `lettrage-cell` (à la place de `{row.lettrage}`) ; fond de ligne lettrée `getLettrageColor(repere)` (en mono = lettre nue = couleur actuelle ; en multi, `12-A` et `15-A` n'ont **pas** la même couleur de base) ; si `showReleveCol`, ajouter une cellule `<td title={releveLabel}>{releveLabel}</td>` **juste après la case « Sel. »** ;
     - `getGrcCellValue` (cas `'lettrage'`, déjà adapté par TASK-106) : utiliser `formatRepere(r.releveEnteteId, r.lettrage, showPrefix || (!!r.lettrage && !loadedMvIds.has(r.mv_Id)))`.
@@ -199,7 +201,7 @@ Dans les scénarios, `<RA>` / `<RB>` désignent l'**identifiant numérique réel
 Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1…G7) et la base utilisée.
 **Remise à l'état initial** : entre deux scénarios, libérer les lignes réservées (`release-batch` ou « Dérapprocher »), sauf indication contraire. Les scénarios qui **approuvent** (S13, S14) consomment leurs règlements : **recréer un lot neuf** (mêmes montants, nouveaux relevés/règlements) avant S15, S16, S17, S18 si besoin.
 
-**Méthode de test** : comme TASK-106 — API réelle + `SELECT` via `sqlcmd` (mot de passe dans `SQLCMDPASSWORD`, jamais écrit) ; front = Playwright **contre l'API réelle** dans `gocom-web/e2e_task100.cjs` (+ script `"test:e2e-100"`), identifiants lus dans les variables d'environnement `GRC_E2E_*` (jamais dans le script ni le VERIFY) ;
+**Méthode de test** : comme TASK-106 (**réutiliser** ses scripts `gocom-web/e2e_task106.cjs`, `e2e_task106_api.cjs`, `e2e_task106_compare.cjs` : connexion, appels API, `SELECT`, création du lot de test, variables `GRC_E2E_BASE_URL`, `GRC_E2E_USER1/PASS1`, `GRC_E2E_USER2/PASS2`, `SQLCMDPASSWORD`) — API réelle + `SELECT` via `sqlcmd` (mot de passe dans `SQLCMDPASSWORD`, jamais écrit) ; front = Playwright **contre l'API réelle** dans `gocom-web/e2e_task100.cjs` (+ script `"test:e2e-100"`), identifiants lus dans les variables d'environnement `GRC_E2E_*` (jamais dans le script ni le VERIFY) ;
 `page.route` autorisé **uniquement** pour simuler des délais/erreurs réseau (S9, S10) et pour l'ordre des identifiants 9 / 12 (S16). Captures dans `tasks/VERIFY/`. Un script jetable de test (PowerShell/`curl`) est admis pour l'API ; ne jamais y écrire de secret.
 
 ## Scénarios de test (à rejouer par le worker ; résultat + preuve + date dans le VERIFY)
@@ -215,7 +217,7 @@ Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1
   Rejouer avec l'appel **unitaire** `POST /reserve` `{ligneReleveId: B3, mvId: G5}` → **409** `Ligne ou règlement déjà réservé.`. **Avant correctif** (à consigner, sur le code d'origine) : erreur **500** et lot entier annulé. Si la base de test n'est pas en RCSI, l'activer d'abord (voir « Jeu d'essai ») puis **rejouer** ; ne jamais conclure sur une base sans RCSI. Remettre ensuite A3 à l'état libre.
 **Écran** (Playwright, API réelle)
 - **S8 Non-régression mono** : un seul relevé (RA) : combo = 1 case cochée ; **pas** de colonne « Relevé » ; lettres nues ; réservation manuelle, Auto, « Dérapprocher », « Approuver » comme avant (captures avant/après comparées pour l'affichage ; approbation consignée) ; compteur « n élément(s) affiché(s) » = lignes **crédit**.
-- **S9 Sélections rapides** : avec `page.route` qui **retarde de 3 s** la réponse de `POST /lignes` pour `[RA]` seulement, cocher RA puis RB aussitôt : après **toutes** les réponses, la grille = lignes de RA **et** RB (jamais RA seul) ; puis décocher RB pendant un chargement retardé : affichage final = RA seul. Aucun lot périmé ne réapparaît (preuve : assertions Playwright + captures).
+- **S9 Sélections rapides** : avec `page.route` qui **retarde de 3 s** la réponse de `POST /lignes` pour `[RA]` seulement (distinguer les appels par `request.postDataJSON().releveBancaireEnteteIds`), cocher RA puis RB aussitôt : après **toutes** les réponses, la grille = lignes de RA **et** RB (jamais RA seul) ; puis décocher RB pendant un chargement retardé : affichage final = RA seul. Aucun lot périmé ne réapparaît (preuve : assertions Playwright + captures).
 - **S10 Échec de chargement** : `page.route` renvoie **500** puis **403** pour `POST /lignes` : grille Relevé vidée, toast `error` au texte exact (403 : « Accès refusé… », autre : « Impossible de charger… »), aucune ligne périmée ; le retour à une sélection valide recharge normalement.
 - **S11 Manuel sur 2 relevés** (RA + RB cochés) : réserver A1↔G1 et B1↔G3 → repères **`<RA>-A`** et **`<RB>-A`** sur les **deux** grilles, fonds de couleur calculés sur le **repère préfixé** (aide visuelle à 15 teintes : deux repères peuvent coïncider par hasard — le consigner si c'est le cas avec les identifiants du test) ; aucune fausse paire ; cliquer A1 → `release-batch [A1]` seul, B1/G3 intacts (`SELECT`). Ne cocher ensuite que RA : lettre nue « A » sur A1 ; **G3 = cadenas `#<RB>`, repère `<RB>-A`** (réservé ailleurs, TASK-106).
 - **S12 Auto sur 2 relevés** (RA + RB, tout libre) : « Auto » → toast « 4 correspondance(s) » ; **A4/B3 restent libres**, G5 n'est attribué à personne ; repères `<RA>-A`, `<RA>-B`, `<RB>-A`, `<RB>-B` ; `SELECT` cohérent. **Dérapprocher** : `release-batch` des 4 lignes ; tout est libre ; `SELECT` de preuve.
@@ -230,7 +232,7 @@ Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1
 - **S21 Preuve par le code** : `grep -n "selectedReleveId\b\|setSelectedReleveEnteteId" gocom-web/src/RapprochementBancaire.tsx` → **0** résultat ; `git diff` : `AutoReconciliationEngine.cs` **non modifié** ; `GetAllLignesExcelAsync` non modifiée ; aucune dépendance ajoutée ; `CheckboxDropdown.css` = bloc déplacé à l'identique.
 
 ## Risques et points d'attention
-- **Fusion avec TASK-098** : elle ajoute dans `GenererPropositions` le filtre « annulé » (helper `EstEligibleRappBancaire(…, r.IsAnnule)`) et, dans `ReserverLigneAsync` / `ReserverLignesBatchAsync`, un SELECT groupé + `ReglementAnnuleException`. **Les conserver** ; après fusion, rejouer les scénarios **S3 et S5 de TASK-098** (à ne pas confondre avec S3 et S5 de la présente TASK).
+- **TASK-098 (déjà fusionnée)** : elle a ajouté dans `GenererPropositions` le filtre « annulé » (helper `EstEligibleRappBancaire(…, r.IsAnnule)`) et, dans `ReserverLigneAsync` / `ReserverLignesBatchAsync`, un SELECT groupé + `ReglementAnnuleException` (branche `annulesSet.Contains(item.MvId)` **avant** la réservation, dans la boucle). **Les conserver** ; le `try/catch` 2601/2627 de l'étape 3 s'ajoute **autour du seul `QuerySingleOrDefaultAsync`**, sans toucher à cette branche. Rejouer les scénarios **S3 et S5 de TASK-098** (à ne pas confondre avec S3 et S5 de la présente TASK) : un règlement annulé fourni dans un lot multi-relevés reste refusé sans consommer de lettre.
 - **Course 2601 sous RCSI** : le comportement de la transaction après l'erreur est une **hypothèse** à prouver (S7) ; ne pas livrer sans cette preuve.
 - **Jeton de séquence** : un seul pour toutes les lectures de lignes ; `refreshReleves` a son compteur dédié **et** vérifie la banque au retour (un « Approuver » lancé juste avant un changement de banque ne doit pas écraser la liste de la nouvelle banque).
 - **`@ts-nocheck` et mémos** : dépendances `showPrefix` / `releveLabels` / `loadedMvIds` (voir étape 14) ; une omission ne se voit qu'à l'exécution (S16).
@@ -249,7 +251,7 @@ Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1
 - **Contrôle de société absent** sur `reserve` / `reserve-batch` / `release` / `validate` / `generer-reglement` (ils reposent sur les droits de caisse et le réservataire) : constat à part, non traité ici.
 
 ## Coordination avec les autres TASKs du rapprochement
-- **TASK-106 d'abord** (prérequis dur). **TASK-098** (back) et **TASK-099** (front) **avant** : voir ci-dessus et TASK-106.
+- **TASK-098, TASK-099 et TASK-106 sont livrées** : partir du dépôt à jour.
 - **TASK-101 (export)** : doit exporter le **repère affiché** (`formatRepere`) et la colonne « Relevé » quand elle est visible (> 1 relevé) — jamais la lettre nue en multi-relevés.
 - **TASK-102 (filtres de date)** : touche les mêmes blocs `filteredLignes` / `filteredReglements` et les en-têtes ; conflit de fusion possible, sans impact fonctionnel. Conserver, à la fusion, les cas `'lettrage'` et `'releveEnteteId'`.
 
@@ -293,7 +295,7 @@ Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1
 - [ ] S19 combo + écran Comptabilisation identique avant/après (preuve : captures comparées)
 - [ ] S20 volume/performance mesurés, aucun plafond, charge ≈ ÷ 5 (preuve : mesures chiffrées)
 - [ ] S21 `grep` : plus de `selectedReleveId` ; moteur et `GetAllLignesExcelAsync` non modifiés (preuve : sorties + `git diff`)
-- [ ] Rejeu des scénarios S3 et S5 de TASK-098 après fusion (ou « TASK-098 non encore fusionnée »)
+- [ ] Rejeu des scénarios S3 et S5 de TASK-098 sur le code de cette TASK (un annulé dans un lot multi-relevés reste refusé, lettre non consommée)
 - [ ] Aucun `console.count`/log de debug laissé ; aucun secret en dur (scripts compris) (preuve : `git diff`)
 - [ ] Aucune dette technique silencieuse
 - [ ] Cohérent avec l'architecture
