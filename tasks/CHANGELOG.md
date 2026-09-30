@@ -1,5 +1,16 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-30 — Comptabilisation : les règlements annulés ne sont plus proposés (TASK-103, APPROVE)
+
+### Contexte
+Règle PO 2026-09-30 : l'annulation vaut suppression. L'écran Comptabilisation proposait les annulés Espèce/Autre ; la garde serveur TASK-088 les refusait mais bloquait « Comptabiliser » pour tout le lot.
+
+### Changement (front, 1 ligne)
+- `handleSimuler` envoie `annule: false` (`ApercuComptabilisation.tsx`). Back inchangé.
+
+### Validation
+Défaut reproduit avant correctif, aperçu et comptabilisation réelle OK après, cas « que des annulés » (toast, aucun appel aperçu), API directe toujours refusée. Build front 0 erreur.
+
 ## 2026-09-30 — Rapprochement : les règlements annulés ne sont plus rapprochables (TASK-098, APPROVE)
 
 ### Contexte

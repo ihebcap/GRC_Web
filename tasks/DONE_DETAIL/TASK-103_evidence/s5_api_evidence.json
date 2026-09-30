@@ -1,0 +1,39 @@
+{
+  "test_item": {
+    "reglementId": 9682,
+    "numero": "RC26021715",
+    "piece": "701266044",
+    "client": "PAYX AI_ CASA HAY OSRA",
+    "caisseNo": 16,
+    "caisseNom": "CASA HAY OSRA",
+    "date": "2026-01-07T00:00:00"
+  },
+  "apercu_comptabilisation": [
+    {
+      "reglementId": 9682,
+      "reglementNumero": "RC26021715",
+      "client": "PAYX AI_ CASA HAY OSRA",
+      "montant": 254,
+      "ecritures": [],
+      "hasError": true,
+      "erreur": "Règlement non comptabilisable : le règlement n°RC26021715 est annulé."
+    }
+  ],
+  "comptabiliser": {
+    "success": true,
+    "successCount": 0,
+    "errorCount": 1,
+    "errors": [
+      "Erreur sur le règlement 9682: Règlement non comptabilisable : le règlement n°RC26021715 est annulé."
+    ],
+    "docNumeroWarnings": [],
+    "lettrageWarnings": []
+  },
+  "get_reglements_state": {
+    "no": 9682,
+    "numero": "RC26021715",
+    "isAnnule": true,
+    "isComptabilise": 0,
+    "etat": 0
+  }
+}

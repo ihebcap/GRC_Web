@@ -10,7 +10,6 @@ Contexte cadré avec le PO :
 
 | Task | Priorité | Domaine | Sujet |
 |------|----------|---------|-------|
-| [TASK-103](TASK-103.md) | 🟠 | Front | Lot annulés — Comptabilisation : l'écran **propose** des règlements annulés (Espèce/Autre toujours inclus, arrêtés seulement après coup par la garde TASK-088) → `annule: false` au chargement ; conséquence secondaire : ils bloquaient « Comptabiliser » pour tout le lot |
 | [TASK-104](TASK-104.md) | 🟠 | Front + Back | Lot annulés — Liste : flag « Annulé » visible sans configurer les colonnes (choix de colonnes persisté en localStorage) ; **annulés masqués** en modes Rapprocher/Comptabiliser (`annule=false` dérivé du mode, décision PO) ; garde `IsAnnule` dans `RapprocherManuel` (`POST /api/rapprochement`, aucune garde aujourd'hui) ; le front **ignorait** le résultat de ce rapprochement (toast « validé » même si refusé) → à afficher, sinon la garde serait silencieuse |
 | [TASK-105](TASK-105.md) | 🟠 | Back + Front | Lot annulés — **Impossible d'annuler un règlement réservé ou pointé** (décision PO 2026-09-30) : garde serveur dans `AnnulerReglement` (pointé / ligne de relevé liée, messages distincts) + bouton « Annuler » de la liste masqué si réservé. Évite le lettrage orphelin |
 | [TASK-099](TASK-099.md) | 🟠 | Front | Rapprochement : bouton « Annuler le règlement » dans la grille GRC (réutilise `POST /reglements/{id}/annuler`, désactivé si réservé) — **prérequis dur TASK-098**, complément TASK-105. Piège : `areEqual` de la grille mémoïsée (liste fixe de props) + handler stable (grille jusqu'à 1000 lignes) |

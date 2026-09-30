@@ -1,0 +1,65 @@
+{
+  "description": "Preuve de comptabilisation réelle S3 - non-régression",
+  "reglements": [
+    {
+      "mv_id": 48199,
+      "numero": "RC26070309",
+      "montant": 3740.0,
+      "date": "2026-07-03",
+      "caisse": 204,
+      "isComptabilise": 1,
+      "ecritures": [
+        {
+          "hc_id": 52451,
+          "hc_no": 306493,
+          "compteGeneral": "5161100000",
+          "montant": 3740.0,
+          "journal": "CRO",
+          "piece": "FAG2637513",
+          "sens": 0
+        },
+        {
+          "hc_id": 52452,
+          "hc_no": 306494,
+          "compteGeneral": "3421000000",
+          "montant": 3740.0,
+          "journal": "CRO",
+          "piece": "FAG2637513",
+          "sens": 1
+        }
+      ]
+    },
+    {
+      "mv_id": 48198,
+      "numero": "RC26070308",
+      "montant": 19635.0,
+      "date": "2026-07-03",
+      "caisse": 204,
+      "isComptabilise": 1,
+      "ecritures": [
+        {
+          "hc_id": 52453,
+          "hc_no": 306495,
+          "compteGeneral": "5161100000",
+          "montant": 19635.0,
+          "journal": "CRO",
+          "piece": "FAG2637512",
+          "sens": 0
+        },
+        {
+          "hc_id": 52454,
+          "hc_no": 306496,
+          "compteGeneral": "3421000000",
+          "montant": 19635.0,
+          "journal": "CRO",
+          "piece": "FAG2637512",
+          "sens": 1
+        }
+      ]
+    }
+  ],
+  "server_log_proof": [
+    "2026-09-30 13:16:51.640 [INF] GRC.Infrastructure.Services.ReglementService COMPTABILISATION OK : reglementId=48199, ErpNo affecté=306493,306494, NumeroPiece=FAG2637513",
+    "2026-09-30 13:16:56.411 [INF] GRC.Infrastructure.Services.ReglementService COMPTABILISATION OK : reglementId=48198, ErpNo affecté=306495,306496, NumeroPiece=FAG2637512"
+  ]
+}

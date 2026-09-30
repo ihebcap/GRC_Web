@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction front (1 ligne) + vérification backend **sans code**
-- **Statut** : TODO
+- **Statut** : DONE
 - **Dépend de** : —
 - **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 - **Mise en prod** : front seul, aucun script SQL, aucune config. Retour arrière = redéployer le front précédent.
@@ -85,16 +85,16 @@ l'utilisateur de test) :
 - `GRC.Infrastructure/Services/ReglementService.cs` (**lecture seule** : `:721`, `:503`, `:1391`)
 
 ## Checklist VALIDATION (VERIFY : preuve datée par critère — capture, réponse API ou extrait de log)
-- [ ] Build front OK, 0 erreur (preuve : sortie du build)
-- [ ] S1 défaut reproduit avant correctif (preuve : capture de l'aperçu avec A1 « Non comptabilisable » et bouton grisé)
-- [ ] S2 après correctif : A1/A2 absents, bouton actif (preuve : capture)
-- [ ] S3 comptabilisation de N1/N2 inchangée (preuve : réponse `comptabiliser`)
-- [ ] S4 toast « Aucun règlement à comptabiliser… » (preuve : capture)
-- [ ] S5 API directe : refus « annulé », `isComptabilise` toujours 0 (preuve : 2 réponses + `GET /reglements`)
-- [ ] Le diff ne contient **que** l'ajout de `annule: false` (preuve : `git diff`)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Build front OK, 0 erreur (preuve : sortie du build)
+- [x] S1 défaut reproduit avant correctif (preuve : capture de l'aperçu avec A1 « Non comptabilisable » et bouton grisé)
+- [x] S2 après correctif : A1/A2 absents, bouton actif (preuve : capture)
+- [x] S3 comptabilisation de N1/N2 inchangée (preuve : réponse `comptabiliser`)
+- [x] S4 toast « Aucun règlement à comptabiliser… » (preuve : capture)
+- [x] S5 API directe : refus « annulé », `isComptabilise` toujours 0 (preuve : 2 réponses + `GET /reglements`)
+- [x] Le diff ne contient **que** l'ajout de `annule: false` (preuve : `git diff`)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
 
 ## Go / No-Go
 **No-Go si** S3 ou S5 ne sont pas prouvés : ils garantissent que la comptabilisation normale n'est pas affectée.
