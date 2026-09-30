@@ -209,6 +209,7 @@ export default function ApercuComptabilisation({ user, showToast, caissesMap, pr
           caisseNos: caisses.length ? caisses.join(',') : undefined,
           pointe: true,
           includeEspeceEtAutreSiPointeFiltre: true,
+          annule: false,
           dateDebut,
           dateFin: dateFin ? dateFin + 'T23:59:59' : dateFin,
           page: 1,
