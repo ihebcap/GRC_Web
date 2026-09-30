@@ -235,6 +235,7 @@ Consigner dans le VERIFY les identifiants réels (RA, RB, RC, RD, RE, lignes, G1
 - **Jeton de séquence** : un seul pour toutes les lectures de lignes ; `refreshReleves` a son compteur dédié **et** vérifie la banque au retour (un « Approuver » lancé juste avant un changement de banque ne doit pas écraser la liste de la nouvelle banque).
 - **`@ts-nocheck` et mémos** : dépendances `showPrefix` / `releveLabels` / `loadedMvIds` (voir étape 14) ; une omission ne se voit qu'à l'exécution (S16).
 - **Toast unique de 3 s** (`App.tsx:106-110`) : pas de `showToast` successifs ; messages courts.
+- **Ordre de déclaration (zone morte temporelle)** : `selectedReleveIds`, `selectedReleveIdsKey`, `showPrefix`, `releveLabels` et `selectedBanqueIdRef` sont déclarés **au début du composant** (près de `:226`/`:283`), avant tout effet, mémo ou callback qui les cite (les tableaux de dépendances sont évalués au rendu, dans l'ordre) ; un ordre inverse donne une `ReferenceError` que `@ts-nocheck` masque. `refreshReleves` est déclaré avant `handleApprouver`.
 - **Union ⇒ moins de propositions automatiques** (voulu, mesuré : −1 pour 3 relevés, −7 pour 10, −63 pour tous sur 215) : à expliquer au PO, pas à « corriger » (le moteur strict 1=1 reste intouché).
 - **Lignes déjà réservées** : le moteur ne retire pas de ses candidats les règlements déjà réservés ; un conflit à la réservation s'affiche « conflits ignorés » (comportement existant, non aggravé).
 - **Déploiement** : API + front **ensemble** ; ne jamais le front seul.

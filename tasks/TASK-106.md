@@ -281,6 +281,8 @@ front = Playwright **contre l'API réelle** dans `gocom-web/e2e_task106.cjs` (+ 
 - **Changement visible** : les règlements réservés sur un autre relevé deviennent non cochables (voir « Ce que l'utilisateur voit changer »).
 - **Toast unique de 3 s** : les messages d'« Approuver » restent courts ; ne pas ajouter d'appel `showToast` successif.
 - **Ordre GRC** : les règlements « réservés ailleurs » ne sont plus mêlés aux paires ; conséquence voulue (l'alignement des paires entre les deux grilles est préservé).
+- **Ordre de déclaration (zone morte temporelle)** : `loadedMvIds` (`useMemo`) doit être déclaré **avant** tout `useMemo`/`useCallback` qui le cite dans son tableau de dépendances (`filteredReglements`, `sortedReglements`, `grcFilterOptionsMap`, ~`:1032-1125`) : l'emplacement indiqué (près de `lignesReleveRef`, `:283`) convient ; le déclarer plus bas provoque une `ReferenceError` au premier rendu que `@ts-nocheck` ne signale pas. Idem `delettrerLigne` avant `handleSelectGrc` / `handleSelectReleve`.
+- **Survol** : `.lettered-row:hover` (CSS) passe la ligne au vert ; le style en ligne grisé des lignes verrouillées l'emporte au repos, pas au survol — comportement **déjà existant** pour les réservations d'un autre utilisateur, non à corriger ici.
 - **`currentUserId`** : toujours `Number(user?.no)` (props) dans `handleApprouver`, comme le rendu ; les autres handlers lisent `sessionStorage` (inchangé).
 
 ## Coordination avec les autres TASKs du rapprochement
