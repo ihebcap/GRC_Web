@@ -37,6 +37,7 @@ Un bouton « Exporter » (icône `Download`) dans l'en-tête de chaque grille :
 ## Contraintes
 - Pas de nouvelle dépendance ; pas de nouveau composant de grille.
 - Aucune donnée hors périmètre affiché exportée.
+- **Après TASK-106 / TASK-100** : la colonne « Repère » exportée est le **repère affiché** (`formatRepere(...)`, p. ex. `12-A` quand plusieurs relevés sont cochés, ou pour un règlement « réservé ailleurs »), **jamais** la lettre brute `lettrage` ; la colonne « Relevé » (`titre (#id)`) est exportée **quand elle est visible** (plus d'un relevé coché). Sens crédit uniquement : aucune ligne débit.
 
 ## Checklist VALIDATION (à remplir dans VERIFY/, preuve datée par critère)
 - [ ] Build OK
