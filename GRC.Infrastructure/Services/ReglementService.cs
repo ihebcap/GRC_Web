@@ -1304,6 +1304,9 @@ namespace GRC.Infrastructure.Services
                     if (reg.IsPointe)
                         throw new InvalidOperationException($"Le règlement {reg.No} est déjà pointé.");
 
+                    if (reg.IsAnnule)
+                        throw new InvalidOperationException($"Le règlement {reg.No} est annulé et ne peut pas être rapproché.");
+
                     reg.IsPointe = true;
                     if (!string.IsNullOrEmpty(item.ExtraitNum))
                     {

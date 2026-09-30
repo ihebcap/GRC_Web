@@ -555,6 +555,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
       if (currentFilters.remis) params.remis = currentFilters.remis === 'oui';
       if (currentFilters.impaye) params.impaye = currentFilters.impaye === 'oui';
       if (currentFilters.annule) params.annule = currentFilters.annule === 'oui';
+      if (isRapprochementMode || isComptabilisationMode) params.annule = false;
       
       return params;
   };
@@ -577,12 +578,17 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
         ExtraitNum: selectedReglements[id].extraitNum,
         DateValeur: selectedReglements[id].dateValeur
       }));
-      await axios.post(`${API_BASE}/rapprochement`, requests);
+      const res = await axios.post(`${API_BASE}/rapprochement`, requests);
+      const { successCount = 0, errorCount = 0, errors = [] } = res.data || {};
       setSelectedReglements({});
       setIsRapprochementMode(false);
       setFilters(prev => { const f = {...prev}; delete f.pointe; return f; });
       fetchReglements(page, debouncedFilters);
-      showToast('Rapprochement validé !', 'success');
+      if (errorCount > 0) {
+        showToast(`${successCount} règlement(s) rapproché(s), ${errorCount} refusé(s) : ${errors[0] || 'Erreur'}`, 'warning');
+      } else {
+        showToast('Rapprochement validé !', 'success');
+      }
     } catch (err) {
       showToast('Erreur lors du rapprochement', 'error');
     } finally {
@@ -734,6 +740,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   const handleFilterChange = (key: string, value: string) => {
     if (isRapprochementMode && key === 'pointe') return;
     if (isComptabilisationMode && key === 'comptabilise') return;
+    if ((isRapprochementMode || isComptabilisationMode) && key === 'annule') return;
     setFilters(prev => {
       const newFilters = { ...prev };
       if (value === '' || value === 'all') {
@@ -754,8 +761,9 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
         const rowUI = (
         <tr 
           key={reg.no}
+          title={reg.isAnnule ? "Règlement annulé" : undefined}
           onClick={() => {
-            if (isRapprochementMode && !reg.isPointe) {
+            if (isRapprochementMode && !reg.isPointe && !reg.isAnnule) {
               setSelectedReglements(prev => {
                 const n = { ...prev };
                 if (n[reg.no]) {
@@ -768,7 +776,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                 }
                 return n;
               });
-            } else if (isComptabilisationMode && reg.isComptabilise === 0) {
+            } else if (isComptabilisationMode && reg.isComptabilise === 0 && !reg.isAnnule) {
               setSelectedComptabilisation(prev => {
                 const n = { ...prev };
                 if (n[reg.no]) delete n[reg.no];
@@ -778,66 +786,72 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             }
           }}
           style={{
-            cursor: (isRapprochementMode && !reg.isPointe) || (isComptabilisationMode && reg.isComptabilise === 0) ? 'pointer' : 'default',
+            opacity: reg.isAnnule ? 0.55 : undefined,
+            cursor: (isRapprochementMode && !reg.isPointe && !reg.isAnnule) || (isComptabilisationMode && reg.isComptabilise === 0 && !reg.isAnnule) ? 'pointer' : 'default',
             backgroundColor: isSelected ? 'rgba(34, 197, 94, 0.1)' : undefined,
             boxShadow: isSelected ? 'inset 4px 0 0 var(--success-color, #22c55e)' : undefined
           }}
         >
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '68px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: '4px' }}>
-              {!modifDisabledReason ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingReglement(reg);
-                  }}
-                  className="btn btn-ghost"
-                  style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
-                  title="Modifier le règlement"
-                >
-                  <Edit size={13} color="#2563eb" />
-                </button>
-              ) : (
-                <span
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed' }}
-                  title={modifDisabledReason}
-                >
+            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: '4px' }}>
+                {!modifDisabledReason ? (
                   <button
-                    disabled
-                    tabIndex={-1}
-                    className="btn btn-ghost"
-                    style={{
-                      padding: '4px 6px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.75rem',
-                      cursor: 'not-allowed',
-                      borderRadius: '4px',
-                      border: '1px solid #e5e7eb',
-                      color: '#9ca3af',
-                      backgroundColor: '#f3f4f6',
-                      opacity: 0.6,
-                      pointerEvents: 'none'
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingReglement(reg);
                     }}
-                    aria-label={modifDisabledReason}
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #93c5fd', color: '#2563eb', backgroundColor: '#eff6ff' }}
+                    title="Modifier le règlement"
                   >
-                    <Edit size={13} color="#9ca3af" />
+                    <Edit size={13} color="#2563eb" />
                   </button>
-                </span>
-              )}
-              {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAnnulerReglement(reg);
-                  }}
-                  className="btn btn-ghost-danger"
-                  style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #fecaca', color: '#ef4444', backgroundColor: '#fef2f2' }}
-                  title="Annuler le règlement"
-                >
-                  <XCircle size={13} color="#ef4444" />
-                </button>
+                ) : (
+                  <span
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed' }}
+                    title={modifDisabledReason}
+                  >
+                    <button
+                      disabled
+                      tabIndex={-1}
+                      className="btn btn-ghost"
+                      style={{
+                        padding: '4px 6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        cursor: 'not-allowed',
+                        borderRadius: '4px',
+                        border: '1px solid #e5e7eb',
+                        color: '#9ca3af',
+                        backgroundColor: '#f3f4f6',
+                        opacity: 0.6,
+                        pointerEvents: 'none'
+                      }}
+                      aria-label={modifDisabledReason}
+                    >
+                      <Edit size={13} color="#9ca3af" />
+                    </button>
+                  </span>
+                )}
+                {(!reg.isAnnule && reg.isComptabilise === 0 && !reg.isPointe && reg.isRemis === 0 && !reg.isAffecte) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAnnulerReglement(reg);
+                    }}
+                    className="btn btn-ghost-danger"
+                    style={{ padding: '4px 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #fecaca', color: '#ef4444', backgroundColor: '#fef2f2' }}
+                    title="Annuler le règlement"
+                  >
+                    <XCircle size={13} color="#ef4444" />
+                  </button>
+                )}
+              </div>
+              {reg.isAnnule && (
+                <span className="badge badge-danger">Annulé</span>
               )}
             </div>
           </td>
@@ -1042,6 +1056,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                       setFilters(prev => {
                         const f: Record<string, string> = {...prev, comptabilise: 'non'};
                         delete f.pointe;
+                        delete f.annule;
                         return f;
                       });
                       setSelectedComptabilisation({});
@@ -1098,6 +1113,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                       setFilters(prev => {
                         const f: Record<string, string> = {...prev, pointe: 'non'};
                         delete f.comptabilise;
+                        delete f.annule;
                         return f;
                       });
                       setSelectedReglements({});
@@ -1360,7 +1376,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                         >
                           <div style={{display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap'}}>
                             {col.label} {sortCol === col.key ? (sortDesc ? '▼' : '▲') : ''}
-                            {col.key !== 'no' && !(isRapprochementMode && col.key === 'pointe') && !(isComptabilisationMode && col.key === 'comptabilise') && (
+                            {col.key !== 'no' && !(isRapprochementMode && col.key === 'pointe') && !(isComptabilisationMode && col.key === 'comptabilise') && !((isRapprochementMode || isComptabilisationMode) && col.key === 'annule') && (
                               <ExcelFilter 
                                 columnKey={col.key}
                                 filterType={filterType}
@@ -1374,6 +1390,12 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                                <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: '4px' }} title="Filtre verrouillé en mode Rapprochement">🔒</span>
                             )}
                             {isComptabilisationMode && col.key === 'comptabilise' && (
+                               <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: '4px' }} title="Filtre verrouillé en mode Comptabilisation">🔒</span>
+                            )}
+                            {isRapprochementMode && col.key === 'annule' && (
+                               <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: '4px' }} title="Filtre verrouillé en mode Rapprochement">🔒</span>
+                            )}
+                            {isComptabilisationMode && col.key === 'annule' && (
                                <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginLeft: '4px' }} title="Filtre verrouillé en mode Comptabilisation">🔒</span>
                             )}
                           </div>
