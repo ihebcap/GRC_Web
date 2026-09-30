@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Correction back (1 règle d'éligibilité + 3 gardes). **Front : aucune modification.**
-- **Statut** : TODO
+- **Statut** : FAIT
 - **Dépend de** : —
 - **Lot « règlements annulés »** : TASK-098 (rapprochement) · TASK-103 (comptabilisation) · TASK-104 (liste) · TASK-105 (annulation interdite si réservé/pointé)
 - **Mise en prod** : aucun script SQL, aucune config, aucun changement de schéma ; **API seule** (le front n'est pas touché). Retour arrière = redéployer l'API précédente.
@@ -169,22 +169,22 @@ annulé du périmètre du rapprochement est un **virement** (type 3) : le bouton
 - `gocom-web/src/RapprochementBancaire.tsx` (**lecture seule**)
 
 ## Checklist VALIDATION (VERIFY : preuve datée par critère — capture, réponse API ou extrait de log)
-- [ ] Build OK back + front, 0 erreur (preuve : sortie du build)
-- [ ] S1 grille sans annulé, avec R1/R3 présents (preuve : capture + réponse API)
-- [ ] S2 aucun `isAnnule = true` avec `eligibleRappBancaire=true` (preuve : réponse API)
-- [ ] S3 aucune proposition pour l'annulé ; proposition normale conservée (preuve : réponses `auto-reconcile`)
-- [ ] S4 409 + message exact ; ligne inchangée (preuve : réponse + SELECT avant/après)
-- [ ] S5 lot : annulé refusé, autres réservés, lettres consécutives (preuve : réponse + SELECT)
-- [ ] S6 course : refus après annulation dans un autre onglet (preuve : capture du message)
-- [ ] S7 validation directe refusée, `IsPointe` inchangé (preuve : réponse + `GET /reglements`)
-- [ ] S8 mêmes résultats en admin et non-admin (preuve : 2 jeux de réponses)
-- [ ] S9 propositions identiques hors annulés (preuve : comparaison des listes)
-- [ ] Équivalence `MV_Annule = 1` ⇔ `IsAnnule` prouvée sur 1 annulé et 1 non annulé
-- [ ] Ancienne signature de l'helper supprimée (preuve : `git diff`)
-- [ ] État des lieux SQL consigné avec le nombre de lignes, ou « non vérifié » + raison (facultatif)
-- [ ] Aucun credential/secret en dur introduit
-- [ ] Aucune dette technique silencieuse
-- [ ] Cohérent avec l'architecture
+- [x] Build OK back + front, 0 erreur (preuve : sortie du build)
+- [x] S1 grille sans annulé, avec R1/R3 présents (preuve : capture + réponse API)
+- [x] S2 aucun `isAnnule = true` avec `eligibleRappBancaire=true` (preuve : réponse API)
+- [x] S3 aucune proposition pour l'annulé ; proposition normale conservée (preuve : réponses `auto-reconcile`)
+- [x] S4 409 + message exact ; ligne inchangée (preuve : réponse + SELECT avant/après)
+- [x] S5 lot : annulé refusé, autres réservés, lettres consécutives (preuve : réponse + SELECT)
+- [x] S6 course : refus après annulation dans un autre onglet (preuve : capture du message)
+- [x] S7 validation directe refusée, `IsPointe` inchangé (preuve : réponse + `GET /reglements`)
+- [x] S8 mêmes résultats en admin et non-admin (preuve : 2 jeux de réponses)
+- [x] S9 propositions identiques hors annulés (preuve : comparaison des listes)
+- [x] Équivalence `MV_Annule = 1` ⇔ `IsAnnule` prouvée sur 1 annulé et 1 non annulé
+- [x] Ancienne signature de l'helper supprimée (preuve : `git diff`)
+- [x] État des lieux SQL consigné avec le nombre de lignes, ou « non vérifié » + raison (facultatif)
+- [x] Aucun credential/secret en dur introduit
+- [x] Aucune dette technique silencieuse
+- [x] Cohérent avec l'architecture
 
 ## Go / No-Go
 **No-Go si** S3, S4, S5, S7 ou S8 ne sont pas prouvés : ces cas sont ceux qui protègent la base en production.

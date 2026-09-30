@@ -1,5 +1,19 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-09-30 — Rapprochement : les règlements annulés ne sont plus rapprochables (TASK-098, APPROVE)
+
+### Contexte
+Règle PO 2026-09-30 : l'annulation d'un règlement vaut suppression ; un annulé n'est visible que dans la liste des règlements et ne doit jamais être proposé ni rapproché.
+
+### Changement (back seul)
+- `ReglementEligibilityHelper.EstEligibleRappBancaire(mvType, mvRemis, isAnnule)` : règle unique, ancienne signature supprimée (3 appelants mis à jour).
+- Réservation unitaire : HTTP 409 + message si le règlement est annulé (`ReglementAnnuleException`), avant tout verrou.
+- Réservation en lot : SELECT groupé des annulés, `Success=false`, aucune lettre consommée.
+- Validation : garde `IsAnnule` dans `SauvegarderValidationAsync`.
+
+### Validation
+Scénarios S1–S8 rejoués sur la base de test (SQL + API, admin et non-admin) ; build back 0 erreur rejoué à la review. Point d'attention prod : une réservation historique sur un annulé (ligne 19291, relevé 154, utilisateur 186) doit être libérée avant déploiement.
+
 ## 2026-09-29 — Rendre visible/utilisable le filtre par numéro de règlement (TASK-097, APPROVE)
 
 ### Contexte
