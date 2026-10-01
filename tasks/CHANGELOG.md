@@ -9,7 +9,7 @@
 Cause racine prouvée par décompilation (`Tresorerie.UICommun.Helper.TiersErpHelper`) et stats SQL de prod ; 3 reviews indépendantes (équivalence, périmètre/build, preuves) toutes APPROVE ; build 0 erreur.
 
 ### Réserves
-Gain non mesuré en exécution (hypothèse : ~450 → ~20-100 ms par règlement) ; en cas d'échec de chargement des tiers le comportement reste un nouvel essai par facture (identique à avant) : TASK-117.
+Gain mesuré en production le 2026-10-02 (~460 → ~59 ms par règlement, ≈ 8×) ; en cas d'échec de chargement des tiers le comportement reste un nouvel essai par facture (identique à avant) : TASK-117.
 
 ## 2026-10-01 — Règlement espèce : dépôt et caisse paramétrée visibles, filtre des dépôts de la caisse (TASK-116, APPROVE avec rectificatifs)
 

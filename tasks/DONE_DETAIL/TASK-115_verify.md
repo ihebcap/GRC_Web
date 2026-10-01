@@ -54,3 +54,14 @@ Review indépendante en 3 lentilles (équivalence de résolution des clients, p�
 4. **Comportement en cas d'échec du chargement des tiers** : si le premier `Get(code, true)` échoue (timeout, SQL), `clientsCharges` reste faux et chaque facture suivante relance un chargement complet. Identique à l'existant avant TASK-115, mais sans garde-fou. Sur la base de test, ce chargement a atteint le timeout SQL de 30 s à chaque facture lors des rejeux de TASK-116 (cause non établie ; en prod la même requête était mesurée à ~430 ms). **TASK-117** ouverte pour abandonner le lot au premier échec de chargement.
 5. **Namespace** : la classe décompilée est `Tresorerie.UICommun.Helper.TiersErpHelper` (et non l'homonyme `Tresorerie.UIConfiguration.Helper.TiersErpHelper`, dont `Get(string)` n'a pas de paramètre `reload`).
 6. **Snapshot figé** : pendant un lot, un client renommé garde l'ancien intitulé ; un client créé est retrouvé par le repli SQL unitaire.
+
+---
+
+## Mesure en production (2026-10-02) — réserve « gain non mesuré » LEVÉE
+
+Log de production du 2026-10-02 après déploiement (API redémarrée à 01:19:31) :
+- Lot de 1 règlement (XDR2, 01:20:50) : tiers ERP chargés une seule fois en **946 ms**, ligne « FIN DE LOT » présente (durée 1 494 ms au total).
+- Lot de XDR3 (01:21:36) : tiers ERP chargés une seule fois en **424 ms**, puis règlements 76268 à 76404 (**136 règlements en 8,0 s, soit ~59 ms par règlement**), numéros `RC26102980` à `RC26103115` sans trou, aucune erreur dans l'extrait.
+- Référence avant correctif (log du 2026-10-01) : ~460 ms par règlement (médiane), écart minimal 305 ms.
+- **Gain mesuré : ~8×** (460 ms → ~59 ms par règlement) ; projection pour 30 000 règlements : ~3 h 50 → ~30 min. Limite : extrait de log partiel (la ligne « FIN DE LOT » du lot XDR3 n'était pas encore émise au moment de la capture). Le comportement en cas d'échec du chargement des tiers reste à durcir (TASK-117).
+- Note de log : la ligne « entrée » du contrôleur écrit encore la liste complète des identifiants d'échéances (plusieurs milliers de numéros par ligne) ; à raccourcir (nombre seulement) dans une TASK de suivi.
