@@ -184,12 +184,14 @@ Cet écran permet de créer directement des **règlements client en espèce**, s
 relevé bancaire — pour les encaissements en caisse.
 
 1. L'écran affiche la liste complète des **factures ouvertes** (solde > 0) de la société, tous
-   clients confondus. Filtrez par colonne (client, n° facture, dates, solde…) comme sur un tableau
+   clients confondus. Deux colonnes indiquent le **Dépôt** et la **Caisse paramétrée** de chaque
+   facture. Filtrez par colonne (client, n° facture, dates, solde, caisse…) comme sur un tableau
    Excel, et choisissez les colonnes affichées via `Colonnes` (ce choix est mémorisé).
-2. **Cochez** une ou plusieurs factures à régler — le total sélectionné s'affiche en continu.
-3. **Choisissez la caisse** (limitée à celles affectées à votre profil).
+2. **Choisissez la caisse** (limitée à celles affectées à votre profil). L'interrupteur **« Filtrer sur les dépôts de cette caisse »**
+   permet de restreindre l'affichage aux factures rattachées aux dépôts de la caisse choisie.
+3. **Cochez** une ou plusieurs factures à régler — le total sélectionné et la répartition par caisse s'affichent en continu.
 4. Cliquez `Générer` : un **règlement espèce est créé par facture cochée**, affecté intégralement
-   sur l'échéance correspondante.
+   sur l'échéance correspondante. Une confirmation récapitule les montants et vous avertit si des factures cochées ont une caisse paramétrée différente de celle choisie.
 5. Le résultat détaille, facture par facture, les règlements créés avec succès et ceux en échec
    (avec le motif) — un échec sur une facture ne bloque pas les autres.
 

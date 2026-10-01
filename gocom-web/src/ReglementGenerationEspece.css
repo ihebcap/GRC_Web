@@ -158,3 +158,24 @@
 .regesp-row-ko td {
     background-color: #fef2f2;
 }
+
+/* TASK-116 — Styles interrupteur, répartition caisses et indisponibilité */
+.regesp-switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.825rem;
+    user-select: none;
+}
+
+.regesp-repartition {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    line-height: 1.35;
+}
+
+.regesp-indispo-banner {
+    border-left: 3px solid #d97706;
+}

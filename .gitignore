@@ -19,3 +19,4 @@ deploy/
 
 # Harnais de validation (credentials via env vars — ne jamais committer)
 harness_task107/
+test_task116/

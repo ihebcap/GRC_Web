@@ -28,6 +28,12 @@ interface EcheanceARegler {
   info3: string;
   info4: string;
   representant: string;
+  depotIntitule: string;
+  caisseCode?: string | null;
+  caisseIntitule?: string | null;
+  caisseSommeil?: boolean;
+  caisseMotif?: string | null;
+  parametrageIndisponible?: boolean;
 }
 
 interface ReglementResultatItem {
@@ -56,6 +62,8 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'montant', label: 'Montant', filterType: 'number', isAmount: true, defaultVisible: true },
   { key: 'solde', label: 'Solde', filterType: 'number', isAmount: true, defaultVisible: true },
   { key: 'representant', label: 'Représentant', filterType: 'list', defaultVisible: true },
+  { key: 'depotIntitule', label: 'Dépôt', filterType: 'list', defaultVisible: true },
+  { key: 'caisseParametree', label: 'Caisse paramétrée', filterType: 'list', defaultVisible: true },
   { key: 'commentaire', label: 'Commentaire', filterType: 'list', defaultVisible: false },
   { key: 'info1', label: 'Info 1', filterType: 'list', defaultVisible: false },
   { key: 'info2', label: 'Info 2', filterType: 'list', defaultVisible: false },
@@ -63,8 +71,13 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'info4', label: 'Info 4', filterType: 'list', defaultVisible: false },
 ];
 
-const LOCALSTORAGE_KEY = 'gocom_reglement_espece_columns';
+const LOCALSTORAGE_KEY_LEGACY = 'gocom_reglement_espece_columns';
+const LOCALSTORAGE_KEY = 'gocom_reglement_espece_columns_v2';
 const LOCALSTORAGE_PAGE_SIZE = 'gocom_reglement_espece_pagesize';
+
+type ClasseCaisse = 'traitable' | 'sommeil' | 'nonParametre';
+const classerFacture = (f: EcheanceARegler): ClasseCaisse =>
+  !f.caisseCode ? 'nonParametre' : f.caisseSommeil ? 'sommeil' : 'traitable';
 
 function getItemValue(f: EcheanceARegler, key: string): string {
   if (key === 'dateFacture') {
@@ -73,6 +86,8 @@ function getItemValue(f: EcheanceARegler, key: string): string {
   if (key === 'dateEcheance') {
     return f.dateEcheance ? String(f.dateEcheance).substring(0, 10) : '';
   }
+  if (key === 'depotIntitule') return f.depotIntitule || '—';
+  if (key === 'caisseParametree') return f.caisseCode ? (f.caisseSommeil ? `${f.caisseCode} (en sommeil)` : f.caisseCode) : (f.caisseMotif === 'ambigu' ? 'Paramétrage ambigu' : 'Non paramétré');
   return String((f as any)[key] ?? '');
 }
 
@@ -94,6 +109,21 @@ function renderCellContent(colKey: string, f: EcheanceARegler) {
       return formatMoney(f.solde);
     case 'representant':
       return f.representant || '—';
+    case 'depotIntitule':
+      return f.depotIntitule || '—';
+    case 'caisseParametree':
+      return f.caisseCode ? (
+        <span title={f.caisseIntitule || undefined}>
+          {f.caisseSommeil ? `${f.caisseCode} (en sommeil)` : f.caisseCode}
+        </span>
+      ) : (
+        <span
+          style={{ color: '#b45309' }}
+          title="Aucune caisse paramétrée pour ce dépôt : choisissez la caisse à la main"
+        >
+          {f.caisseMotif === 'ambigu' ? 'Paramétrage ambigu' : 'Non paramétré'}
+        </span>
+      );
     case 'commentaire':
       return f.commentaire || '—';
     case 'info1':
@@ -175,28 +205,48 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
   const [page, setPage] = useState<number>(1);
 
   const [caisseCode, setCaisseCode] = useState('');
+  const [filtrerDepotsCaisse, setFiltrerDepotsCaisse] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [resultats, setResultats] = useState<ReglementResultatItem[] | null>(null);
+
+  const parametrageIndisponible = useMemo(() => {
+    return factures.length > 0 && factures.some(f => f.parametrageIndisponible);
+  }, [factures]);
 
   // Gestion du choix de colonnes par utilisateur (localStorage)
   const [showColModal, setShowColModal] = useState(false);
   const [selectedColKeys, setSelectedColKeys] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem(LOCALSTORAGE_KEY);
-      if (saved) {
-        let parsed = JSON.parse(saved);
+      const v2 = localStorage.getItem(LOCALSTORAGE_KEY);
+      if (v2) {
+        const parsed = JSON.parse(v2);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+
+    try {
+      const legacy = localStorage.getItem(LOCALSTORAGE_KEY_LEGACY);
+      if (legacy) {
+        let parsed = JSON.parse(legacy);
         if (Array.isArray(parsed) && parsed.length > 0) {
           if (parsed.includes('client')) {
             parsed = parsed.filter(k => k !== 'client');
             if (!parsed.includes('clientCode')) parsed.push('clientCode');
             if (!parsed.includes('clientIntitule')) parsed.push('clientIntitule');
           }
+          if (!parsed.includes('depotIntitule')) parsed.push('depotIntitule');
+          if (!parsed.includes('caisseParametree')) parsed.push('caisseParametree');
+
+          try {
+            localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(parsed));
+          } catch {}
           return parsed;
         }
       }
-    } catch (e) {
-      console.error('Erreur chargement colonnes sauvegardées', e);
-    }
+    } catch {}
+
     return ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key);
   });
 
@@ -209,7 +259,11 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
       } else {
         next = [...prev, key];
       }
-      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(next));
+      try {
+        localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error('Erreur sauvegarde colonnes', e);
+      }
       return next;
     });
   };
@@ -259,7 +313,7 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
   // Remise à la première page lors d'un changement de filtre ou de tri
   useEffect(() => {
     setPage(1);
-  }, [filters, sortCol, sortDesc]);
+  }, [filters, sortCol, sortDesc, filtrerDepotsCaisse, caisseCode]);
 
   const handlePageSizeChange = (newSize: number) => {
     setPageSize(newSize);
@@ -280,6 +334,12 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
 
   const filteredFactures = useMemo(() => {
     return factures.filter(f => {
+      if (!parametrageIndisponible && filtrerDepotsCaisse && caisseCode) {
+        if (!f.caisseCode || f.caisseCode !== caisseCode) {
+          return false;
+        }
+      }
+
       for (const [key, filter] of Object.entries(filters)) {
         const val = getItemValue(f, key);
 
@@ -302,7 +362,7 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
       }
       return true;
     });
-  }, [factures, filters]);
+  }, [factures, filters, filtrerDepotsCaisse, caisseCode, parametrageIndisponible]);
 
   const collator = useMemo(() => new Intl.Collator('fr-FR', { numeric: true, sensitivity: 'base' }), []);
 
@@ -325,8 +385,8 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
         const valB = (b as any)[sortCol] || '';
         cmp = valA.localeCompare(valB);
       } else {
-        const valA = String((a as any)[sortCol] || '');
-        const valB = String((b as any)[sortCol] || '');
+        const valA = (sortCol === 'depotIntitule' || sortCol === 'caisseParametree') ? getItemValue(a, sortCol) : String((a as any)[sortCol] || '');
+        const valB = (sortCol === 'depotIntitule' || sortCol === 'caisseParametree') ? getItemValue(b, sortCol) : String((b as any)[sortCol] || '');
         cmp = collator.compare(valA, valB);
       }
       if (cmp !== 0) return sortDesc ? -cmp : cmp;
@@ -400,20 +460,88 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     return map;
   }, [factures]);
 
-  const { echeanceNosCoches, totalCoche } = useMemo(() => {
+  const {
+    echeanceNosCoches,
+    totalCoche,
+    repartitionCaisses,
+    nbAutreCaisse,
+    nbSansCaisse,
+    autreCaissesDetail
+  } = useMemo(() => {
     const keys = Object.keys(checked);
     const nos: number[] = [];
     let sum = 0;
+
+    const groupMap = new Map<string, { label: string; count: number; total: number; isNonParametre: boolean }>();
+    const autreCaissesCount: Record<string, number> = {};
+    let sansCaisse = 0;
+    let autreCaisse = 0;
+
     for (let i = 0; i < keys.length; i++) {
       const no = Number(keys[i]);
       if (checked[no]) {
         nos.push(no);
         const f = facturesByNo.get(no);
-        if (f) sum += Number(f.solde) || 0;
+        if (f) {
+          const s = Number(f.solde) || 0;
+          sum += s;
+
+          const classe = classerFacture(f);
+          let key: string;
+          let label: string;
+          let isNonParam = false;
+
+          if (classe === 'nonParametre') {
+            key = '__NON_PARAM__';
+            label = 'Non paramétré';
+            isNonParam = true;
+            sansCaisse++;
+          } else if (classe === 'sommeil') {
+            key = `${f.caisseCode} (en sommeil)`;
+            label = `${f.caisseCode} (en sommeil)`;
+            if (caisseCode && f.caisseCode !== caisseCode) {
+              autreCaisse++;
+              autreCaissesCount[f.caisseCode] = (autreCaissesCount[f.caisseCode] || 0) + 1;
+            }
+          } else {
+            key = f.caisseCode!;
+            label = f.caisseCode!;
+            if (caisseCode && f.caisseCode !== caisseCode) {
+              autreCaisse++;
+              autreCaissesCount[f.caisseCode] = (autreCaissesCount[f.caisseCode] || 0) + 1;
+            }
+          }
+
+          const existing = groupMap.get(key);
+          if (existing) {
+            existing.count += 1;
+            existing.total += s;
+          } else {
+            groupMap.set(key, { label, count: 1, total: s, isNonParametre: isNonParam });
+          }
+        }
       }
     }
-    return { echeanceNosCoches: nos, totalCoche: sum };
-  }, [checked, facturesByNo]);
+
+    const nonParamItem = groupMap.get('__NON_PARAM__');
+    const caisseItems = Array.from(groupMap.entries())
+      .filter(([k]) => k !== '__NON_PARAM__')
+      .map(([, v]) => v)
+      .sort((a, b) => b.count - a.count);
+
+    if (nonParamItem) {
+      caisseItems.push(nonParamItem);
+    }
+
+    return {
+      echeanceNosCoches: nos,
+      totalCoche: sum,
+      repartitionCaisses: caisseItems,
+      nbAutreCaisse: autreCaisse,
+      nbSansCaisse: sansCaisse,
+      autreCaissesDetail: autreCaissesCount
+    };
+  }, [checked, facturesByNo, caisseCode]);
 
   // TASK-107 Étape 3 : Compteur de factures cochées visibles vs masquées par les filtres
   const nbCochesFiltrees = useMemo(() => {
@@ -450,10 +578,23 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
   const handleGenerer = async () => {
     if (echeanceNosCoches.length === 0 || !caisseCode) return;
 
-    // TASK-107 Étape 3 : Confirmation explicite avant génération rappelant total, montant et avertissement si masquées
-    const confirmMsg = nbCochesHorsFiltre > 0
-      ? `Confirmez-vous la génération de ${echeanceNosCoches.length} règlement(s) espèce pour un montant total de ${formatMoney(totalCoche)} sur la caisse ${caisseCode} ?\n\nATTENTION : ${nbCochesHorsFiltre} facture(s) cochée(s) sont actuellement masquées par les filtres appliqués.`
-      : `Confirmez-vous la génération de ${echeanceNosCoches.length} règlement(s) espèce pour un montant total de ${formatMoney(totalCoche)} sur la caisse ${caisseCode} ?`;
+    let confirmMsg = `Confirmez-vous la génération de ${echeanceNosCoches.length} règlement(s) espèce pour un montant total de ${formatMoney(totalCoche)} sur la caisse ${caisseCode} ?`;
+
+    if (nbCochesHorsFiltre > 0) {
+      confirmMsg += `\n\nATTENTION : ${nbCochesHorsFiltre} facture(s) cochée(s) sont actuellement masquées par les filtres appliqués.`;
+    }
+
+    if (!parametrageIndisponible) {
+      if (nbAutreCaisse > 0) {
+        const detailStr = Object.entries(autreCaissesDetail)
+          .map(([code, count]) => `${code} : ${count}`)
+          .join(', ');
+        confirmMsg += `\n\nATTENTION : ${nbAutreCaisse} facture(s) cochée(s) ont une autre caisse paramétrée que ${caisseCode} (${detailStr}).`;
+      }
+      if (nbSansCaisse > 0) {
+        confirmMsg += `\n\n${nbSansCaisse} facture(s) n'ont pas de caisse paramétrée (traitées sur la caisse choisie).`;
+      }
+    }
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -516,18 +657,47 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
               Factures ouvertes ({filteredFactures.length} / {factures.length})
             </span>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '0.5rem', borderLeft: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '0.5rem', borderLeft: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
               <select
                 className="form-input"
                 style={{ width: '200px', fontSize: '0.85rem', padding: '0.35rem 0.6rem' }}
                 value={caisseCode}
-                onChange={e => setCaisseCode(e.target.value)}
+                onChange={e => {
+                  const val = e.target.value;
+                  setCaisseCode(val);
+                  if (!val) {
+                    setFiltrerDepotsCaisse(false);
+                  }
+                }}
               >
                 <option value="">Choisir une caisse…</option>
                 {caissesDisponibles.map((c: any) => (
                   <option key={c.id} value={c.code}>{c.code} - {c.intitule}</option>
                 ))}
               </select>
+
+              <label
+                className="regesp-switch-label"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.825rem',
+                  cursor: (!caisseCode || parametrageIndisponible) ? 'not-allowed' : 'pointer',
+                  color: (!caisseCode || parametrageIndisponible) ? 'var(--text-tertiary, #9ca3af)' : 'var(--text-primary)',
+                  userSelect: 'none'
+                }}
+                title={parametrageIndisponible ? "Paramétrage des caisses indisponible" : (!caisseCode ? "Choisissez d'abord une caisse" : undefined)}
+              >
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={!parametrageIndisponible && filtrerDepotsCaisse}
+                  disabled={!caisseCode || parametrageIndisponible}
+                  onChange={e => setFiltrerDepotsCaisse(e.target.checked)}
+                />
+                <span>Filtrer sur les dépôts de cette caisse</span>
+              </label>
 
               <button
                 className="btn btn-primary"
@@ -540,35 +710,66 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
               </button>
             </div>
 
+            {parametrageIndisponible && (
+              <div
+                className="regesp-indispo-banner"
+                style={{
+                  padding: '0.3rem 0.6rem',
+                  backgroundColor: '#fef3c7',
+                  color: '#92400e',
+                  borderRadius: '4px',
+                  fontSize: '0.8rem',
+                  fontWeight: 500
+                }}
+              >
+                Paramétrage des caisses indisponible : filtre automatique désactivé
+              </div>
+            )}
+
             {echeanceNosCoches.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.825rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)', padding: '0.3rem 0.75rem', borderRadius: '6px' }}>
-                <span>
-                  Cochées : <strong style={{ color: 'var(--text-primary)' }}>{echeanceNosCoches.length}</strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.825rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)', padding: '0.3rem 0.75rem', borderRadius: '6px' }}>
+                  <span>
+                    Cochées : <strong style={{ color: 'var(--text-primary)' }}>{echeanceNosCoches.length}</strong>
+                    {nbCochesHorsFiltre > 0 && (
+                      <span style={{ color: '#d97706', marginLeft: '0.35rem', fontWeight: 500 }} title={`${nbCochesHorsFiltre} facture(s) sélectionnée(s) ne correspondent pas aux filtres actuels`}>
+                        (dont {nbCochesHorsFiltre} hors filtre)
+                      </span>
+                    )}
+                  </span>
+                  <span>Total : <strong style={{ color: 'var(--accent-primary)' }}>{formatMoney(totalCoche)}</strong></span>
                   {nbCochesHorsFiltre > 0 && (
-                    <span style={{ color: '#d97706', marginLeft: '0.35rem', fontWeight: 500 }} title={`${nbCochesHorsFiltre} facture(s) sélectionnée(s) ne correspondent pas aux filtres actuels`}>
-                      (dont {nbCochesHorsFiltre} hors filtre)
-                    </span>
+                    <button
+                      className="btn"
+                      style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', backgroundColor: 'transparent', border: '1px solid #d97706', color: '#d97706', cursor: 'pointer' }}
+                      onClick={() => {
+                        setChecked(prev => {
+                          const next: Record<number, boolean> = {};
+                          for (let i = 0; i < filteredFactures.length; i++) {
+                            const no = filteredFactures[i].echeanceNo;
+                            if (prev[no]) next[no] = true;
+                          }
+                          return next;
+                        });
+                      }}
+                      title="Décocher les factures masquées par les filtres"
+                    >
+                      Décocher hors filtre
+                    </button>
                   )}
-                </span>
-                <span>Total : <strong style={{ color: 'var(--accent-primary)' }}>{formatMoney(totalCoche)}</strong></span>
-                {nbCochesHorsFiltre > 0 && (
-                  <button
-                    className="btn"
-                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', backgroundColor: 'transparent', border: '1px solid #d97706', color: '#d97706', cursor: 'pointer' }}
-                    onClick={() => {
-                      setChecked(prev => {
-                        const next: Record<number, boolean> = {};
-                        for (let i = 0; i < filteredFactures.length; i++) {
-                          const no = filteredFactures[i].echeanceNo;
-                          if (prev[no]) next[no] = true;
-                        }
-                        return next;
-                      });
-                    }}
-                    title="Décocher les factures masquées par les filtres"
-                  >
-                    Décocher hors filtre
-                  </button>
+                </div>
+                {repartitionCaisses.length > 0 && (
+                  <div className="regesp-repartition" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', paddingLeft: '0.25rem' }}>
+                    <span>Caisses des factures cochées : </span>
+                    {repartitionCaisses.map((r, idx) => (
+                      <React.Fragment key={r.label}>
+                        {idx > 0 && <span> · </span>}
+                        <span style={r.isNonParametre ? { color: '#b45309', fontWeight: 500 } : {}}>
+                          {r.label} × {r.count} ({formatMoney(r.total)})
+                        </span>
+                      </React.Fragment>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

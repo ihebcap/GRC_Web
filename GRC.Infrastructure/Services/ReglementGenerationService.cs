@@ -47,6 +47,56 @@ namespace GRC.Infrastructure.Services
             _cache = cache;
         }
 
+        private sealed class CaisseParametree { public int Id { get; set; } public string Code { get; set; } = ""; public string Intitule { get; set; } = ""; public bool Sommeil { get; set; } }
+        private sealed class LigneParametrageDepot { public string DepotIntitule { get; set; } = ""; public int Id { get; set; } public string Code { get; set; } = ""; public string Intitule { get; set; } = ""; public bool Sommeil { get; set; } }
+
+        // Normalisation UNIQUE de l'intitulé de dépôt, appliquée des DEUX côtés (clé SQL et Info1) ; aucun autre Trim.
+        private static string NormaliserDepot(string? s) => (s ?? "").Trim();
+
+        // Clé = NormaliserDepot(intitulé), comparaison StringComparer.OrdinalIgnoreCase. Valeur null = intitulé AMBIGU (plusieurs caisses distinctes).
+        private Dictionary<string, CaisseParametree?> ChargerParametrageDepotCaisse(int societeId)
+        {
+            // Nom de base GOCOM en dur conservé (cohérent avec ReglementService.cs l.833 ; les scripts SQL précisent que la base ERP est P_SOCIETE.SO_ErpDb).
+            const string sql = @"
+SELECT LTRIM(RTRIM(d.DE_Intitule)) AS DepotIntitule,
+       c.CA_Id AS Id, c.CA_Code AS Code, c.CA_Intitule AS Intitule, CAST(ISNULL(c.CA_Sommeil, 0) AS bit) AS Sommeil
+FROM GOCOM.dbo.FG_DEPOTFACTURATION f
+JOIN GOCOM.dbo.F_DEPOT d ON d.cbMarq = f.DP_Id
+JOIN RT_CAISSE c        ON c.CA_Id  = f.CA_Id
+WHERE f.MR_Id = 1 AND c.SO_Id = @SocieteId";
+
+            using var conn = new SqlConnection(_dbFactory.GetConnectionString());
+            var lignes = conn.Query<LigneParametrageDepot>(sql, new { SocieteId = societeId });
+
+            var dict = new Dictionary<string, CaisseParametree?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ligne in lignes)
+            {
+                var cle = NormaliserDepot(ligne.DepotIntitule);
+                if (string.IsNullOrEmpty(cle)) continue;
+
+                if (dict.TryGetValue(cle, out var existant))
+                {
+                    if (existant != null && existant.Id != ligne.Id)
+                    {
+                        dict[cle] = null; // ambigu
+                        _logger.LogWarning("PARAMÉTRAGE DÉPÔT→CAISSE ambigu : dépôt={Depot}", cle);
+                    }
+                }
+                else
+                {
+                    dict[cle] = new CaisseParametree
+                    {
+                        Id = ligne.Id,
+                        Code = ligne.Code,
+                        Intitule = ligne.Intitule,
+                        Sommeil = ligne.Sommeil
+                    };
+                }
+            }
+
+            return dict;
+        }
+
         // Lecture de TOUTES les factures ouvertes (non soldées, Solde > 0) de la société, tous clients confondus,
         // uniquement celles déjà connues de RT_ECHEANCE (périmètre v1 acté avec le PO).
         public List<EcheanceARegleDto> GetFacturesARegler(int societeId)
@@ -61,6 +111,20 @@ namespace GRC.Infrastructure.Services
                 dateFin: null);
 
             var collabHelper = _kernel.Resolve<global::Tresorerie.UICommun.Helper.CollaborateurHelper>();
+
+            // TASK-116 — Chargement unique du paramétrage dépôt → caisse
+            Dictionary<string, CaisseParametree?> parametrage = new(StringComparer.OrdinalIgnoreCase);
+            bool parametrageIndisponible = false;
+            try
+            {
+                parametrage = ChargerParametrageDepotCaisse(societeId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "PARAMÉTRAGE DÉPÔT→CAISSE indisponible");
+                parametrageIndisponible = true;
+                parametrage = new Dictionary<string, CaisseParametree?>(StringComparer.OrdinalIgnoreCase);
+            }
 
             return (echeances ?? Enumerable.Empty<global::Tresorerie.Core.Models.Echeance>())
                 .Where(e => e.Solde > 0)
@@ -78,6 +142,42 @@ namespace GRC.Infrastructure.Services
                     }
                     catch { /* fallback en cas d'erreur de résolution collaborateur */ }
 
+                    string depot = NormaliserDepot(e.Info1);
+                    string? caisseCode = null;
+                    string? caisseIntitule = null;
+                    bool caisseSommeil = false;
+                    string? caisseMotif = null;
+
+                    if (parametrageIndisponible)
+                    {
+                        caisseCode = null;
+                        caisseIntitule = null;
+                        caisseSommeil = false;
+                        caisseMotif = null;
+                    }
+                    else if (string.IsNullOrEmpty(depot))
+                    {
+                        caisseMotif = "vide";
+                    }
+                    else if (parametrage.TryGetValue(depot, out var cp))
+                    {
+                        if (cp == null)
+                        {
+                            caisseMotif = "ambigu";
+                        }
+                        else
+                        {
+                            caisseCode = cp.Code;
+                            caisseIntitule = cp.Intitule;
+                            caisseSommeil = cp.Sommeil;
+                            caisseMotif = null;
+                        }
+                    }
+                    else
+                    {
+                        caisseMotif = "absent";
+                    }
+
                     return new EcheanceARegleDto
                     {
                         EcheanceNo = e.No,
@@ -93,7 +193,13 @@ namespace GRC.Infrastructure.Services
                         Info2 = e.Info2 ?? string.Empty,
                         Info3 = e.Info3 ?? string.Empty,
                         Info4 = e.Info4 ?? string.Empty,
-                        Representant = representant
+                        Representant = representant,
+                        DepotIntitule = depot,
+                        CaisseCode = caisseCode,
+                        CaisseIntitule = caisseIntitule,
+                        CaisseSommeil = caisseSommeil,
+                        CaisseMotif = caisseMotif,
+                        ParametrageIndisponible = parametrageIndisponible
                     };
                 })
                 .OrderBy(e => e.ClientIntitule)
@@ -570,6 +676,12 @@ namespace GRC.Infrastructure.Services
         public string Info3 { get; set; } = string.Empty;
         public string Info4 { get; set; } = string.Empty;
         public string Representant { get; set; } = string.Empty;
+        public string DepotIntitule { get; set; } = string.Empty;
+        public string? CaisseCode { get; set; }
+        public string? CaisseIntitule { get; set; }
+        public bool CaisseSommeil { get; set; }
+        public string? CaisseMotif { get; set; }
+        public bool ParametrageIndisponible { get; set; }
     }
 
     public class ReglementEspeceItemResultDto
