@@ -186,6 +186,16 @@ namespace GRC.Infrastructure.Services
             // TASK-107 (Étape 6) : Dé-duplication des échéances transmises
             var distinctEcheanceNos = (echeanceNos ?? new List<int>()).Distinct().ToList();
 
+            // TASK-115 : TiersErpHelper.Get(code, reload: true) relit TOUS les tiers de F_COMPTET (~24 500 lignes,
+            // ~430 ms) à chaque appel. On ne force le rechargement qu'à la première facture traitée : le helper
+            // garde alors sa liste et son dictionnaire par Numero, les appels suivants (reload: false) sont un lookup
+            // en mémoire. Chargement paresseux (après le garde-fou EC_Solde) : un lot vide ou entièrement refusé ne le paie pas.
+            // Ne JAMAIS appeler tiersHelper.GetAll(...) avant ce premier Get sur la même instance : le dictionnaire par
+            // Numero ne se construit que dans Get(.., true) et un Get(.., false) sans lui lève une NullReferenceException.
+            var clientsCharges = false;
+            var clientsIntrouvables = 0;
+            var chrono = System.Diagnostics.Stopwatch.StartNew();
+
             foreach (var echeanceNo in distinctEcheanceNos)
             {
                 if (!echeancesOuvertes.TryGetValue(echeanceNo, out var echeance))
@@ -226,9 +236,24 @@ namespace GRC.Infrastructure.Services
 
                 try
                 {
-                    var client = tiersHelper.Get(echeance.ClientCode, true);
-                    if (client == null)
+                    var rechargerClients = !clientsCharges;
+                    var chronoClients = rechargerClients ? System.Diagnostics.Stopwatch.StartNew() : null;
+                    var client = tiersHelper.Get(echeance.ClientCode, rechargerClients);
+                    if (rechargerClients)
+                    {
+                        clientsCharges = true;
+                        _logger.LogInformation(
+                            "GÉNÉRATION RÈGLEMENT ESPÈCE : tiers ERP chargés une seule fois pour le lot en {Ms} ms.",
+                            chronoClients!.ElapsedMilliseconds);
+                    }
+
+                    // Get ne renvoie jamais null : un code inconnu donne un NullClient (No = 0). Sans ce test le contrôle
+                    // historique « client == null » était du code mort et l'erreur remontait peu lisible depuis ReglementCreate.
+                    if (client == null || client.No <= 0)
+                    {
+                        clientsIntrouvables++;
                         throw new InvalidOperationException($"Client introuvable ({echeance.ClientCode}) pour la facture {echeance.DocumentNumero}");
+                    }
 
                     // Numéro de pièce issu du compteur applicatif officiel standard (EntityNumerotation.ReglementClient)
                     var numero = societeManager.GetNumeroPieceCourante(global::Tresorerie.Core.Enum.EntityNumerotation.ReglementClient, societeManager.Societe);
@@ -330,6 +355,12 @@ namespace GRC.Infrastructure.Services
                     });
                 }
             }
+
+            var nbSucces = resultats.Count(r => r.Success);
+            _logger.LogInformation(
+                "GÉNÉRATION RÈGLEMENT ESPÈCE FIN DE LOT : userId={UserId}, caisse={CaisseCode}, demandées={Demandees}, succès={Succes}, échecs={Echecs}, clients introuvables={Introuvables}, durée={Ms} ms, moyenne={Moyenne} ms/règlement.",
+                jwtUserId, caisseCode, distinctEcheanceNos.Count, nbSucces, resultats.Count - nbSucces, clientsIntrouvables,
+                chrono.ElapsedMilliseconds, nbSucces > 0 ? chrono.ElapsedMilliseconds / nbSucces : 0);
 
             return resultats;
         }
