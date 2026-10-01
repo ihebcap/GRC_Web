@@ -15,6 +15,11 @@
     "test:e2e-106": "node e2e_task106.cjs",
     "test:e2e-106-compare": "node e2e_task106_compare.cjs",
     "test:e2e-106-mock": "node e2e_task106_mock.cjs",
+    "test:e2e-108": "node e2e_task108.cjs verify",
+    "test:e2e-110": "node e2e_task110.cjs verify",
+    "test:e2e-111": "node e2e_task111.cjs verify",
+    "test:e2e-112": "node e2e_task112.cjs verify",
+    "test:e2e-113": "node e2e_task113.cjs verify",
     "preview": "vite preview"
   },
   "dependencies": {

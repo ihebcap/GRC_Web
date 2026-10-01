@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&display=swap');
 
 :root {
   --bg-primary: #f5f7fa; /* Very light gray/blue for main background */
@@ -8,10 +8,10 @@
   --text-secondary: #666666;
   --text-tertiary: #999999;
   
-  --sidebar-bg: #ffffff; /* White sidebar */
-  --sidebar-text: #4a4a4a;
-  --sidebar-active-bg: #e3f2fd; /* Light blue background for active */
-  --sidebar-active-text: #1976d2; /* Axelor/Material Blue */
+  --sidebar-bg: #0a0a0a; /* Dark sidebar */
+  --sidebar-text: rgba(255, 255, 255, 0.65);
+  --sidebar-active-bg: rgba(255, 255, 255, 0.08);
+  --sidebar-active-text: #4fc3f7; /* High contrast light blue on dark */
   
   --accent-primary: #1976d2;
   --accent-secondary: #2196f3;
@@ -26,6 +26,7 @@
      invalide = fond transparent (bouton "Comptabiliser" invisible). */
   --success-color: #2e7d32;
   --danger-color: #d32f2f;
+  --info-color: #2563eb;
   
   --border-color: #e0e0e0;
   
@@ -49,7 +50,7 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
@@ -105,9 +106,9 @@ body {
   color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   transition: width var(--transition-normal);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .app-sidebar.collapsed {
@@ -128,12 +129,12 @@ body {
   padding: 1.25rem 1rem;
   font-size: 1.125rem;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #ffffff;
   letter-spacing: -0.025em;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-menu {
@@ -156,20 +157,30 @@ body {
 }
 
 .sidebar-item:hover {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
 }
 
 .sidebar-item.active {
   background-color: var(--sidebar-active-bg);
   color: var(--sidebar-active-text);
-  border-left: 3px solid var(--accent-primary);
+  border-left: 3px solid var(--sidebar-active-text);
+}
+
+.sidebar-item.active:hover {
+  background-color: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
 }
 
 .sidebar-footer {
   padding: 1.25rem 1rem;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--sidebar-bg);
+}
+
+.sidebar-footer .btn:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
 }
 
 /* Auth Container */
@@ -184,19 +195,29 @@ body {
 
 .auth-card {
   background-color: var(--bg-secondary);
-  padding: 2.5rem;
-  border-radius: var(--radius-lg);
+  padding: 2rem;
+  border-radius: 0.75rem;
   width: 100%;
-  max-width: 400px;
-  box-shadow: var(--shadow-md);
+  max-width: 384px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
   border: 1px solid var(--border-color);
   animation: fadeIn 0.5s ease-out;
 }
 
+.auth-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-logo {
+  display: block;
+  margin: 0 auto 0.75rem auto;
+}
+
 .auth-title {
-  font-size: 1.875rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
   text-align: center;
   color: var(--text-primary);
 }
@@ -204,7 +225,7 @@ body {
 .auth-subtitle {
   color: var(--text-secondary);
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 0;
   font-size: 0.875rem;
 }
 
@@ -354,6 +375,18 @@ tbody tr:hover {
 
 tbody tr:last-child td {
   border-bottom: none;
+}
+
+tfoot tr {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+}
+
+tfoot td {
+  background-color: var(--bg-tertiary);
+  border-top: 2px solid var(--border-color);
+  font-weight: 600;
 }
 
 .badge {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { LogOut, LayoutDashboard, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote, XCircle, Edit, History } from 'lucide-react';
+import { LogOut, FileText, Loader2, DollarSign, Download, X, CheckSquare, RefreshCw, Settings, ChevronRight, Calculator, Banknote, XCircle, Edit, History } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import './index.css';
 import LicenceBlockedScreen from './LicenceBlockedScreen';
@@ -69,6 +69,15 @@ function getModificationDisabledReason(reg: Reglement): string | null {
 
   if (reasons.length === 0) return null;
   return `Modification impossible : ${reasons.join(', ')}`;
+}
+
+// TASK-110 — Liseré de statut par ligne inspiré de xGR (rowStatus dans XGrid.vue)
+function getRowStatusBorder(reg: Reglement): string | undefined {
+  if (reg.isAnnule) return 'inset 4px 0 0 var(--danger-color, #ef4444)';
+  if (reg.isComptabilise !== 0) return 'inset 4px 0 0 var(--success-color, #22c55e)';
+  if (reg.isPointe) return 'inset 4px 0 0 var(--info-color, #2563eb)';
+  if (reg.isRemis !== 0) return 'inset 4px 0 0 #f59e0b';
+  return undefined;
 }
 
 import { DEFAULT_COLUMNS, getAvailableColumns, renderSharedCell, getTypeReglementLabel, formatMoney, fixMojibake } from './utils';
@@ -219,8 +228,11 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1 className="auth-title">GRC</h1>
-        <p className="auth-subtitle">Accès sécurisé à l'espace de gestion</p>
+        <div className="auth-header">
+          <img src="/grc-logo.svg" alt="GRC" className="auth-logo" width={56} height={56} />
+          <h1 className="auth-title">GRC</h1>
+          <p className="auth-subtitle">Accès sécurisé à l'espace de gestion — APBS</p>
+        </div>
         
         {error && (
           <div className="mb-4 text-sm text-danger text-center animate-fade-in">
@@ -274,6 +286,10 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
   const availableColumns = React.useMemo(() => getAvailableColumns(user), [user]);
 
   const [reglements, setReglements] = useState<Reglement[]>([]);
+  // TASK-110 — Somme des montants pour les règlements de la page affichée
+  const totalMontantPage = React.useMemo(() => {
+    return reglements.reduce((sum, r) => sum + (r.montantDeviseSociete || 0), 0);
+  }, [reglements]);
   const [caissesMap, setCaissesMap] = useState<Record<number, any>>({});
   const [modesMap, setModesMap] = useState<Record<number, any>>({});
   const [banquesMap, setBanquesMap] = useState<Record<number, any>>({});
@@ -790,7 +806,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             opacity: reg.isAnnule ? 0.55 : undefined,
             cursor: (isRapprochementMode && !reg.isPointe && !reg.isAnnule) || (isComptabilisationMode && reg.isComptabilise === 0 && !reg.isAnnule) ? 'pointer' : 'default',
             backgroundColor: isSelected ? 'rgba(34, 197, 94, 0.1)' : undefined,
-            boxShadow: isSelected ? 'inset 4px 0 0 var(--success-color, #22c55e)' : undefined
+            boxShadow: isSelected ? 'inset 4px 0 0 var(--success-color, #22c55e)' : getRowStatusBorder(reg)
           }}
         >
           <td style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '68px', padding: '0.5rem 0.25rem' }} onClick={e => e.stopPropagation()}>
@@ -930,17 +946,17 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             <>
               <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
                 <div className="flex items-center gap-2">
-                  <LayoutDashboard size={24} style={{color: 'var(--accent-primary)'}} />
-                  <span>GRC</span>
+                  <img src="/grc-logo.svg" width={24} height={24} alt="GRC" />
+                  <span style={{color: '#ffffff'}}>GRC</span>
                 </div>
-                <ChevronRight size={18} style={{color: 'var(--text-tertiary)', transform: 'rotate(180deg)'}} />
+                <ChevronRight size={18} style={{color: 'var(--sidebar-text)', transform: 'rotate(180deg)'}} />
               </div>
-              <div style={{fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', paddingLeft: 'calc(24px + 0.5rem)', marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+              <div style={{fontSize: '0.75rem', fontWeight: 500, color: 'var(--sidebar-text)', paddingLeft: 'calc(24px + 0.5rem)', marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
                 {user.societeName}
               </div>
             </>
           ) : (
-            <LayoutDashboard size={24} style={{color: 'var(--accent-primary)'}} />
+            <img src="/grc-logo.svg" width={24} height={24} alt="GRC" />
           )}
         </div>
 
@@ -970,20 +986,20 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
         <div className="sidebar-footer">
           {isSidebarOpen ? (
             <>
-              <div style={{fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)'}}>
+              <div style={{fontWeight: 600, fontSize: '0.875rem', color: '#ffffff'}}>
                 {user.nom} {user.prenom}
                 {user.isAdmin && <span style={{backgroundColor: 'var(--accent-primary)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', marginLeft: '6px', verticalAlign: 'middle'}}>ADMIN</span>}
               </div>
-              <div style={{fontSize: '0.75rem', marginBottom: '1rem', color: 'var(--text-secondary)'}}>
+              <div style={{fontSize: '0.75rem', marginBottom: '1rem', color: 'var(--sidebar-text)'}}>
                 {user.isAdmin ? 'Toutes caisses' : (user.caisses.length > 3 ? `${user.caisses.length} caisses` : user.caisses.join(', '))}
               </div>
-              <button onClick={onLogout} className="btn" style={{backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}>
+              <button onClick={onLogout} className="btn" style={{backgroundColor: 'rgba(255, 255, 255, 0.06)', color: 'rgba(255, 255, 255, 0.9)', border: '1px solid rgba(255, 255, 255, 0.12)', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'}}>
                 <LogOut size={16} />
                 <span>Déconnexion</span>
               </button>
             </>
           ) : (
-            <button onClick={onLogout} className="btn" style={{backgroundColor: 'transparent', color: 'var(--text-primary)', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center'}} title="Déconnexion">
+            <button onClick={onLogout} className="btn" style={{backgroundColor: 'transparent', color: 'var(--sidebar-text)', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center'}} title="Déconnexion">
               <LogOut size={16} />
             </button>
           )}
@@ -1305,7 +1321,7 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
             </div>
           )}
 
-          <div style={{overflow: 'auto', flex: 1, minHeight: '400px', paddingBottom: '2rem', position: 'relative'}}>
+          <div style={{overflow: 'auto', flex: 1, minHeight: '400px', position: 'relative'}}>
             {loading && reglements.length === 0 ? (
               <div style={{padding: '3rem', textAlign: 'center'}}>
                 <Loader2 className="animate-spin" size={32} style={{margin: '0 auto', color: 'var(--accent-primary)'}} />
@@ -1406,6 +1422,45 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
                   </tr>
                 </thead>
                 {tableBodyMemo}
+                {reglements.length > 0 && (
+                  <tfoot>
+                    <tr style={{
+                      position: 'sticky',
+                      bottom: 0,
+                      zIndex: 5,
+                      backgroundColor: 'var(--bg-tertiary)',
+                      borderTop: '2px solid var(--border-color)',
+                      boxShadow: '0 -2px 6px rgba(0,0,0,0.05)'
+                    }}>
+                      <td
+                        colSpan={selectedColumns.length + 2}
+                        style={{
+                          padding: '0.625rem 1rem',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          fontSize: '0.8125rem',
+                          color: 'var(--text-primary)',
+                          fontWeight: 500
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {total > reglements.length 
+                                ? `Total page (${reglements.length} règlement${reglements.length > 1 ? 's' : ''} sur ${total} filtrés) :` 
+                                : `Total (${reglements.length} règlement${reglements.length > 1 ? 's' : ''}) :`}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Somme montant :</span>
+                            <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--text-primary)' }}>
+                              {formatMoney(totalMontantPage)}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               </>
             )}

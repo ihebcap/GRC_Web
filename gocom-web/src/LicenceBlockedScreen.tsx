@@ -18,7 +18,7 @@ const LicenceBlockedScreen: React.FC = () => {
       justifyContent: 'center',
       background: 'var(--bg-primary, #0f1117)',
       color: 'var(--text-primary, #e2e8f0)',
-      fontFamily: 'Inter, Roboto, sans-serif',
+      fontFamily: 'Roboto, sans-serif',
       padding: '2rem',
       textAlign: 'center',
       animation: 'fade-in 0.4s ease-out',
