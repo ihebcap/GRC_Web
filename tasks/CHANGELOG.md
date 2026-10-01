@@ -1,5 +1,16 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-10-02 — Génération règlement espèce : tiers ERP chargés une seule fois par lot (TASK-115, APPROVE SOUS RÉSERVE)
+
+### Changement
+- Back : dans `GenererReglementsEspece`, le rechargement complet des tiers (`Get(code, reload: true)`, ~24 500 lignes, ~430 ms) n'est fait qu'à la première facture valide ; les suivantes lisent le dictionnaire natif du helper. Un code client inconnu est maintenant détecté (`client.No <= 0`, message « Client introuvable »). Logs : durée du chargement unique et résumé de fin de lot (succès, échecs, clients introuvables, durée, moyenne par règlement).
+
+### Validation
+Cause racine prouvée par décompilation (`Tresorerie.UICommun.Helper.TiersErpHelper`) et stats SQL de prod ; 3 reviews indépendantes (équivalence, périmètre/build, preuves) toutes APPROVE ; build 0 erreur.
+
+### Réserves
+Gain non mesuré en exécution (hypothèse : ~450 → ~20-100 ms par règlement) ; en cas d'échec de chargement des tiers le comportement reste un nouvel essai par facture (identique à avant) : TASK-117.
+
 ## 2026-10-01 — Règlement espèce : dépôt et caisse paramétrée visibles, filtre des dépôts de la caisse (TASK-116, APPROVE avec rectificatifs)
 
 ### Changement

@@ -1,13 +1,13 @@
 # VERIFY — TASK-115 : tiers ERP chargés une seule fois par lot (génération règlement espèce)
 
 - **Date** : 2026-10-01
-- **Implémentation** : Claude, en worker de secours à la demande explicite du PO (« tu corriges directement »). **Point d'arrêt respecté** : aucun déplacement vers `DONE_DETAIL/`, aucune mise à jour de `DONE.md`/`CHANGELOG.md`, aucun commit. Clôture réservée à un reviewer qui n'a pas implémenté.
+- **Implémentation** : Claude, en worker de secours à la demande explicite du PO (« tu corriges directement »). **Point d'arrêt respecté** : aucun déplacement vers `DONE_DETAIL/`, aucune mise à jour de `DONE.md`/`CHANGELOG.md`, Le code est commité localement (c9b392a, « en VERIFY », non poussé) ; ce n'est PAS une clôture. Clôture réservée à un reviewer qui n'a pas implémenté.
 - **Fichier modifié** : `GRC.Infrastructure/Services/ReglementGenerationService.cs` (méthode `GenererReglementsEspece`, +35 lignes / −2). Aucun autre fichier de code.
 
 ## Cause racine (preuve)
 | Élément | Preuve | Date / méthode |
 |---|---|---|
-| `Get(code, true)` relit tous les tiers à chaque appel | Décompilation `Tresorerie.UICommun.dll` (ilspycmd) : `Get(string, bool reload)` → `_erp.GetAllClients()` + reconstruction de `_clients` et `_dictionaryTierNumero` quand `reload = true` | 2026-10-01, agent d'analyse + relecture du synthétiseur |
+| `Get(code, true)` relit tous les tiers à chaque appel | Décompilation `Tresorerie.UICommun.dll`, classe `Tresorerie.UICommun.Helper.TiersErpHelper` (et non l'homonyme `Tresorerie.UIConfiguration.Helper.TiersErpHelper`, dont `Get(string)` n'a pas de paramètre `reload`) (ilspycmd) : `Get(string, bool reload)` → `_erp.GetAllClients()` + reconstruction de `_clients` et `_dictionaryTierNumero` quand `reload = true` | 2026-10-01, agent d'analyse + relecture du synthétiseur |
 | La requête observée en prod est bien celle-là | `sys.dm_exec_query_stats` prod : requête `F_COMPTET` `@Type_0..2`, 2 169 exécutions, 428 ms de moyenne, 24 344 lignes/exécution | 2026-10-01, résultat collé par le PO |
 | Cohérence de volume | 24 499 clients dans le log « CACHE CLIENTS chargé » ; 1 822 règlements générés en octobre (`RC26100001` à `RC26101823`) | 2026-10-01, log + requête PO |
 | Cadence observée | écart minimal 0,305 s entre deux règlements dans `grc-20261001.log` (557 règlements) | 2026-10-01, awk sur le log |
@@ -39,3 +39,18 @@ Non modifiés : `ReglementCreate` (36 paramètres), contrôle d'autorisation, ga
 - Un client renommé en cours de lot garde l'ancien intitulé dans ce lot ; un client créé en cours de lot est retrouvé par le repli SQL unitaire.
 - Reste lent après correctif (hypothèse) : agrégats `VerifySolde`, numérotation `MAX(MV_Numero)`, notifications ; à mesurer sur les logs de fin de lot avant toute TASK-116.
 - Deux générations HTTP simultanées restent à éviter (numérotation par `MAX` sans verrou), hors périmètre.
+
+
+---
+
+## Notes du reviewer de clôture (2026-10-02) — APPROVE SOUS RÉSERVE, décision du PO
+
+Review indépendante en 3 lentilles (équivalence de résolution des clients, périmètre/build, honnêteté des preuves) : 3 × APPROVE, aucun bloquant. Clôture prononcée sur décision explicite du PO (« on clôture tout »).
+
+### Rectificatifs
+1. **Commit `c9b392a`** : il contient, en plus du correctif, la suppression de 6 fichiers sans rapport déjà préparée par le PO dans l'index (`tasks/TASK-099, 100, 101, 102, 105, 106`) ; ce sont des doublons périmés présents dans `tasks/DONE_DETAIL/`, aucune information n'est perdue. Le message du commit ne les mentionne pas.
+2. **Cohérence de volume** : 24 344 lignes par exécution (stats SQL de prod) contre 24 499 clients dans le log (écart de 155 lignes, filtre ou périmètre différent) ; 2 169 exécutions contre 1 822 règlements (347 exécutions de plus, probablement d'autres appelants de `Get(code, true)` comme la génération de versement). Les chiffres des stats SQL de prod proviennent de relevés du PO, non rejouables hors base.
+3. **Gain réel non mesuré** : aucune ligne « tiers ERP chargés » ni « FIN DE LOT » n'existe dans le log fourni ; le gain annoncé (~450 ms → ~20-100 ms par règlement) reste une hypothèse. Mesure à faire au premier lot réel : l'écart médian entre deux lignes « GÉNÉRATION RÈGLEMENT ESPÈCE OK » doit passer de ~0,46 s à moins de 0,1 s, avec la ligne « FIN DE LOT » présente.
+4. **Comportement en cas d'échec du chargement des tiers** : si le premier `Get(code, true)` échoue (timeout, SQL), `clientsCharges` reste faux et chaque facture suivante relance un chargement complet. Identique à l'existant avant TASK-115, mais sans garde-fou. Sur la base de test, ce chargement a atteint le timeout SQL de 30 s à chaque facture lors des rejeux de TASK-116 (cause non établie ; en prod la même requête était mesurée à ~430 ms). **TASK-117** ouverte pour abandonner le lot au premier échec de chargement.
+5. **Namespace** : la classe décompilée est `Tresorerie.UICommun.Helper.TiersErpHelper` (et non l'homonyme `Tresorerie.UIConfiguration.Helper.TiersErpHelper`, dont `Get(string)` n'a pas de paramètre `reload`).
+6. **Snapshot figé** : pendant un lot, un client renommé garde l'ancien intitulé ; un client créé est retrouvé par le repli SQL unitaire.

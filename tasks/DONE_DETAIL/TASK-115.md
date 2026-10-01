@@ -2,7 +2,7 @@
 
 - **Priorité** : 🟠 Majeur
 - **Domaine** : Performance
-- **Statut** : EN VERIFY (implémentée par Claude en worker de secours sur demande du PO le 2026-10-01 ; clôture réservée à un reviewer tiers)
+- **Statut** : ✅ FAIT (approuvée sous réserve le 2026-10-02 sur décision du PO ; gain réel à mesurer au premier lot, voir tasks/DONE_DETAIL/TASK-115_verify.md)
 - **Dépend de** : —
 
 ## Contexte
