@@ -1,5 +1,204 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-10-01 — Grille Règlements : liseré de statut et ligne de totaux (TASK-110, APPROVE)
+
+### Changement
+- Front : liseré gauche coloré par statut métier (annulé, comptabilisé, pointé, remis), prioritaire pour la sélection ; ligne de totaux sticky (nombre de lignes, somme des montants de la page affichée).
+
+### Validation
+Playwright : couleurs calculées vérifiées sur chaque statut, total conforme au calcul manuel. Le total porte sur la page, pas sur l'ensemble du jeu filtré.
+
+## 2026-10-01 — Preuve par exécution du garde-fou `EC_Solde > 0` de `generer-espece` (TASK-114, APPROVE)
+
+### Contexte
+La TASK-107 avait introduit dans `ReglementGenerationService.cs` un contrôle relisant `EC_Solde` directement en base avant chaque écriture de règlement, refusant la facture avec « Facture déjà soldée ou introuvable en base au moment de l'écriture. ». Ce garde-fou n'avait pas pu être exercé par exécution lors de la clôture de TASK-107 en raison du filtrage amont, laissant une réserve documentée.
+
+### Validation
+- Preuve par double exécution réelle automatisée (`run_test114_via_api.ps1`) via GRC.API sur base de test réelle `GR_GOCOM`.
+- Watcher SQL concurrent en tâche de fond surveillant `RT_MOUVEMENT` et appliquant `EC_Solde = 0` sur la dernière facture du lot dès le 1er règlement créé.
+- Rejet avéré de la facture ciblée avec le message exact « Facture déjà soldée ou introuvable en base au moment de l'écriture. ».
+- Aucune affectation (`RT_AFFECTATION`) ni mouvement créé pour l'échéance soldée.
+- Import partiel confirmé : les 19 autres factures du lot ont été générées avec succès.
+- Nettoyage SQL ciblé par `MV_Id` et restauration de l'état initial confirmés (`RT_MOUVEMENT` = 46 184).
+- Réserve de TASK-107 formellement levée. Rapport `tasks/VERIFY/TASK-114_verify.md`.
+
+## 2026-10-01 — Règlement espèce : grille utilisable avec 30 000 factures (TASK-107, APPROVE)
+
+### Contexte
+30 216 factures ouvertes en prod (10,7 Mo), grille rendue en entier (~360 000 nœuds DOM) : écran quasi inutilisable. Volume transitoire (correction de l'historique en cours) : lot minimal retenu, filtre de date par défaut et pagination serveur écartés sur mesures prod.
+
+### Changement
+- Front : tri global cliquable sur toutes les colonnes (défaut Date facture, plus ancien d'abord), pagination client (50/100/200/500, défaut 100), lignes et options de filtre mémoïsées, sélection visible (« dont M hors filtre », « Décocher hors filtre »), confirmation avant génération avec total et alerte sur les lignes masquées.
+- Back : échéances dédupliquées, contrôle `EC_Solde > 0` juste avant chaque écriture de règlement.
+
+### Validation
+Playwright sur 30 000 lignes mockées (1 383 nœuds, clic 59 ms, tri 8 colonnes) ; banc C# sur base de test 9/9. Non prouvé par exécution : le contrôle SQL de dernière minute. Reporté : cache serveur, compression, DTO allégé, virtualisation.
+
+## 2026-10-02 — Police globale Inter → Roboto (TASK-112, APPROVE)
+
+### Contexte
+Harmonisation xGR (décision PO 2026-10-01) : xGR utilise Roboto (stack Material/PrimeVue) comme
+police globale, GRC_WEB utilisait Inter. Hors périmètre : couleur d'accent, boutons, badges — seule
+la police change.
+
+### Changement
+- `index.css` : import Google Fonts remplacé (Roboto, graisses 300-700 conservées), règle `body`
+  passée à Roboto.
+- `RapprochementBancaire.css:7` et `LicenceBlockedScreen.tsx:21` : même remplacement, plus aucun
+  résidu "Inter" dans le code.
+
+### Validation
+Build `tsc -b` 0 erreur (revérifié par l'architecte). Grep final confirmant zéro résidu "Inter".
+Captures avant/après sur 3 écrans (Règlements, Rapprochement, Comptabilisation) inspectées.
+
+## 2026-10-01 — Logo GRC + écran de connexion inspiré xGR (TASK-113, APPROVE)
+
+### Contexte
+Demande PO (2026-10-02) : remplacer le favicon par défaut (logo décoratif violet/bleu dans `public/favicon.svg`) et l'icône générique `LayoutDashboard` dans la sidebar par le logo GRC validé (`public/grc-logo.svg`, monogramme « GRC » blanc sur carré arrondi noir `#0a0a0a` avec trait d'accent bleu `#1976d2`). Rapprocher également l'écran de connexion du style xGR (`Login.vue`) avec le logo centré, des coins arrondis `rounded-xl`, une ombre douce `shadow-lg`, et afficher le nom de l'éditeur de l'application **APBS** en sous-titre.
+
+### Changement
+- Favicon :
+  - `gocom-web/index.html` : lien mis à jour vers `/grc-logo.svg`.
+  - `gocom-web/public/favicon.svg` et `deploy/wwwroot/favicon.svg` supprimés pour éliminer tout doublon.
+- Titre sidebar :
+  - `gocom-web/src/App.tsx` : retrait de l'import et de l'icône `LayoutDashboard` ; intégration de `img src="/grc-logo.svg" width={24} height={24}` dans les deux modes (sidebar ouverte et réduite `collapsed`).
+- Écran de connexion :
+  - `gocom-web/src/App.tsx` : ajout du logo GRC (`auth-logo`, 56×56px) centré au-dessus de `h1.auth-title` ; mise à jour du sous-titre `Accès sécurisé à l'espace de gestion — APBS` mentionnant l'éditeur officiel sans altérer le sélecteur client de société.
+  - `gocom-web/src/index.css` : ajustement de `.auth-card` inspiré de xGR (`padding: 2rem`, `border-radius: 0.75rem`, `max-width: 384px`, `box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1)`) et styles d'en-tête `.auth-header` et `.auth-logo`.
+
+### Validation
+- Builds `tsc -b && vite build` et `dotnet build` : 0 erreur.
+- Test E2E Playwright automatisé (`test:e2e-113`) : 100% SUCCÈS. Captures avant/après générées pour les 3 emplacements (favicon aux échelles 16/24/48/64px, sidebar ouverte et repliée, écran login) dans `tasks/VERIFY/TASK-113_evidence/`.
+- Rapport de vérification : `tasks/VERIFY/TASK-113_verify.md`.
+
+## 2026-10-01 — Règlement espèce : tri multi-colonnes, pagination client, mémoïsation et sélection sûre (TASK-107, APPROVE)
+
+### Contexte
+Constat PO sur l'écran « Règlement espèce » (TASK-059) avec 30 000 factures ouvertes : lenteur de chargement et d'interaction, absence de tri, rendu DOM intégral de 30 000 lignes (~360 000 nœuds DOM) et recalculs O(N) à chaque coche ou rendu.
+Périmètre révisé (PO 2026-10-01, phase transitoire de correction d'historique) : lot minimal front (tri par défaut Date facture ascendant + tri toutes colonnes + pagination client + mémoïsation), sélection visible/sûre, et garde-fou serveur `Solde > 0`.
+
+### Changement
+- Front (`ReglementGenerationEspece.tsx`) :
+  - **Tri multi-colonnes global** : cliquable sur chaque en-tête (indicateurs `▲`/`▼`), tri par défaut Date facture ascendant (du plus ancien au plus récent), comparateurs typés (dates, montants numériques, texte `Intl.Collator`), appliqué globalement avant pagination.
+  - **Pagination client** : sélecteur de taille (50, 100, 200, 500 ; défaut 100) avec persistance localStorage, bandeau d'affichage et navigation Précédent/Suivant, remise à la 1ère page lors d'un changement de filtre/tri. Réduction des nœuds DOM de ~360 000 à 1 387.
+  - **Mémoïsation et réactivité** : mémoïsation en 1 passe des options de filtres (`optionsByCol`), extraction de `FactureRow` en composant `React.memo` avec `toggleFacture` en `useCallback`, map d'accès direct `facturesByNo` pour les totaux en O(1). Temps de réponse au clic checkbox ramené à 53 ms.
+  - **Sélection visible et sûre** : compteur dynamique `Cochées : N (dont M hors filtre)`, bouton de contrôle rapide `Décocher hors filtre`, « Tout cocher filtré » global multi-pages, et boîte de dialogue de confirmation avant génération rappelant total, montant et avertissement explicite en cas de sélection masquée.
+  - **Anti-double appel** : verrou de chargement `loadingFacturesRef` à l'ouverture.
+- Back (`ReglementGenerationService.cs`) :
+  - **Garde-fou serveur immédiat** : contrôle SQL direct sur `[RT_ECHEANCE].[EC_Solde]` immédiatement avant l'écriture de chaque règlement, déduplication des échéances transmises (`Distinct()`), retrait immédiat du cache mémoire dès traitement pour prévenir tout double règlement concurrent.
+
+### Validation
+- Build backend (`dotnet build GRC.API/GRC.API.csproj -c Release`) : 0 erreur (log joint au VERIFY).
+- Build frontend (`npm run build`) : 0 erreur.
+- **Banc réel C# `harness_task107` contre base SQL Server de test `GR_GOCOM`** : **10/10 PASS**. Facture déjà soldée (`EC_Solde <= 0`, `EC_Id=2`) immédiatement rejetée avec `Success == false`, `ReglementNo == null`, message attendu *"Facture introuvable ou déjà soldée."*, et vérification SQL `SELECT COUNT(1) FROM dbo.RT_MOUVEMENT` confirmant **exactement 0 règlement créé en base**. Déduplication `Distinct()` confirmée sur doublons `[2, 2]`.
+- **Test E2E Playwright (`e2e_task107.cjs`) 100% SUCCÈS sur 30 000 factures** :
+  - **Tri vérifié sur TOUTES les 8 colonnes actives** : `Date facture`, `Date échéance`, `N° Facture`, `Code Client`, `Intitulé Client`, `Montant`, `Solde`, `Représentant` (inversion ASC `▲` et DESC `▼` avec respect strict de l'ordre global).
+  - **Mesures réelles sur 30 000 factures** : Nœuds DOM réduits de ~360 000 à **1 383** (÷ 260), temps de clic checkbox instantané à **59 ms**, pagination 50/100/200/500 (600 pages de 50).
+  - Tout cocher filtré multi-pages (30 000), compteur `(dont 29250 hors filtre)`, bouton de purge `Décocher hors filtre`, boîte de confirmation avec alerte de masquage, non-régression TASK-108 (tableau résultat persistant post-génération).
+- Captures enregistrées dans `tasks/VERIFY/TASK-107_evidence/`.
+- Script des scénarios de test manuels (recette UX) joint au rapport `tasks/VERIFY/TASK-107_verify.md`.
+
+## 2026-10-02 — Sidebar noire permanente (TASK-111, APPROVE)
+
+### Contexte
+Décision PO (2026-10-01) : harmonisation visuelle avec xGR (`Tresorerie.Vue`), dont la sidebar est
+toujours noire indépendamment d'un dark mode global. Périmètre strictement limité à la sidebar —
+le reste de l'application (grilles, fonds de page, modales) reste blanc/clair comme avant.
+
+### Changement
+- `index.css` : les 4 variables `--sidebar-bg`/`--sidebar-text`/`--sidebar-active-bg`/`--sidebar-active-text`
+  passent en noir/clair ; bordure et ombre de `.app-sidebar` adaptées au fond sombre ; aucune variable
+  CSS globale touchée.
+- `App.tsx` : couleurs du logo, du chevron de rétraction et du pied de page rattachées aux variables
+  sidebar (au lieu de `--text-tertiary`/`--text-secondary`, pensées pour fond clair).
+
+### Validation
+Build `tsc -b && vite build` 0 erreur (revérifié par l'architecte). Contrastes WCAG mesurés
+(8.5:1 à 19.8:1, conformité AAA). Captures avant/après : sidebar ouverte, réduite (`collapsed`),
+et écran complet confirmant l'absence de régression sur le contenu principal (fond `#f5f7fa`,
+cartes blanches, grille inchangés).
+
+## 2026-10-01 — Règlement espèce : le tableau Résultat reste affiché après la génération (TASK-108, APPROVE)
+
+### Contexte
+Après un lot, `chargerFactures()` effaçait aussitôt le tableau « Résultat — 1 règlement par facture » et la sélection : les erreurs par facture n'étaient plus lisibles après un lot partiel (risque de ressaisie en doublon), et chaque lot relançait un GET complet de 10,7 Mo.
+
+### Changement
+- Front (`ReglementGenerationEspece.tsx`) : le tableau Résultat n'est plus effacé par le rechargement ; plus de refetch après génération, les factures réglées sont retirées localement de la liste et de la sélection, les factures en échec restent listées et cochées ; bouton de fermeture du tableau.
+
+### Validation
+Harnais Playwright sur API mockée : bug reproduit avant correctif, corrigé après (tableau visible, 0 GET post-génération, échec toujours coché). Non rejoué sur API réelle.
+
+## 2026-09-30 — Rapprochement : bouton « Exporter » sur les grilles Relevé et GRC (TASK-101, APPROVE)
+
+### Contexte
+Demande PO 2026-09-30 : exporter l'affichage de chaque grille du Rapprochement. La bibliothèque `xlsx` était déjà utilisée ; aucune dépendance ajoutée.
+
+### Changement
+- Front (`RapprochementBancaire.tsx`) : bouton « Exporter » dans l'en-tête de chaque grille. Relevé : lignes affichées (après filtres, tri, plage de dates), colonne « Relevé » en tête si plusieurs relevés, repère affiché (préfixé en multi-relevés). GRC : colonnes choisies dans l'ordre de l'écran, valeurs identiques à l'écran (codes et libellés, OUI/NON, dates jj/mm/aaaa, montants numériques). Bouton désactivé si la grille est vide, toast en cas d'erreur, nom de fichier à la date locale.
+
+### Validation
+Banc Playwright sur API et base de test réelles, fichiers `.xlsx` relus par `xlsx` et comparés ligne à ligne à l'écran : 39 vérifications OK. Un mapping dédié remplace `getGrcCellValue`, qui aurait exporté des identifiants bruts et un « Pointé » différent de l'écran. Sélection d'une ligne : 1 rendu sur 273.
+
+## 2026-09-30 — Rapprochement : filtres de date en plage Du/Au (TASK-102, APPROVE)
+
+### Contexte
+Remarque PO 2026-09-30 : le filtre de date ne fonctionnait pas sur le Relevé, à vérifier sur les règlements. Cause : filtre texte comparé à une date localisée du navigateur.
+
+### Changement
+- Front : colonnes « Date Op. » et « Date Val. » (Relevé) et « Date » (GRC) filtrées en plage Du/Au sur la date brute `yyyy-mm-dd` (bornes incluses, date absente exclue si borne active, aucun `new Date()`) ; fonction `matchDateRange` dans `utils.tsx`. Tri et filtres montant inchangés. Pas de barre Du/Au globale sur le Relevé (décision PO : filtre libre).
+
+### Validation
+Banc Playwright sur API et base de test réelles : 27 vérifications OK (Du seul, Au seul, Du+Au, plage vide, effacement, sur les deux grilles ; non-régression tri, montant, repère). Parcours Du/Au + Actualiser vérifié : 2 lignes reçues = 2 en SQL, borne de fin incluse. Constat en marge : une `dateFin` sans heure est exclusive côté API ; tous les appelants de l'application ajoutent `T23:59:59`, sans impact.
+
+## 2026-09-30 — Rapprochement : sélection de plusieurs relevés traités comme un seul (TASK-100, APPROVE)
+
+### Contexte
+Demande PO 2026-09-30 : cocher plusieurs relevés d'une banque ; pour l'utilisateur ils se traitent comme un seul relevé. Décisions PO : pas de plafond de volume, sens crédit uniquement, appariement par identifiant (TASK-106).
+
+### Changement
+- Back : `POST /api/ReleveBancaire/lignes` (lignes crédit non approuvées de N relevés, en une requête, contrôle de société par relevé, `OPENJSON`) ; `auto-reconcile` accepte `ReleveBancaireEnteteIds` (union sans doublon ; contrôle de société, même banque, `banqueId` ; ancien champ toujours accepté) ; verrous de relevé pris dans l'ordre croissant (réservation et libération par lot) ; conflit d'unicité `MV_ID` (2601/2627) traité par paire (200 avec `success=false`, 409 en unitaire) au lieu d'une erreur 500 du lot.
+- Front : `CheckboxDropdown` extrait en composant partagé (écran Comptabilisation inchangé) ; combo à cases ; colonne « Relevé » et repères `<idRelevé>-<lettre>` si plus d'un relevé ; un seul jeton de séquence (le dernier choix est toujours affiché) ; liste des relevés relue après « Approuver » ; état vide « Aucun relevé à rapprocher pour cette banque. ».
+
+### Validation
+Scénarios S1 à S17, S19 à S21 rejoués sur API, SQL et navigateur réels (base de test en `READ_COMMITTED_SNAPSHOT`) : 62 vérifications OK au dernier passage. `POST /lignes` sur 141 relevés et 2 391 lignes : 628 ms. S18 partiel (requête avec le bon `ligneReleveId` prouvée ; création du règlement bloquée par un délai dépassé de l'environnement de test). Niveau de compatibilité prod vérifié : SQL Server 2019, niveau 150 (`OPENJSON` disponible). Builds back et front 0 erreur.
+
+## 2026-09-30 — Rapprochement : appariement ligne de relevé ↔ règlement par identifiant (TASK-106, APPROVE)
+
+### Contexte
+Défaut déjà présent avec un seul relevé : la grille GRC ramène les réservations de n'importe quel relevé et l'écran appariait par lettre ; un clic sur un règlement réservé par un autre relevé pouvait dissoudre la mauvaise paire. Prérequis de la sélection multi-relevés (TASK-100).
+
+### Changement
+- Back (`ReglementService.cs`) : `ReleveEnteteId` ajouté au DTO des règlements (5 sites de `GetReglementsPaged`, mapper).
+- Front (`RapprochementBancaire.tsx`) : appariement par `MV_ID` (plus par la lettre) ; règlement réservé sur un relevé non affiché = « réservé ailleurs » (verrouillé, repère préfixé `<idRelevé>-<lettre>`, reste grisé au survol) ; `delettrerLigne` remplace `delettrerByLettrage` ; « Approuver » n'envoie que mes réservations et ne retire que les paires approuvées ; tri appariés / ailleurs / libres.
+
+### Validation
+Scénarios S0 à S10 et S12 rejoués sur API et SQL réels (base de test locale) : défaut reproduit avant, corrigé après ; collision de lettres réelle entre deux relevés ; conflit entre deux utilisateurs (409) ; mono-relevé identique avant/après ; grille de 1 000 règlements sans surcoût. S11 (réservations historiques de prod) non vérifié faute de copie de prod ; contrôle prod en lecture seule fait à l'analyse (5 réservations cohérentes). Builds back et front 0 erreur.
+
+## 2026-09-30 — Rapprochement : bouton « Annuler le règlement » dans la grille GRC (TASK-099, APPROVE)
+
+### Contexte
+Demande PO 2026-09-30 : annuler un règlement sans quitter l'écran de rapprochement (annulation = suppression, TASK-098 ; refus serveur des réservés/pointés, TASK-105).
+
+### Changement
+- Front (`RapprochementBancaire.tsx`, `App.tsx`) : colonne d'action après « Sel. », bouton actif pour un règlement libre, désactivé avec infobulle pour un réservé, absent pour comptabilisé/pointé/remis/affecté ; confirmation, appel `POST /reglements/{no}/annuler`, toast, rechargement de la grille ; `showConfirm` transmis depuis `App.tsx`.
+- Handler stable et `onAnnuler` ajouté à `propsToCompare` : la grille mémoïsée n'est pas re-rendue en bloc.
+
+### Validation
+Banc Playwright S1, S2, S3, S4, S6, S7 (API mockée, comme 097/104), grille à 1001 lignes : une sélection = 1 rendu de ligne (999 avec `areEqual` volontairement cassé en contrôle négatif). La vraie DLL d'annulation n'est pas exercée ici (endpoint réutilisé, garde serveur couverte par TASK-105). Build front 0 erreur.
+
+## 2026-09-30 — Annulation interdite pour un règlement réservé ou pointé (TASK-105, APPROVE)
+
+### Contexte
+Décision PO 2026-09-30 : un règlement engagé dans un rapprochement ne s'annule pas (évite le lettrage orphelin sur la ligne du relevé).
+
+### Changement
+- Back (`AnnulerReglement`) : refus 400 avec message si le règlement est pointé, ou réservé sur une ligne de relevé ; l'autorisation de caisse reste contrôlée avant.
+- Front (`App.tsx`) : bouton « Annuler » de la liste masqué si le règlement est réservé.
+
+### Validation
+19 vérifications OK sur base de test (libre, réservé, libération puis annulation, pointé, messages existants). S7 rejoué (compte sans droit → 403 avant le test « réservé »). S3 (bouton absent de la liste) établi par lecture du code et `tsc`, sans capture navigateur.
+
 ## 2026-09-30 — Liste des règlements : annulés visibles avec flag, masqués en modes Rapprocher/Comptabiliser (TASK-104, APPROVE)
 
 ### Contexte
