@@ -1,5 +1,17 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-10-01 — Règlement espèce : dépôt et caisse paramétrée visibles, filtre des dépôts de la caisse (TASK-116, APPROVE avec rectificatifs)
+
+### Changement
+- Back : `GetFacturesARegler` renvoie pour chaque facture le dépôt (`EC_Info1`) et la caisse paramétrée, résolus en une seule requête de lecture (`FG_DEPOTFACTURATION` → `F_DEPOT` → `RT_CAISSE`) ; intitulé de dépôt ambigu = non paramétré (jamais de choix arbitraire) ; si le chargement du paramétrage échoue, la liste reste servie normalement (`ParametrageIndisponible`). `GenererReglementsEspece` inchangée.
+- Front : colonnes « Dépôt » et « Caisse paramétrée », bandeau de répartition par caisse, alerte de confirmation en cas d'écart de caisse, interrupteur « Filtrer sur les dépôts de cette caisse » (la caisse reste toujours choisie par l'utilisateur), libellé « Indisponible » et filtre neutralisé si le paramétrage est inaccessible, préférences de colonnes migrées vers `gocom_reglement_espece_columns_v2`.
+
+### Validation
+5 passes de review indépendantes (REJECT, REJECT, APPROVE sous réserve, REJECT, REJECT documentaires) puis clôture avec rectificatifs ; banc back 27 PASS sur la base de test DESKTOP-2VCUE93 ; E2E Playwright sur mock de 30 000 factures ; builds 0 erreur. Non-régression de la génération prouvée par le diff seulement (le test de génération n'a pas abouti sur la base de test : timeout SQL de 30 s au chargement des tiers, cause non établie).
+
+### Réserves
+Banc `test_task116/` à ne relancer que sur la base de test dédiée ; chargeur de paramétrage 194-255 ms (objectif indicatif non atteint) ; cas « autre société » non prouvé (base mono-société) ; E2E sur mock ; droits de lecture du login de prod sur `GOCOM` à vérifier en SSMS avant la mise en production (sinon « Paramétrage indisponible », mode dégradé sûr) ; garde-fou « abandon du lot au premier échec de chargement des tiers » recommandé pour TASK-115 ; mot de passe `sa` suivi par git dans `appsettings.json` (dette TASK-068).
+
 ## 2026-10-01 — Grille Règlements : liseré de statut et ligne de totaux (TASK-110, APPROVE)
 
 ### Changement
