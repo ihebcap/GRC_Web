@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_BASE } from './api';
 import { Loader2, CheckCircle2, XCircle, Banknote, RefreshCw, Settings, X } from 'lucide-react';
@@ -9,9 +9,9 @@ import './ReglementGenerationEspece.css';
 
 // TASK-059 & TASK-062 — Écran de génération interactive de règlements client espèce, avec affectation
 // intégrale sur des factures déjà connues de l'échéancier trésorerie (RT_ECHEANCE).
-// Contrat back : GRC.API/Controllers/ReglementController.cs (factures-a-regler, generer-espece).
-// Multi-clients : l'écran affiche la liste complète des factures ouvertes (Solde > 0) de la société
-// avec filtres Excel par colonne et choix des colonnes affichées (persistance localStorage).
+// TASK-107 — Optimisation : tri multi-colonnes typé (défaut Date facture asc), pagination client,
+// mémoïsation (getOptions, lignes de table), sélection visible/sûre (compteur dont M hors filtre, confirmation).
+// TASK-108 — Persistance du tableau Résultat et mise à jour locale post-génération.
 
 interface EcheanceARegler {
   echeanceNo: number;
@@ -64,6 +64,85 @@ const ALL_COLUMNS: ColumnDef[] = [
 ];
 
 const LOCALSTORAGE_KEY = 'gocom_reglement_espece_columns';
+const LOCALSTORAGE_PAGE_SIZE = 'gocom_reglement_espece_pagesize';
+
+function getItemValue(f: EcheanceARegler, key: string): string {
+  if (key === 'dateFacture') {
+    return f.dateFacture ? String(f.dateFacture).substring(0, 10) : '';
+  }
+  if (key === 'dateEcheance') {
+    return f.dateEcheance ? String(f.dateEcheance).substring(0, 10) : '';
+  }
+  return String((f as any)[key] ?? '');
+}
+
+function renderCellContent(colKey: string, f: EcheanceARegler) {
+  switch (colKey) {
+    case 'clientCode':
+      return <strong>{f.clientCode}</strong>;
+    case 'clientIntitule':
+      return f.clientIntitule;
+    case 'factureNumero':
+      return f.factureNumero;
+    case 'dateFacture':
+      return f.dateFacture ? new Date(f.dateFacture).toLocaleDateString('fr-FR') : '';
+    case 'dateEcheance':
+      return f.dateEcheance ? new Date(f.dateEcheance).toLocaleDateString('fr-FR') : '';
+    case 'montant':
+      return formatMoney(f.montant);
+    case 'solde':
+      return formatMoney(f.solde);
+    case 'representant':
+      return f.representant || '—';
+    case 'commentaire':
+      return f.commentaire || '—';
+    case 'info1':
+      return f.info1 || '—';
+    case 'info2':
+      return f.info2 || '—';
+    case 'info3':
+      return f.info3 || '—';
+    case 'info4':
+      return f.info4 || '—';
+    default:
+      return String((f as any)[colKey] ?? '');
+  }
+}
+
+// Composant de ligne mémoïsé : évite de recalculer les 100 lignes lors d'un clic de case
+interface FactureRowProps {
+  facture: EcheanceARegler;
+  isChecked: boolean;
+  activeColumns: ColumnDef[];
+  onToggle: (echeanceNo: number) => void;
+}
+
+const FactureRow = React.memo(function FactureRow({
+  facture,
+  isChecked,
+  activeColumns,
+  onToggle
+}: FactureRowProps) {
+  return (
+    <tr onClick={() => onToggle(facture.echeanceNo)} style={{ cursor: 'pointer' }}>
+      <td onClick={e => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={isChecked}
+          onChange={() => onToggle(facture.echeanceNo)}
+        />
+      </td>
+      {activeColumns.map(col => (
+        <td
+          key={col.key}
+          style={col.isAmount ? { textAlign: 'right', fontWeight: col.key === 'solde' ? 600 : 'normal' } : {}}
+        >
+          {renderCellContent(col.key, facture)}
+        </td>
+      ))}
+    </tr>
+  );
+});
 
 interface Props {
   user: any;
@@ -74,8 +153,26 @@ interface Props {
 export default function ReglementGenerationEspece({ user, caissesMap, showToast }: Props) {
   const [factures, setFactures] = useState<EcheanceARegler[]>([]);
   const [loadingFactures, setLoadingFactures] = useState(false);
+  const loadingFacturesRef = useRef(false);
   const [checked, setChecked] = useState<Record<number, boolean>>({});
   const [filters, setFilters] = useState<Record<string, { type: 'list' | 'text' | 'number' | 'date', value: any }>>({});
+
+  // TASK-107 : Tri cliquable par colonne, par défaut Date facture ascendante (du plus ancien au plus récent)
+  const [sortCol, setSortCol] = useState<string>('dateFacture');
+  const [sortDesc, setSortDesc] = useState<boolean>(false);
+
+  // TASK-107 : Pagination client
+  const [pageSize, setPageSize] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(LOCALSTORAGE_PAGE_SIZE);
+      if (saved) {
+        const parsed = Number(saved);
+        if ([50, 100, 200, 500].includes(parsed)) return parsed;
+      }
+    } catch {}
+    return 100;
+  });
+  const [page, setPage] = useState<number>(1);
 
   const [caisseCode, setCaisseCode] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -89,7 +186,6 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
       if (saved) {
         let parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Migration rétrocompatible : si l'ancien localStorage contenait 'client', le remplacer par clientCode et clientIntitule
           if (parsed.includes('client')) {
             parsed = parsed.filter(k => k !== 'client');
             if (!parsed.includes('clientCode')) parsed.push('clientCode');
@@ -108,7 +204,7 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     setSelectedColKeys(prev => {
       let next: string[];
       if (prev.includes(key)) {
-        if (prev.length <= 1) return prev; // Au moins 1 colonne
+        if (prev.length <= 1) return prev;
         next = prev.filter(k => k !== key);
       } else {
         next = [...prev, key];
@@ -122,7 +218,7 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     return ALL_COLUMNS.filter(c => selectedColKeys.includes(c.key));
   }, [selectedColKeys]);
 
-  // Restriction UX aux caisses affectées au profil de l'utilisateur — même patron que App.tsx.
+  // Restriction UX aux caisses affectées au profil de l'utilisateur
   const caissesDisponibles = useMemo(() => {
     return Object.values(caissesMap || {}).filter(
       (c: any) => user?.isAdmin || (user?.caisses || []).includes(c.id) || (user?.caisses || []).length === 0
@@ -130,8 +226,9 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
   }, [caissesMap, user]);
 
   const chargerFactures = async () => {
+    if (loadingFacturesRef.current) return;
+    loadingFacturesRef.current = true;
     setLoadingFactures(true);
-    setResultats(null);
     setChecked({});
     try {
       const res = await axios.get(`${API_BASE}/reglements/factures-a-regler`);
@@ -141,6 +238,7 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
       showToast("Erreur lors du chargement des factures à régler.", 'error');
       setFactures([]);
     } finally {
+      loadingFacturesRef.current = false;
       setLoadingFactures(false);
     }
   };
@@ -158,14 +256,26 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     });
   };
 
-  const getItemValue = (f: EcheanceARegler, key: string): string => {
-    if (key === 'dateFacture') {
-      return f.dateFacture ? String(f.dateFacture).substring(0, 10) : '';
+  // Remise à la première page lors d'un changement de filtre ou de tri
+  useEffect(() => {
+    setPage(1);
+  }, [filters, sortCol, sortDesc]);
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+    try {
+      localStorage.setItem(LOCALSTORAGE_PAGE_SIZE, String(newSize));
+    } catch {}
+  };
+
+  const handleSort = (colKey: string) => {
+    if (sortCol === colKey) {
+      setSortDesc(prev => !prev);
+    } else {
+      setSortCol(colKey);
+      setSortDesc(false);
     }
-    if (key === 'dateEcheance') {
-      return f.dateEcheance ? String(f.dateEcheance).substring(0, 10) : '';
-    }
-    return String((f as any)[key] ?? '');
   };
 
   const filteredFactures = useMemo(() => {
@@ -194,48 +304,130 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     });
   }, [factures, filters]);
 
-  const getOptions = (key: string) => {
-    const unique = Array.from(new Set(factures.map(f => getItemValue(f, key))));
-    return unique
-      .map(u => {
-        if (!u) return { label: '(Vide)', value: u };
+  const collator = useMemo(() => new Intl.Collator('fr-FR', { numeric: true, sensitivity: 'base' }), []);
 
+  // TASK-107 : Tri global préalable sur filteredFactures avant découpage en pages
+  const sortedFactures = useMemo(() => {
+    if (filteredFactures.length === 0) return [];
+    const list = [...filteredFactures];
+    const colDef = ALL_COLUMNS.find(c => c.key === sortCol);
+    const isNum = colDef?.isAmount || colDef?.filterType === 'number';
+    const isDate = colDef?.filterType === 'date';
+
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (isNum) {
+        const valA = Number((a as any)[sortCol]) || 0;
+        const valB = Number((b as any)[sortCol]) || 0;
+        cmp = valA - valB;
+      } else if (isDate) {
+        const valA = (a as any)[sortCol] || '';
+        const valB = (b as any)[sortCol] || '';
+        cmp = valA.localeCompare(valB);
+      } else {
+        const valA = String((a as any)[sortCol] || '');
+        const valB = String((b as any)[sortCol] || '');
+        cmp = collator.compare(valA, valB);
+      }
+      if (cmp !== 0) return sortDesc ? -cmp : cmp;
+      return a.echeanceNo - b.echeanceNo;
+    });
+    return list;
+  }, [filteredFactures, sortCol, sortDesc, collator]);
+
+  // TASK-107 : Découpage paginé
+  const totalFiltered = sortedFactures.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paginatedFactures = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedFactures.slice(start, start + pageSize);
+  }, [sortedFactures, currentPage, pageSize]);
+
+  // TASK-107 : Mémoïsation des options de filtres en une passe unique par colonne
+  const optionsByCol = useMemo(() => {
+    const map: Record<string, { label: string, value: string }[]> = {};
+    for (const col of activeColumns) {
+      if (col.filterType !== 'list') continue;
+      const key = col.key;
+      const uniqueVals = new Set<string>();
+      for (let i = 0; i < factures.length; i++) {
+        uniqueVals.add(getItemValue(factures[i], key));
+      }
+      const opts = Array.from(uniqueVals).map(u => {
+        if (!u) return { label: '(Vide)', value: u };
         if (key === 'dateFacture' || key === 'dateEcheance') {
           const d = new Date(u);
           const label = !isNaN(d.getTime()) ? d.toLocaleDateString('fr-FR') : u;
           return { label, value: u };
         }
-
         if (key === 'montant' || key === 'solde') {
           const num = Number(u);
           const label = !isNaN(num) ? formatMoney(num) : u;
           return { label, value: u };
         }
-
         return { label: u, value: u };
-      })
-      .sort((a, b) => {
+      });
+      opts.sort((a, b) => {
         if (a.value === '') return -1;
         if (b.value === '') return 1;
         if (key === 'montant' || key === 'solde') {
           return Number(a.value) - Number(b.value);
         }
-        if (key === 'dateFacture' || key === 'dateEcheance') {
-          return a.value.localeCompare(b.value);
-        }
-        return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' });
+        return collator.compare(a.label, b.label);
       });
-  };
+      map[key] = opts;
+    }
+    return map;
+  }, [factures, activeColumns, collator]);
 
-  const toggleFacture = (echeanceNo: number) => {
+  const toggleFacture = useCallback((echeanceNo: number) => {
     setChecked(prev => {
       const next = { ...prev };
       if (next[echeanceNo]) delete next[echeanceNo];
       else next[echeanceNo] = true;
       return next;
     });
-  };
+  }, []);
 
+  // Map d'accès direct pour calcul O(1) par élément coché sans balayer les 30 000 factures
+  const facturesByNo = useMemo(() => {
+    const map = new Map<number, EcheanceARegler>();
+    for (let i = 0; i < factures.length; i++) {
+      map.set(factures[i].echeanceNo, factures[i]);
+    }
+    return map;
+  }, [factures]);
+
+  const { echeanceNosCoches, totalCoche } = useMemo(() => {
+    const keys = Object.keys(checked);
+    const nos: number[] = [];
+    let sum = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const no = Number(keys[i]);
+      if (checked[no]) {
+        nos.push(no);
+        const f = facturesByNo.get(no);
+        if (f) sum += Number(f.solde) || 0;
+      }
+    }
+    return { echeanceNosCoches: nos, totalCoche: sum };
+  }, [checked, facturesByNo]);
+
+  // TASK-107 Étape 3 : Compteur de factures cochées visibles vs masquées par les filtres
+  const nbCochesFiltrees = useMemo(() => {
+    if (echeanceNosCoches.length === 0) return 0;
+    let count = 0;
+    for (let i = 0; i < filteredFactures.length; i++) {
+      if (checked[filteredFactures[i].echeanceNo]) count++;
+    }
+    return count;
+  }, [filteredFactures, checked, echeanceNosCoches.length]);
+
+  const nbCochesHorsFiltre = echeanceNosCoches.length - nbCochesFiltrees;
+
+  // Tout cocher / décocher global sur l'ensemble des lignes filtrées (toutes pages confondues)
   const allFilteredChecked = useMemo(() => {
     if (filteredFactures.length === 0) return false;
     return filteredFactures.every(f => !!checked[f.echeanceNo]);
@@ -253,15 +445,18 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     });
   };
 
-  const echeanceNosCoches = Object.keys(checked).map(Number);
-  const totalCoche = factures
-    .filter(f => checked[f.echeanceNo])
-    .reduce((acc, f) => acc + Number(f.solde), 0);
-
   const peutGenerer = echeanceNosCoches.length > 0 && !!caisseCode && !generating;
 
   const handleGenerer = async () => {
     if (echeanceNosCoches.length === 0 || !caisseCode) return;
+
+    // TASK-107 Étape 3 : Confirmation explicite avant génération rappelant total, montant et avertissement si masquées
+    const confirmMsg = nbCochesHorsFiltre > 0
+      ? `Confirmez-vous la génération de ${echeanceNosCoches.length} règlement(s) espèce pour un montant total de ${formatMoney(totalCoche)} sur la caisse ${caisseCode} ?\n\nATTENTION : ${nbCochesHorsFiltre} facture(s) cochée(s) sont actuellement masquées par les filtres appliqués.`
+      : `Confirmez-vous la génération de ${echeanceNosCoches.length} règlement(s) espèce pour un montant total de ${formatMoney(totalCoche)} sur la caisse ${caisseCode} ?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
     setGenerating(true);
     setResultats(null);
     try {
@@ -281,7 +476,20 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
         showToast(`${reglementsCreees.length} règlement(s) créé(s), ${erreurs.length} en échec — voir le détail par facture ci-dessous.`, 'warning');
       }
 
-      chargerFactures();
+      // TASK-108 : Mise à jour locale sans refetch complet (10,7 Mo évités).
+      // Les factures réglées avec succès sont retirées de la liste et décochées.
+      // Les factures en échec restent listées et cochées pour permettre correction ou analyse.
+      const successEcheanceNos = new Set(reglementsCreees.map(r => Number(r.echeanceNo)));
+      if (successEcheanceNos.size > 0) {
+        setFactures(prev => prev.filter(f => !successEcheanceNos.has(Number(f.echeanceNo))));
+        setChecked(prev => {
+          const next = { ...prev };
+          for (const no of successEcheanceNos) {
+            delete next[no];
+          }
+          return next;
+        });
+      }
     } catch (err: any) {
       if (err.response?.status === 403) {
         showToast("Vous n'êtes pas autorisé à utiliser cette caisse.", 'error');
@@ -295,39 +503,6 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
       }
     } finally {
       setGenerating(false);
-    }
-  };
-
-  const renderCellContent = (colKey: string, f: EcheanceARegler) => {
-    switch (colKey) {
-      case 'clientCode':
-        return <strong>{f.clientCode}</strong>;
-      case 'clientIntitule':
-        return f.clientIntitule;
-      case 'factureNumero':
-        return f.factureNumero;
-      case 'dateFacture':
-        return f.dateFacture ? new Date(f.dateFacture).toLocaleDateString('fr-FR') : '';
-      case 'dateEcheance':
-        return f.dateEcheance ? new Date(f.dateEcheance).toLocaleDateString('fr-FR') : '';
-      case 'montant':
-        return formatMoney(f.montant);
-      case 'solde':
-        return formatMoney(f.solde);
-      case 'representant':
-        return f.representant || '—';
-      case 'commentaire':
-        return f.commentaire || '—';
-      case 'info1':
-        return f.info1 || '—';
-      case 'info2':
-        return f.info2 || '—';
-      case 'info3':
-        return f.info3 || '—';
-      case 'info4':
-        return f.info4 || '—';
-      default:
-        return String((f as any)[colKey] ?? '');
     }
   };
 
@@ -366,9 +541,35 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
             </div>
 
             {echeanceNosCoches.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.825rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)', padding: '0.3rem 0.75rem', borderRadius: '6px' }}>
-                <span>Cochées : <strong style={{ color: 'var(--text-primary)' }}>{echeanceNosCoches.length}</strong></span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.825rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)', padding: '0.3rem 0.75rem', borderRadius: '6px' }}>
+                <span>
+                  Cochées : <strong style={{ color: 'var(--text-primary)' }}>{echeanceNosCoches.length}</strong>
+                  {nbCochesHorsFiltre > 0 && (
+                    <span style={{ color: '#d97706', marginLeft: '0.35rem', fontWeight: 500 }} title={`${nbCochesHorsFiltre} facture(s) sélectionnée(s) ne correspondent pas aux filtres actuels`}>
+                      (dont {nbCochesHorsFiltre} hors filtre)
+                    </span>
+                  )}
+                </span>
                 <span>Total : <strong style={{ color: 'var(--accent-primary)' }}>{formatMoney(totalCoche)}</strong></span>
+                {nbCochesHorsFiltre > 0 && (
+                  <button
+                    className="btn"
+                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', backgroundColor: 'transparent', border: '1px solid #d97706', color: '#d97706', cursor: 'pointer' }}
+                    onClick={() => {
+                      setChecked(prev => {
+                        const next: Record<number, boolean> = {};
+                        for (let i = 0; i < filteredFactures.length; i++) {
+                          const no = filteredFactures[i].echeanceNo;
+                          if (prev[no]) next[no] = true;
+                        }
+                        return next;
+                      });
+                    }}
+                    title="Décocher les factures masquées par les filtres"
+                  >
+                    Décocher hors filtre
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -438,58 +639,111 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
                       type="checkbox"
                       checked={allFilteredChecked}
                       onChange={toggleSelectAllFiltered}
-                      title="Tout sélectionner / désélectionner (lignes filtrées)"
+                      title="Tout sélectionner / désélectionner (lignes filtrées, multi-pages)"
                     />
                   </th>
                   {activeColumns.map(col => (
-                    <th key={col.key} style={col.isAmount ? { textAlign: 'right' } : {}}>
-                      {col.label}
-                      <ExcelFilter
-                        filterType={col.filterType}
-                        options={col.filterType === 'list' ? getOptions(col.key) : undefined}
-                        selectedValues={col.filterType === 'list' ? (filters[col.key]?.value || []) : undefined}
-                        textValue={col.filterType !== 'list' ? (filters[col.key]?.value || '') : undefined}
-                        onChange={v => updateFilter(col.key, col.filterType, v)}
-                      />
+                    <th
+                      key={col.key}
+                      style={{ cursor: 'pointer', userSelect: 'none', ...(col.isAmount ? { textAlign: 'right' } : {}) }}
+                      onClick={() => handleSort(col.key)}
+                      title={`Trier par ${col.label}`}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.isAmount ? 'flex-end' : 'flex-start', gap: '0.25rem', whiteSpace: 'nowrap' }}>
+                        <span>
+                          {col.label} {sortCol === col.key ? (sortDesc ? '▼' : '▲') : ''}
+                        </span>
+                        <div onClick={e => e.stopPropagation()}>
+                          <ExcelFilter
+                            filterType={col.filterType}
+                            options={col.filterType === 'list' ? optionsByCol[col.key] : undefined}
+                            selectedValues={col.filterType === 'list' ? (filters[col.key]?.value || []) : undefined}
+                            textValue={col.filterType !== 'list' ? (filters[col.key]?.value || '') : undefined}
+                            onChange={v => updateFilter(col.key, col.filterType, v)}
+                          />
+                        </div>
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredFactures.length === 0 ? (
+                {totalFiltered === 0 ? (
                   <tr>
                     <td colSpan={activeColumns.length + 1} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>
                       Aucune facture ne correspond aux filtres appliqués.
                     </td>
                   </tr>
                 ) : (
-                  filteredFactures.map(f => (
-                    <tr key={f.echeanceNo} onClick={() => toggleFacture(f.echeanceNo)} style={{ cursor: 'pointer' }}>
-                      <td onClick={e => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={!!checked[f.echeanceNo]}
-                          onChange={() => toggleFacture(f.echeanceNo)}
-                        />
-                      </td>
-                      {activeColumns.map(col => (
-                        <td key={col.key} style={col.isAmount ? { textAlign: 'right', fontWeight: col.key === 'solde' ? 600 : 'normal' } : {}}>
-                          {renderCellContent(col.key, f)}
-                        </td>
-                      ))}
-                    </tr>
+                  paginatedFactures.map(f => (
+                    <FactureRow
+                      key={f.echeanceNo}
+                      facture={f}
+                      isChecked={!!checked[f.echeanceNo]}
+                      activeColumns={activeColumns}
+                      onToggle={toggleFacture}
+                    />
                   ))
                 )}
               </tbody>
             </table>
           </div>
         )}
+
+        {/* Barre de pagination client */}
+        {!loadingFactures && factures.length > 0 && (
+          <div className="pagination" style={{ fontSize: '0.75rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)' }}>
+            <span className="text-secondary" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span>
+                Affichage {totalFiltered === 0 ? 0 : ((currentPage - 1) * pageSize) + 1} à {Math.min(currentPage * pageSize, totalFiltered)} sur {totalFiltered}
+                {totalFiltered !== factures.length && ` (filtré sur ${factures.length})`}
+              </span>
+              <select
+                value={pageSize}
+                onChange={e => handlePageSizeChange(Number(e.target.value))}
+                style={{ padding: '0.15rem 0.35rem', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', fontSize: '0.75rem', cursor: 'pointer' }}
+                title="Nombre de factures par page"
+              >
+                <option value={50}>50 / page</option>
+                <option value={100}>100 / page</option>
+                <option value={200}>200 / page</option>
+                <option value={500}>500 / page</option>
+              </select>
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                className="page-btn btn"
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                disabled={currentPage === 1 || loadingFactures}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+              >
+                Précédent
+              </button>
+              <span style={{ fontWeight: 600, fontSize: '0.8rem' }}>{currentPage} / {totalPages}</span>
+              <button
+                className="page-btn btn"
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                disabled={currentPage === totalPages || loadingFactures || totalPages === 0}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              >
+                Suivant
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {resultats && (
         <div className="card regesp-resultats-container">
-          <div className="table-header-wrapper">
+          <div className="table-header-wrapper" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="table-title">Résultat — 1 règlement par facture</span>
+            <button
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              onClick={() => setResultats(null)}
+              title="Fermer le tableau de résultats"
+            >
+              <X size={16} />
+            </button>
           </div>
           <table>
             <thead>

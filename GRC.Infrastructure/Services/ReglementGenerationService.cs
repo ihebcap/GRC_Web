@@ -183,7 +183,10 @@ namespace GRC.Infrastructure.Services
             // dépassé, ApplicationException native) ne doit JAMAIS empêcher le traitement des factures
             // suivantes (import partiel assumé, cf. Risques TASK-059). Jamais de split : 1 appel
             // ReglementCreate = 1 facture, jamais plusieurs factures dans un même règlement.
-            foreach (var echeanceNo in echeanceNos)
+            // TASK-107 (Étape 6) : Dé-duplication des échéances transmises
+            var distinctEcheanceNos = (echeanceNos ?? new List<int>()).Distinct().ToList();
+
+            foreach (var echeanceNo in distinctEcheanceNos)
             {
                 if (!echeancesOuvertes.TryGetValue(echeanceNo, out var echeance))
                 {
@@ -195,6 +198,31 @@ namespace GRC.Infrastructure.Services
                     });
                     continue;
                 }
+
+                // TASK-107 (Étape 6) : Garde-fou serveur immédiat avant écriture.
+                // Contrôle direct en base que l'échéance est toujours ouverte (Solde > 0).
+                using (var sqlConn = new SqlConnection(_dbFactory.GetConnectionString()))
+                {
+                    var currentSolde = sqlConn.QueryFirstOrDefault<decimal?>(
+                        "SELECT EC_Solde FROM [RT_ECHEANCE] WHERE [EC_Id] = @EcheanceNo",
+                        new { EcheanceNo = echeance.No });
+
+                    if (!currentSolde.HasValue || currentSolde.Value <= 0)
+                    {
+                        echeancesOuvertes.Remove(echeanceNo);
+                        resultats.Add(new ReglementEspeceItemResultDto
+                        {
+                            EcheanceNo = echeanceNo,
+                            FactureNumero = echeance.DocumentNumero,
+                            Success = false,
+                            Erreur = "Facture déjà soldée ou introuvable en base au moment de l'écriture."
+                        });
+                        continue;
+                    }
+                }
+
+                // Retirer l'échéance du dictionnaire en mémoire pour prévenir toute réutilisation
+                echeancesOuvertes.Remove(echeanceNo);
 
                 try
                 {

@@ -16,3 +16,6 @@ deploy/
 # Divers
 *.log
 .env
+
+# Harnais de validation (credentials via env vars — ne jamais committer)
+harness_task107/
