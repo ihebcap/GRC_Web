@@ -187,6 +187,7 @@ relevé bancaire — pour les encaissements en caisse.
    clients confondus. Deux colonnes indiquent le **Dépôt** et la **Caisse paramétrée** de chaque
    facture. Filtrez par colonne (client, n° facture, dates, solde, caisse…) comme sur un tableau
    Excel, et choisissez les colonnes affichées via `Colonnes` (ce choix est mémorisé).
+   Si le paramétrage des dépôts est temporairement inaccessible, la colonne et le bandeau affichent **« Indisponible »** (avec un bandeau d'information discret), l'interrupteur de filtre est automatiquement désactivé et grisé, et la liste normale des factures reste consultable sans blocage.
 2. **Choisissez la caisse** (limitée à celles affectées à votre profil). L'interrupteur **« Filtrer sur les dépôts de cette caisse »**
    permet de restreindre l'affichage aux factures rattachées aux dépôts de la caisse choisie.
 3. **Cochez** une ou plusieurs factures à régler — le total sélectionné et la répartition par caisse s'affichent en continu.

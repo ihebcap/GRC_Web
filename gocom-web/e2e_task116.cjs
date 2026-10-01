@@ -83,6 +83,7 @@ for (let i = 1; i <= NUM_FACTURES; i++) {
 
 let modeIndisponible = false;
 let getFacturesCallCount = 0;
+let lastGenererPayload = null;
 
 const readBody = (req) => new Promise((resolve) => {
   let b = '';
@@ -164,6 +165,7 @@ const server = http.createServer(async (req, res) => {
   // Génération espèces
   if (p === '/api/reglements/generer-espece' && req.method === 'POST') {
     const body = await readBody(req);
+    lastGenererPayload = body;
     console.log(`  [API] POST /api/reglements/generer-espece : caisse=${body?.caisseCode}, ${body?.echeanceNos?.length} factures`);
     return json({
       success: true,
@@ -181,7 +183,7 @@ const server = http.createServer(async (req, res) => {
   console.log(`Serveur mock démarré sur http://localhost:${PORT}`);
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: { width: 1500, height: 950 } });
+  const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
   const page = await context.newPage();
 
   page.on('pageerror', e => console.log('  [pageerror]', e.message));
@@ -237,19 +239,28 @@ const server = http.createServer(async (req, res) => {
     console.log('  [PASS] Test 1 validé.');
 
     console.log('\n=== TEST 2 : Tri et ExcelFilter sur Dépôt et Caisse paramétrée ===');
-    // Tri sur Dépôt
-    await thDepot.click();
+    // Tri sur Dépôt (clic sur le span pour éviter l'icône ExcelFilter qui stoppe la propagation)
+    await thDepot.locator('span').first().click();
     await page.waitForTimeout(300);
     const thDepotText = await thDepot.innerText();
     console.log(`  En-tête Dépôt après clic : "${thDepotText.trim()}"`);
     if (!thDepotText.includes('▲')) throw new Error("Le tri sur Dépôt doit afficher ▲");
 
     // Tri sur Caisse paramétrée
-    await thCaisse.click();
+    await thCaisse.locator('span').first().click();
     await page.waitForTimeout(300);
     const thCaisseText = await thCaisse.innerText();
     console.log(`  En-tête Caisse paramétrée après clic : "${thCaisseText.trim()}"`);
     if (!thCaisseText.includes('▲')) throw new Error("Le tri sur Caisse paramétrée doit afficher ▲");
+
+    // A4 : Vérifier l'ordre réel des lignes après tri sur « Caisse paramétrée » (pas seulement la flèche)
+    const caisseVals = await page.locator('.regesp-factures-container table tbody tr td:nth-child(11)').allInnerTexts();
+    console.log(`  Échantillon valeurs après tri ascendant (5 premiers) : ${caisseVals.slice(0, 5).join(' | ')}`);
+    for (let i = 0; i < caisseVals.length - 1; i++) {
+      if (caisseVals[i].localeCompare(caisseVals[i + 1], 'fr-FR', { numeric: true, sensitivity: 'base' }) > 0) {
+        throw new Error(`Ordre de tri incorrect ligne ${i}: "${caisseVals[i]}" > "${caisseVals[i+1]}"`);
+      }
+    }
 
     await page.screenshot({ path: path.join(EVIDENCE_DIR, '02_tri_colonnes.png'), fullPage: true });
     console.log('  [PASS] Test 2 validé.');
@@ -296,6 +307,25 @@ const server = http.createServer(async (req, res) => {
       throw new Error("Cas 4 : Tous les dépôts de la caisse XDR2 doivent apparaître sous le filtre.");
     }
 
+    // A4 : Cas 10 avec pagination : aller sur la page 2, changer de caisse, vérifier retour page 1
+    const btnNext = page.locator('.pagination button').filter({ hasText: /Suivant/i }).first();
+    await btnNext.click();
+    await page.waitForTimeout(300);
+    const paginationTextP2 = await page.locator('.pagination span[style*="font-weight: 600"]').innerText();
+    console.log(`  Pagination après clic Suivant : "${paginationTextP2.trim()}"`);
+    if (!paginationTextP2.startsWith('2 /')) {
+      throw new Error(`Attendu page 2, obtenu "${paginationTextP2}"`);
+    }
+
+    // Changer vers la caisse XDR3 (6000 factures) avec filtre actif
+    await caisseSelect.selectOption('XDR3');
+    await page.waitForTimeout(300);
+    const paginationTextAfterSwitch = await page.locator('.pagination span[style*="font-weight: 600"]').innerText();
+    console.log(`  Pagination après changement de caisse vers XDR3 : "${paginationTextAfterSwitch.trim()}"`);
+    if (!paginationTextAfterSwitch.startsWith('1 /')) {
+      throw new Error(`Cas 10 : Le changement de caisse avec filtre actif doit réinitialiser la pagination à la page 1, obtenu "${paginationTextAfterSwitch}"`);
+    }
+
     // Cas 9 : Caisse sans aucune facture
     await caisseSelect.selectOption('CAISSE_VIDE');
     await page.waitForTimeout(300);
@@ -318,14 +348,14 @@ const server = http.createServer(async (req, res) => {
     await page.screenshot({ path: path.join(EVIDENCE_DIR, '03_interrupteur_filtre_caisse.png'), fullPage: true });
     console.log('  [PASS] Test 3 validé.');
 
-    console.log('\n=== TEST 4 : Bandeau de répartition des caisses et alerte de confirmation (Cas 11, 12) ===');
+    console.log('\n=== TEST 4 : Bandeau de répartition des caisses et alerte de confirmation (Cas 11, 12, 16) ===');
     // Désactiver l'interrupteur pour voir toutes les factures
     await switchInput.uncheck();
     await page.waitForTimeout(300);
 
     // Trier sur N° facture ascendant pour garantir les indices des factures
     const thFacture = page.locator('th').filter({ hasText: 'N° facture' }).first();
-    await thFacture.click();
+    await thFacture.locator('span').first().click();
     await page.waitForTimeout(300);
 
     // Cocher 2 factures XDR2 (lignes 0, 1), 2 factures XDR3 (lignes 2, 3), 1 facture Non paramétré (ligne 5)
@@ -360,7 +390,11 @@ const server = http.createServer(async (req, res) => {
 
     await page.screenshot({ path: path.join(EVIDENCE_DIR, '04_bandeau_repartition.png'), fullPage: true });
 
-    // Cas 12 : Cliquer sur Générer et vérifier le texte EXACT de l'alerte
+    // Désactiver le filtre pour tester Cas 16 : génération avec filtre désactivé et factures hors caisse
+    await switchInput.uncheck();
+    await page.waitForTimeout(300);
+
+    // Cas 12 & 16 : Cliquer sur Générer et vérifier le texte EXACT de l'alerte
     lastDialogMessage = '';
     const btnGenerer = page.locator('button').filter({ hasText: /Générer/i }).first();
     await btnGenerer.click();
@@ -378,13 +412,73 @@ const server = http.createServer(async (req, res) => {
     }
 
     await page.screenshot({ path: path.join(EVIDENCE_DIR, '05_alerte_confirmation.png'), fullPage: true });
+
+    // A4 : Cas 16 : Vérifier que le payload envoyé à l'API contient caisseCode='XDR2' et les 5 factures
+    console.log('  [Cas 16] Payload envoyé à l\'API :', JSON.stringify(lastGenererPayload));
+    if (!lastGenererPayload || lastGenererPayload.caisseCode !== 'XDR2' || !Array.isArray(lastGenererPayload.echeanceNos) || lastGenererPayload.echeanceNos.length !== 5) {
+      throw new Error(`Cas 16 : Le payload envoyé à l'API doit contenir caisseCode='XDR2' et 5 echeanceNos, reçu: ${JSON.stringify(lastGenererPayload)}`);
+    }
+
+    // Vérifier l'affichage du tableau de résultats
+    await page.waitForSelector('.regesp-resultats-container table tbody tr', { timeout: 5000 });
+    const resultRows = await page.locator('.regesp-resultats-container table tbody tr').count();
+    console.log(`  Nombre de résultats affichés : ${resultRows}`);
+    if (resultRows !== 5) {
+      throw new Error(`Cas 16 : 5 règlements devaient être générés, obtenu ${resultRows}`);
+    }
+    // Fermer le tableau de résultats
+    await page.locator('.regesp-resultats-container button[title="Fermer le tableau de résultats"]').click();
+    await page.waitForTimeout(200);
+
     console.log('  [PASS] Test 4 validé.');
 
     console.log('\n=== TEST 5 : Indisponibilité du paramétrage (Cas 8) ===');
+    // Supprimer tout toast résiduel du Test 4 pour avoir une capture nette
+    await page.evaluate(() => {
+      document.querySelectorAll('.toast, .toast-container, .alert-toast').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(500);
+
+    // Cocher au préalable la première facture
+    await page.locator('.regesp-factures-container table tbody tr').first().locator('input[type="checkbox"]').check();
+    await page.waitForTimeout(200);
+
     modeIndisponible = true;
     const btnRefresh = page.locator('button').filter({ hasText: /Rafraîchir/i }).first();
     await btnRefresh.click();
     await page.waitForTimeout(1000);
+
+    // A3 (a) : Assertion tr count > 0 (la grille n'est pas vide)
+    const trCount = await page.locator('.regesp-factures-container table tbody tr').count();
+    console.log(`  A3 (a) Nombre de <tr> dans la grille : ${trCount}`);
+    if (trCount <= 0) {
+      throw new Error("A3 (a) : La grille ne doit pas être vide en mode indisponible (trCount > 0).");
+    }
+
+    // A3 (b) : L'interrupteur est décoché ET grisé (disabled)
+    const isCheckedIndispo = await switchInput.isChecked();
+    const isDisabledIndispo = await switchInput.isDisabled();
+    console.log(`  A3 (b) Interrupteur en mode indisponible : checked=${isCheckedIndispo}, disabled=${isDisabledIndispo}`);
+    if (isCheckedIndispo !== false || isDisabledIndispo !== true) {
+      throw new Error("A3 (b) : L'interrupteur doit être décoché (false) ET grisé (disabled=true).");
+    }
+
+    // A3 (c) : La colonne « Caisse paramétrée » et le bandeau de répartition affichent « Indisponible »
+    const caisseCellText = await page.locator('.regesp-factures-container table tbody tr td:nth-child(11)').first().innerText();
+    console.log(`  A3 (c) Texte cellule 'Caisse paramétrée' : "${caisseCellText.trim()}"`);
+    if (!caisseCellText.includes('Indisponible')) {
+      throw new Error(`A3 (c) : La colonne 'Caisse paramétrée' doit afficher 'Indisponible', obtenu: "${caisseCellText}"`);
+    }
+
+    // Cocher une facture pour observer le bandeau de répartition
+    await page.locator('.regesp-factures-container table tbody tr').first().locator('input[type="checkbox"]').check();
+    await page.waitForTimeout(200);
+
+    const repartitionTextIndispo = await page.locator('.regesp-repartition').innerText();
+    console.log(`  A3 (c) Bandeau de répartition en mode indisponible : "${repartitionTextIndispo.trim()}"`);
+    if (!repartitionTextIndispo.includes('Indisponible') || repartitionTextIndispo.includes('Non paramétré')) {
+      throw new Error(`A3 (c) : Le bandeau de répartition doit afficher 'Indisponible' et non 'Non paramétré', obtenu: "${repartitionTextIndispo}"`);
+    }
 
     // Vérifier le bandeau discret d'indisponibilité
     const indispoBanner = page.locator('.regesp-indispo-banner');
@@ -395,14 +489,6 @@ const server = http.createServer(async (req, res) => {
       throw new Error("Cas 8 : Le bandeau d'indisponibilité discret doit être affiché.");
     }
 
-    // Vérifier que l'interrupteur est désactivé même avec caisse XDR2
-    const isSwitchDisabledIndispo = await switchInput.isDisabled();
-    const switchTitleIndispo = await switchLabel.getAttribute('title');
-    console.log(`  Interrupteur désactivé en mode indisponible : ${isSwitchDisabledIndispo} (titre: "${switchTitleIndispo}")`);
-    if (!isSwitchDisabledIndispo || switchTitleIndispo !== "Paramétrage des caisses indisponible") {
-      throw new Error("Cas 8 : L'interrupteur doit être désactivé avec infobulle 'Paramétrage des caisses indisponible'.");
-    }
-
     // Vérifier que la grille affiche bien la liste normale (30000 / 30000) et non 0 / 30000
     const headerTitleIndispo = await page.locator('.table-title').first().innerText();
     console.log(`  Compteur factures en mode indisponible : "${headerTitleIndispo.trim()}"`);
@@ -410,8 +496,9 @@ const server = http.createServer(async (req, res) => {
       throw new Error(`Cas 8 : La grille doit afficher la liste normale (30000 / 30000) quand le paramétrage est indisponible, obtenu: "${headerTitleIndispo}"`);
     }
 
+    // A3 (d) : Régénérer la capture 06
     await page.screenshot({ path: path.join(EVIDENCE_DIR, '06_indisponibilite_parametrages.png'), fullPage: true });
-    console.log('  [PASS] Test 5 validé.');
+    console.log('  [PASS] Test 5 validé et capture 06 enregistrée.');
 
     console.log('\n===================================================================================');
     console.log('   TOUS LES TESTS E2E TASK-116 ONT ÉTÉ VALIDÉS AVEC SUCCÈS (5/5) !');

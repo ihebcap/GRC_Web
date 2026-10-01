@@ -75,9 +75,9 @@ const LOCALSTORAGE_KEY_LEGACY = 'gocom_reglement_espece_columns';
 const LOCALSTORAGE_KEY = 'gocom_reglement_espece_columns_v2';
 const LOCALSTORAGE_PAGE_SIZE = 'gocom_reglement_espece_pagesize';
 
-type ClasseCaisse = 'traitable' | 'sommeil' | 'nonParametre';
+type ClasseCaisse = 'traitable' | 'sommeil' | 'nonParametre' | 'indisponible';
 const classerFacture = (f: EcheanceARegler): ClasseCaisse =>
-  !f.caisseCode ? 'nonParametre' : f.caisseSommeil ? 'sommeil' : 'traitable';
+  f.parametrageIndisponible ? 'indisponible' : (!f.caisseCode ? 'nonParametre' : f.caisseSommeil ? 'sommeil' : 'traitable');
 
 function getItemValue(f: EcheanceARegler, key: string): string {
   if (key === 'dateFacture') {
@@ -87,7 +87,10 @@ function getItemValue(f: EcheanceARegler, key: string): string {
     return f.dateEcheance ? String(f.dateEcheance).substring(0, 10) : '';
   }
   if (key === 'depotIntitule') return f.depotIntitule || '—';
-  if (key === 'caisseParametree') return f.caisseCode ? (f.caisseSommeil ? `${f.caisseCode} (en sommeil)` : f.caisseCode) : (f.caisseMotif === 'ambigu' ? 'Paramétrage ambigu' : 'Non paramétré');
+  if (key === 'caisseParametree') {
+    if (f.parametrageIndisponible) return 'Indisponible';
+    return f.caisseCode ? (f.caisseSommeil ? `${f.caisseCode} (en sommeil)` : f.caisseCode) : (f.caisseMotif === 'ambigu' ? 'Paramétrage ambigu' : 'Non paramétré');
+  }
   return String((f as any)[key] ?? '');
 }
 
@@ -112,6 +115,16 @@ function renderCellContent(colKey: string, f: EcheanceARegler) {
     case 'depotIntitule':
       return f.depotIntitule || '—';
     case 'caisseParametree':
+      if (f.parametrageIndisponible) {
+        return (
+          <span
+            style={{ color: '#b45309' }}
+            title="Paramétrage des caisses indisponible"
+          >
+            Indisponible
+          </span>
+        );
+      }
       return f.caisseCode ? (
         <span title={f.caisseIntitule || undefined}>
           {f.caisseSommeil ? `${f.caisseCode} (en sommeil)` : f.caisseCode}
@@ -212,6 +225,13 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
   const parametrageIndisponible = useMemo(() => {
     return factures.length > 0 && factures.some(f => f.parametrageIndisponible);
   }, [factures]);
+
+  // TASK-116 A2 : quand parametrageIndisponible devient vrai, remettre filtrerDepotsCaisse à false
+  useEffect(() => {
+    if (parametrageIndisponible) {
+      setFiltrerDepotsCaisse(false);
+    }
+  }, [parametrageIndisponible]);
 
   // Gestion du choix de colonnes par utilisateur (localStorage)
   const [showColModal, setShowColModal] = useState(false);
@@ -491,7 +511,11 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
           let label: string;
           let isNonParam = false;
 
-          if (classe === 'nonParametre') {
+          if (classe === 'indisponible') {
+            key = '__INDISPONIBLE__';
+            label = 'Indisponible';
+            isNonParam = true;
+          } else if (classe === 'nonParametre') {
             key = '__NON_PARAM__';
             label = 'Non paramétré';
             isNonParam = true;
@@ -524,13 +548,17 @@ export default function ReglementGenerationEspece({ user, caissesMap, showToast 
     }
 
     const nonParamItem = groupMap.get('__NON_PARAM__');
+    const indispoItem = groupMap.get('__INDISPONIBLE__');
     const caisseItems = Array.from(groupMap.entries())
-      .filter(([k]) => k !== '__NON_PARAM__')
+      .filter(([k]) => k !== '__NON_PARAM__' && k !== '__INDISPONIBLE__')
       .map(([, v]) => v)
       .sort((a, b) => b.count - a.count);
 
     if (nonParamItem) {
       caisseItems.push(nonParamItem);
+    }
+    if (indispoItem) {
+      caisseItems.push(indispoItem);
     }
 
     return {
