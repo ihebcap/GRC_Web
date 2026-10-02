@@ -642,8 +642,10 @@ function Dashboard({ user, onLogout, showToast, showConfirm }: { user: User; onL
       );
       setShowLettragePeriode(false);
       fetchReglements(page, debouncedFilters);
-    } catch (err) {
-      showToast('Erreur lors du lettrage par période', 'error');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.response?.data?.title;
+      const message = typeof detail === 'string' && detail.trim() ? detail : 'Erreur lors du lettrage par période';
+      showToast(message, 'error');
     } finally {
       setIsSubmittingLettragePeriode(false);
     }

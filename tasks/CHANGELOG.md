@@ -1,5 +1,18 @@
 # CHANGELOG — Rapprochement Bancaire
 
+## 2026-10-02 — Comptabilisation : une seule opération comptable à la fois (TASK-118, APPROVE SOUS RÉSERVE)
+
+### Changement
+- Back : verrou d'exclusion mutuelle en mémoire (`IComptaExclusiveLock` / `ComptaExclusiveLock`, singleton) pris par `POST /api/reglements/comptabiliser` (liste vide : pas de verrou) et `POST /api/reglements/lettrer-periode`. Si une opération est en cours : HTTP 409 immédiat, `ProblemDetails` avec opération, heure de début, utilisateur, nombre d'éléments et durée ; libération garantie par `finally` (succès, 403, 500).
+- Front : `detail` de la réponse 409 affiché dans le toast du lettrage par période (la comptabilisation l'affichait déjà).
+- Doc : `ARCHITECTURE.md`, section « Opérations comptables exclusives » (limites : process unique, postes Sage et jobs SQL non couverts ; déblocage = redémarrage du service).
+
+### Validation
+Banc API sur la base de test (`run_test118_via_api.ps1`) : S2 (409 en 51 ms, lot B intact), S3 dans les deux sens (6-7 ms), S4 (403 puis 200), S7 avec identifiants réels, S11 (classe de verrou, 50 appels simultanés = 1 gagnant) ; Playwright (409 simulé) ; build 0 erreur. Review indépendante en deux passes (premier VERIFY rejeté).
+
+### Réserves
+Aucune écriture comptable réelle pendant le banc : à contrôler au premier lot en production ; vue modifiée sur la base de test seulement, à restaurer ; actions post-déploiement (28 règlements à re-soumettre, 1 709 lettrages à refaire) dans `DONE_DETAIL/TASK-118_verify.md` § 7.
+
 ## 2026-10-02 — Génération règlement espèce : tiers ERP chargés une seule fois par lot (TASK-115, APPROVE SOUS RÉSERVE)
 
 ### Changement

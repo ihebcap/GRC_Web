@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using GRC.Application.Interfaces;
 using GRC.Infrastructure.Services;
 using System.Linq;
 
@@ -14,12 +15,18 @@ namespace GRC.API.Controllers
     {
         private readonly ReglementService _reglementService;
         private readonly ReglementGenerationService _reglementGenerationService;
+        private readonly IComptaExclusiveLock _comptaLock;
         private readonly ILogger<ReglementController> _logger;
 
-        public ReglementController(ReglementService reglementService, ReglementGenerationService reglementGenerationService, ILogger<ReglementController> logger)
+        public ReglementController(
+            ReglementService reglementService,
+            ReglementGenerationService reglementGenerationService,
+            IComptaExclusiveLock comptaLock,
+            ILogger<ReglementController> logger)
         {
             _reglementService = reglementService;
             _reglementGenerationService = reglementGenerationService;
+            _comptaLock = comptaLock;
             _logger = logger;
         }
 
@@ -105,27 +112,45 @@ namespace GRC.API.Controllers
             if (!int.TryParse(User.FindFirst("UserId")?.Value, out int userId)) return Unauthorized();
             bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
 
-            using (_logger.BeginScope("Comptabilisation userId={UserId} nb={Nb}", userId, reglementIds?.Count ?? 0))
+            IDisposable? verrou = null;
+            if (reglementIds != null && reglementIds.Count > 0)
             {
-                _logger.LogInformation(
-                    "COMPTABILISATION entrée : userId={UserId}, {Nb} règlement(s) : {ReglementIds}",
-                    userId, reglementIds?.Count ?? 0, reglementIds != null ? string.Join(",", reglementIds) : "");
-                try
+                if (!_comptaLock.TryEnter(ComptaOperations.Comptabilisation, userId, reglementIds.Count, out verrou, out var detenteur))
                 {
-                    var result = _reglementService.Comptabiliser(reglementIds, userId, isAdmin);
-                    _logger.LogInformation("COMPTABILISATION sortie : {Resultat}", result);
-                    return Ok(result);
+                    _logger.LogWarning("COMPTABILISATION refusée (opération comptable déjà en cours) : userId={UserId}, détenteur={Operation}/{HolderUserId}/{StartedAt:HH:mm:ss}",
+                        userId, detenteur!.Operation, detenteur.UserId, detenteur.StartedAt);
+                    return Problem(detail: detenteur.MessageRefus(), statusCode: 409, title: "Opération comptable déjà en cours");
                 }
-                catch (System.UnauthorizedAccessException ex)
+            }
+
+            try
+            {
+                using (_logger.BeginScope("Comptabilisation userId={UserId} nb={Nb}", userId, reglementIds?.Count ?? 0))
                 {
-                    _logger.LogWarning(ex, "COMPTABILISATION refusée (autorisation) : userId={UserId}", userId);
-                    return Forbid();
+                    _logger.LogInformation(
+                        "COMPTABILISATION entrée : userId={UserId}, {Nb} règlement(s) : {ReglementIds}",
+                        userId, reglementIds?.Count ?? 0, reglementIds != null ? string.Join(",", reglementIds) : "");
+                    try
+                    {
+                        var result = _reglementService.Comptabiliser(reglementIds, userId, isAdmin);
+                        _logger.LogInformation("COMPTABILISATION sortie : {Resultat}", result);
+                        return Ok(result);
+                    }
+                    catch (System.UnauthorizedAccessException ex)
+                    {
+                        _logger.LogWarning(ex, "COMPTABILISATION refusée (autorisation) : userId={UserId}", userId);
+                        return Forbid();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        _logger.LogError(ex, "COMPTABILISATION échec (lot) : userId={UserId}", userId);
+                        return Problem(ex.Message);
+                    }
                 }
-                catch (System.Exception ex)
-                {
-                    _logger.LogError(ex, "COMPTABILISATION échec (lot) : userId={UserId}", userId);
-                    return Problem(ex.Message);
-                }
+            }
+            finally
+            {
+                verrou?.Dispose();
             }
         }
 
@@ -139,21 +164,37 @@ namespace GRC.API.Controllers
             var caissesList = string.IsNullOrEmpty(caisses) ? System.Array.Empty<int>() : caisses.Split(',').Select(int.Parse).ToArray();
             bool isAdmin = User.FindFirst("IsAdmin")?.Value == "1";
             var userId = User.FindFirst("UserId")?.Value;
+            int.TryParse(userId, out var uid);
 
-            using (_logger.BeginScope("Lettrage période userId={UserId} dateMin={DateMin} dateMax={DateMax}", userId, request.DateMin, request.DateMax))
+            IDisposable? verrou = null;
+            if (!_comptaLock.TryEnter(ComptaOperations.LettrageParPeriode, uid, 0, out verrou, out var detenteur))
             {
-                _logger.LogInformation("LETTRAGE PÉRIODE entrée : userId={UserId}, dateMin={DateMin:yyyy-MM-dd}, dateMax={DateMax:yyyy-MM-dd}", userId, request.DateMin, request.DateMax);
-                try
+                _logger.LogWarning("LETTRAGE PÉRIODE refusé (opération comptable déjà en cours) : userId={UserId}, détenteur={Operation}/{HolderUserId}/{StartedAt:HH:mm:ss}",
+                    userId, detenteur!.Operation, detenteur.UserId, detenteur.StartedAt);
+                return Problem(detail: detenteur.MessageRefus(), statusCode: 409, title: "Opération comptable déjà en cours");
+            }
+
+            try
+            {
+                using (_logger.BeginScope("Lettrage période userId={UserId} dateMin={DateMin} dateMax={DateMax}", userId, request.DateMin, request.DateMax))
                 {
-                    var result = _reglementService.LettrerParPeriode(societeId, caissesList, request.DateMin, request.DateMax, isAdmin);
-                    _logger.LogInformation("LETTRAGE PÉRIODE sortie : {Resultat}", result);
-                    return Ok(result);
+                    _logger.LogInformation("LETTRAGE PÉRIODE entrée : userId={UserId}, dateMin={DateMin:yyyy-MM-dd}, dateMax={DateMax:yyyy-MM-dd}", userId, request.DateMin, request.DateMax);
+                    try
+                    {
+                        var result = _reglementService.LettrerParPeriode(societeId, caissesList, request.DateMin, request.DateMax, isAdmin);
+                        _logger.LogInformation("LETTRAGE PÉRIODE sortie : {Resultat}", result);
+                        return Ok(result);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        _logger.LogError(ex, "LETTRAGE PÉRIODE échec (lot) : userId={UserId}", userId);
+                        return Problem(ex.Message);
+                    }
                 }
-                catch (System.Exception ex)
-                {
-                    _logger.LogError(ex, "LETTRAGE PÉRIODE échec (lot) : userId={UserId}", userId);
-                    return Problem(ex.Message);
-                }
+            }
+            finally
+            {
+                verrou?.Dispose();
             }
         }
 

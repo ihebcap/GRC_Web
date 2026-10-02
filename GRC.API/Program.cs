@@ -109,6 +109,7 @@ builder.Services.AddScoped<GRC.Application.Services.AutoReconciliationEngine>();
 builder.Services.AddScoped<GRC.Infrastructure.Repositories.ReleveBancaireRepository>();
 builder.Services.AddScoped<GRC.Infrastructure.Services.ReglementService>();
 builder.Services.AddScoped<GRC.Infrastructure.Services.ReglementGenerationService>();
+builder.Services.AddSingleton<GRC.Application.Interfaces.IComptaExclusiveLock, GRC.Infrastructure.Services.ComptaExclusiveLock>();
 
 // TASK-061 : Contrôle de licence GRLicence (singleton applicatif, point de contrôle unique).
 // ─────────────────────────────────────────────────────────────────────────────────────────────
