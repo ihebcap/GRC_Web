@@ -4,6 +4,7 @@
 - **Domaine** : Correction (UX)
 - **Statut** : TODO
 - **Dépend de** : — (indépendante de TASK-118 ; le message 409 de TASK-118 s'affichera dans le même panneau)
+- **Ordre avec TASK-120** : zones disjointes (TASK-120 = `handleSimuler`, filtres, tableau vide ; TASK-119 = `handleValider`, panneau de résultat, `App.tsx`, back). TASK-120 est plus urgente (comptabilisation hors du mode choisi) et passe en premier. **Les numéros de ligne de `ApercuComptabilisation.tsx` cités ci-dessous datent d'avant TASK-120 et vont bouger : repérer par NOM** (`handleValider`, `resultPanel`, bloc « Panneau persistant des messages métier », `onValidated`).
 
 ## En une phrase
 Quand une comptabilisation ne passe pas pour certains règlements, l'utilisateur doit voir, **sur un écran qui reste affiché**, un message **compréhensible** qui dit quel règlement n'est pas passé, pourquoi, et quoi faire ; il refera l'opération à la main (décision PO du 2026-10-02 : pas de nouvelle tentative automatique).
